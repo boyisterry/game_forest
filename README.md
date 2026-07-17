@@ -4,22 +4,32 @@
 
 ## 当前能力
 
+- 约 3200 × 3200 的不规则方形世界，道路纵贯全图
+- 地理封边：西侧与南侧为连续河流，北侧与东侧为多层山脊
+- 区块流式加载：只生成镜头附近 chunk，远离后卸载，保持 Web 性能
+- 左下角小地图：全图路线、配送点、已加载区块；点击可跳跃镜头
+- 树高分档：灌木 / 成树 / 少量地标大树
 - 基于种子的确定性地图生成
 - 可调森林密度、道路宽度、道路弯曲度、晨雾和配送站点
 - 新绿、盛夏、金秋三套色谱
-- InstancedMesh 树林与石块，控制大规模场景的 draw call
+- gpt_demo 风格阔叶树 + InstancedMesh；树木参数可微调
 - 兔子骑手 GLB 场景预览
 - 地图配置 JSON 导入与导出
-- 桌面与移动端响应式编辑器
 
 ## 结构
 
 ```text
 app/
   components/MapStudio.tsx     编辑器界面与交互
-  lib/map/ForestScene.ts       Three.js 场景、道路、树林、资源加载
-  lib/map/random.ts            可复现随机数
-  lib/map/types.ts             地图数据协议与默认值
+  lib/map/ForestScene.ts       场景编排、灯光、骑手、小地图接入
+  lib/map/world.ts             世界尺度、道路、chunk 坐标与索引
+  lib/map/boundaries.ts        不规则边界、河流与山脊生成
+  lib/map/ChunkManager.ts      流式加载 / 卸载
+  lib/map/forestAssets.ts      共享材质几何 + 单 chunk 树林建造
+  lib/map/Minimap.ts           2D 小地图
+  lib/map/tree.ts              树形描述工厂
+  lib/map/textures.ts          程序化贴图
+  lib/map/random.ts / types.ts
 public/models/                 Web 端降面后的 GLB
 work/source-models/            原始高精度 GLB
 ```

@@ -2,19 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_SETTINGS, type MapSettings, type Season } from "../lib/map/types";
-import { ForestScene } from "../lib/map/ForestScene";
+import { ForestScene, type SceneStats } from "../lib/map/ForestScene";
 
 const SEASON_LABELS: Record<Season, string> = { spring: "新绿", summer: "盛夏", autumn: "金秋" };
 
-type Stats = { trees: number; deliveryStops: number; drawCalls: number };
-
 export function MapStudio() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const minimapRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<ForestScene | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const [settings, setSettings] = useState<MapSettings>(DEFAULT_SETTINGS);
   const [draft, setDraft] = useState<MapSettings>(DEFAULT_SETTINGS);
-  const [stats, setStats] = useState<Stats>({ trees: 0, deliveryStops: 0, drawCalls: 0 });
+  const [stats, setStats] = useState<SceneStats>({ trees: 0, deliveryStops: 0, drawCalls: 0, chunks: 0 });
   const [panelOpen, setPanelOpen] = useState(true);
   const [riderVisible, setRiderVisible] = useState(true);
   const [status, setStatus] = useState("正在唤醒森林…");
@@ -23,9 +22,10 @@ export function MapStudio() {
     if (!canvasRef.current) return;
     const scene = new ForestScene(canvasRef.current, settings, (next) => {
       setStats(next);
-      setStatus("地图已生成 · 拖拽旋转，滚轮缩放");
+      setStatus(`流式加载 · ${next.chunks} 区块在场 · 拖拽巡视，点击小地图跳跃`);
     });
     sceneRef.current = scene;
+    if (minimapRef.current) scene.attachMinimap(minimapRef.current);
     const resize = () => scene.resize();
     window.addEventListener("resize", resize);
     return () => {
@@ -35,6 +35,12 @@ export function MapStudio() {
     };
   // The scene owns updates after creation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (minimapRef.current && sceneRef.current) {
+      sceneRef.current.attachMinimap(minimapRef.current);
+    }
   }, []);
 
   const update = <K extends keyof MapSettings>(key: K, value: MapSettings[K]) =>
@@ -91,8 +97,9 @@ export function MapStudio() {
 
         <div className="scene-stats" aria-live="polite">
           <span><b>{stats.trees}</b> 棵树</span>
-          <span><b>{stats.deliveryStops}</b> 个配送点</span>
-          <span><b>{stats.drawCalls}</b> 组实例</span>
+          <span><b>{stats.chunks}</b> 区块</span>
+          <span><b>{stats.deliveryStops}</b> 站点</span>
+          <span><b>{stats.drawCalls}</b> 实例组</span>
         </div>
 
         <div className="view-actions">
@@ -104,6 +111,11 @@ export function MapStudio() {
             {panelOpen ? "收起参数" : "地图参数"}
           </button>
         </div>
+
+        <aside className="minimap-panel" aria-label="世界小地图">
+          <canvas ref={minimapRef} className="minimap-canvas" width={188} height={188} />
+          <p>点击跳跃 · 西南河流 / 东北山脉</p>
+        </aside>
 
         <div className="status-pill"><i />{status}</div>
         <div className="route-note">
@@ -120,14 +132,14 @@ export function MapStudio() {
           </div>
           <button className="close-panel" type="button" aria-label="收起参数" onClick={() => setPanelOpen(false)}>×</button>
         </div>
-        <p className="panel-intro">调整世界的骨架，再生成一条适合小摩托穿梭的林间配送路线。</p>
+        <p className="panel-intro">不规则方形世界；西侧与南侧以河流封边，北侧与东侧以连续山脉封边。</p>
 
         <section className="control-group">
           <div className="section-label"><span>世界参数</span><b>01</b></div>
           <Range label="森林密度" value={draft.forestDensity} min={0.24} max={1} step={0.01} display={`${Math.round(draft.forestDensity * 100)}%`} onChange={(v) => update("forestDensity", v)} />
           <Range label="道路宽度" value={draft.roadWidth} min={2.2} max={5.4} step={0.1} display={`${draft.roadWidth.toFixed(1)}m`} onChange={(v) => update("roadWidth", v)} />
           <Range label="道路弯曲" value={draft.roadCurves} min={0.12} max={1} step={0.01} display={`${Math.round(draft.roadCurves * 100)}%`} onChange={(v) => update("roadCurves", v)} />
-          <Range label="晨雾浓度" value={draft.fogDensity} min={0.004} max={0.027} step={0.001} display={draft.fogDensity.toFixed(3)} onChange={(v) => update("fogDensity", v)} />
+          <Range label="晨雾浓度" value={draft.fogDensity} min={0.001} max={0.01} step={0.0005} display={draft.fogDensity.toFixed(4)} onChange={(v) => update("fogDensity", v)} />
           <Range label="配送站点" value={draft.deliveryStops} min={2} max={8} step={1} display={`${draft.deliveryStops} 站`} onChange={(v) => update("deliveryStops", v)} />
         </section>
 
@@ -140,6 +152,12 @@ export function MapStudio() {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="control-group">
+          <div className="section-label"><span>树木微调</span><b>03</b></div>
+          <Range label="叶片密度" value={draft.treeLeafDensity} min={0.5} max={1.35} step={0.01} display={`${Math.round(draft.treeLeafDensity * 100)}%`} onChange={(v) => update("treeLeafDensity", v)} />
+          <Range label="树冠宽度" value={draft.treeCanopyWidth} min={0.75} max={1.3} step={0.01} display={`${draft.treeCanopyWidth.toFixed(2)}×`} onChange={(v) => update("treeCanopyWidth", v)} />
         </section>
 
         <section className="seed-row">
@@ -158,7 +176,7 @@ export function MapStudio() {
           <input ref={importRef} type="file" accept="application/json" hidden onChange={(event) => importMap(event.target.files?.[0])} />
         </div>
 
-        <footer className="panel-footer"><span>PROCEDURAL WORLD SYSTEM</span><span>v0.1</span></footer>
+        <footer className="panel-footer"><span>IRREGULAR BORDER WORLD</span><span>v0.3</span></footer>
       </aside>
     </main>
   );

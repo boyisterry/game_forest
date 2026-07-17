@@ -38,10 +38,13 @@ button { color: inherit; }
 .scene-stats span:last-child { border: 0; }
 .scene-stats b { color: var(--ink); font-size: 11px; font-weight: 650; }
 
-.view-actions { position: absolute; z-index: 4; left: clamp(24px, 4vw, 60px); bottom: 32px; display: flex; gap: 5px; padding: 5px; border: 1px solid rgba(29,54,36,.13); background: rgba(242,245,238,.78); backdrop-filter: blur(16px); box-shadow: 0 16px 46px rgba(41,55,39,.11); }
+.view-actions { position: absolute; z-index: 4; left: clamp(24px, 4vw, 60px); bottom: 248px; display: flex; gap: 5px; padding: 5px; border: 1px solid rgba(29,54,36,.13); background: rgba(242,245,238,.78); backdrop-filter: blur(16px); box-shadow: 0 16px 46px rgba(41,55,39,.11); }
 .view-actions button { min-height: 34px; padding: 0 12px; border: 0; background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; transition: background 160ms ease, color 160ms ease; }
 .view-actions button:hover { color: var(--ink); background: rgba(52,84,50,.08); }
 .mobile-panel-button { display: none; }
+.minimap-panel { position: absolute; z-index: 4; left: clamp(24px, 4vw, 60px); bottom: 28px; width: 188px; padding: 8px; border: 1px solid rgba(29,54,36,.14); background: rgba(242,245,238,.82); backdrop-filter: blur(16px); box-shadow: 0 16px 46px rgba(41,55,39,.12); }
+.minimap-canvas { display: block; width: 172px; height: 172px; cursor: crosshair; border-radius: 8px; }
+.minimap-panel p { margin: 7px 2px 0; color: var(--muted); font-size: 8px; letter-spacing: .04em; }
 .status-pill { position: absolute; z-index: 3; right: 28px; bottom: 28px; display: flex; align-items: center; gap: 8px; padding: 9px 13px; color: var(--muted); background: rgba(242,245,238,.76); border: 1px solid rgba(29,54,36,.12); font-size: 9px; letter-spacing: .04em; backdrop-filter: blur(12px); }
 .status-pill i { width: 5px; height: 5px; border-radius: 50%; background: #78a846; box-shadow: 0 0 0 4px rgba(120,168,70,.12); }
 .route-note { position: absolute; z-index: 3; top: 50%; left: 34px; transform: translateY(-50%); writing-mode: vertical-rl; pointer-events: none; }
@@ -95,7 +98,9 @@ button { color: inherit; }
   .control-panel.open { transform: translateX(0); }
   .close-panel, .mobile-panel-button { display: block; }
   .route-note { display: none; }
-  .view-actions { left: 16px; bottom: 16px; }
+  .view-actions { left: 16px; bottom: 232px; }
+  .minimap-panel { left: 16px; bottom: 16px; width: 160px; }
+  .minimap-canvas { width: 144px; height: 144px; }
   .status-pill { right: 16px; bottom: 66px; }
 }
 
