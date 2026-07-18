@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { DEFAULT_SETTINGS, type MapSettings, type Season } from "../lib/map/types";
 import { ForestScene, type SceneStats } from "../lib/map/ForestScene";
 
+declare global {
+  interface Window {
+    render_game_to_text?: () => string;
+    advanceTime?: (ms: number) => void;
+  }
+}
+
 const SEASON_LABELS: Record<Season, string> = { spring: "新绿", summer: "盛夏", autumn: "金秋" };
 
 export function MapStudio() {
@@ -13,7 +20,7 @@ export function MapStudio() {
   const importRef = useRef<HTMLInputElement>(null);
   const [settings, setSettings] = useState<MapSettings>(DEFAULT_SETTINGS);
   const [draft, setDraft] = useState<MapSettings>(DEFAULT_SETTINGS);
-  const [stats, setStats] = useState<SceneStats>({ trees: 0, deliveryStops: 0, drawCalls: 0, chunks: 0 });
+  const [stats, setStats] = useState<SceneStats>({ trees: 0, grass: 0, stones: 0, deliveryStops: 0, drawCalls: 0, chunks: 0 });
   const [panelOpen, setPanelOpen] = useState(true);
   const [riderVisible, setRiderVisible] = useState(true);
   const [status, setStatus] = useState("正在唤醒森林…");
@@ -25,6 +32,10 @@ export function MapStudio() {
       setStatus(`流式加载 · ${next.chunks} 区块在场 · 拖拽巡视，点击小地图跳跃`);
     });
     sceneRef.current = scene;
+    const renderHook = () => JSON.stringify(scene.getTextState());
+    const advanceHook = (ms: number) => scene.advanceForTest(ms);
+    window.render_game_to_text = renderHook;
+    window.advanceTime = advanceHook;
     if (minimapRef.current) scene.attachMinimap(minimapRef.current);
     const resize = () => scene.resize();
     window.addEventListener("resize", resize);
@@ -32,6 +43,8 @@ export function MapStudio() {
       window.removeEventListener("resize", resize);
       scene.dispose();
       sceneRef.current = null;
+      if (window.render_game_to_text === renderHook) delete window.render_game_to_text;
+      if (window.advanceTime === advanceHook) delete window.advanceTime;
     };
   // The scene owns updates after creation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -97,9 +110,9 @@ export function MapStudio() {
 
         <div className="scene-stats" aria-live="polite">
           <span><b>{stats.trees}</b> 棵树</span>
+          <span><b>{stats.grass}</b> 簇草</span>
+          <span><b>{stats.stones}</b> 块石</span>
           <span><b>{stats.chunks}</b> 区块</span>
-          <span><b>{stats.deliveryStops}</b> 站点</span>
-          <span><b>{stats.drawCalls}</b> 实例组</span>
         </div>
 
         <div className="view-actions">
@@ -136,7 +149,7 @@ export function MapStudio() {
 
         <section className="control-group">
           <div className="section-label"><span>世界参数</span><b>01</b></div>
-          <Range label="森林密度" value={draft.forestDensity} min={0.24} max={1} step={0.01} display={`${Math.round(draft.forestDensity * 100)}%`} onChange={(v) => update("forestDensity", v)} />
+          <Range label="森林密度" value={draft.forestDensity} min={0.36} max={1.15} step={0.01} display={`${Math.round(draft.forestDensity * 100)}%`} onChange={(v) => update("forestDensity", v)} />
           <Range label="道路宽度" value={draft.roadWidth} min={2.2} max={5.4} step={0.1} display={`${draft.roadWidth.toFixed(1)}m`} onChange={(v) => update("roadWidth", v)} />
           <Range label="道路弯曲" value={draft.roadCurves} min={0.12} max={1} step={0.01} display={`${Math.round(draft.roadCurves * 100)}%`} onChange={(v) => update("roadCurves", v)} />
           <Range label="晨雾浓度" value={draft.fogDensity} min={0.001} max={0.01} step={0.0005} display={draft.fogDensity.toFixed(4)} onChange={(v) => update("fogDensity", v)} />
@@ -176,7 +189,7 @@ export function MapStudio() {
           <input ref={importRef} type="file" accept="application/json" hidden onChange={(event) => importMap(event.target.files?.[0])} />
         </div>
 
-        <footer className="panel-footer"><span>IRREGULAR BORDER WORLD</span><span>v0.3</span></footer>
+        <footer className="panel-footer"><span>DENSE FOREST UNDERSTORY</span><span>v0.4</span></footer>
       </aside>
     </main>
   );

@@ -19,6 +19,8 @@ type LoadedChunk = {
   coord: ChunkCoord;
   group: THREE.Group;
   treeCount: number;
+  grassCount: number;
+  stoneCount: number;
   drawCalls: number;
 };
 
@@ -47,14 +49,20 @@ export class ChunkManager {
 
   getStats() {
     let trees = 0;
+    let grass = 0;
+    let stones = 0;
     let drawCalls = 0;
     for (const chunk of this.loaded.values()) {
       trees += chunk.treeCount;
+      grass += chunk.grassCount;
+      stones += chunk.stoneCount;
       drawCalls += chunk.drawCalls;
     }
     return {
       chunks: this.loaded.size,
       trees,
+      grass,
+      stones,
       drawCalls,
       focus: this.focus,
       loadedKeys: [...this.loaded.keys()],
@@ -113,6 +121,8 @@ export class ChunkManager {
       coord,
       group: built.group,
       treeCount: built.treeCount,
+      grassCount: built.grassCount,
+      stoneCount: built.stoneCount,
       drawCalls: built.drawCalls,
     });
   }

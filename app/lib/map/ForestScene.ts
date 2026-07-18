@@ -26,6 +26,8 @@ import { createWorldBoundaries } from "./boundaries";
 
 export type SceneStats = {
   trees: number;
+  grass: number;
+  stones: number;
   deliveryStops: number;
   drawCalls: number;
   chunks: number;
@@ -287,10 +289,46 @@ export class ForestScene {
     const stats = this.chunks.getStats();
     this.onStats({
       trees: stats.trees,
+      grass: stats.grass,
+      stones: stats.stones,
       deliveryStops: this.deliveryStopCount,
       drawCalls: stats.drawCalls + 8,
       chunks: stats.chunks,
     });
+  }
+
+  getTextState() {
+    const stats = this.chunks.getStats();
+    return {
+      mode: "map-editor",
+      coordinateSystem: "world origin at map center; +x east/right, +z south/down",
+      cameraFocus: {
+        x: Number(this.controls.target.x.toFixed(1)),
+        z: Number(this.controls.target.z.toFixed(1)),
+      },
+      streamedForest: {
+        focusChunk: stats.focus,
+        loadedChunks: stats.loadedKeys,
+        pendingChunks: stats.pending,
+        trees: stats.trees,
+        grassTufts: stats.grass,
+        stones: stats.stones,
+      },
+      settings: {
+        seed: this.settings.seed,
+        forestDensity: this.settings.forestDensity,
+        season: this.settings.season,
+      },
+    };
+  }
+
+  advanceForTest(ms: number) {
+    const frames = Math.max(1, Math.ceil(ms / (1000 / 60)));
+    let changed = false;
+    for (let i = 0; i < frames; i += 1) changed = this.chunks.pump() || changed;
+    if (changed) this.publishStats();
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
   }
 
   private syncShadowRig() {

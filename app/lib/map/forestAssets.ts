@@ -19,6 +19,7 @@ export type SharedForestAssets = {
   tipGeometry: THREE.BufferGeometry;
   rootGeometry: THREE.ConeGeometry;
   stoneGeometry: THREE.DodecahedronGeometry;
+  grassGeometry: THREE.BufferGeometry;
   groundGeometry: THREE.PlaneGeometry;
   trunkMaterial: THREE.MeshStandardMaterial;
   branchMaterial: THREE.MeshStandardMaterial;
@@ -26,6 +27,7 @@ export type SharedForestAssets = {
   tipMaterial: THREE.MeshPhongMaterial;
   rootMaterial: THREE.MeshStandardMaterial;
   stoneMaterial: THREE.MeshStandardMaterial;
+  grassMaterial: THREE.MeshPhongMaterial;
   groundMaterial: THREE.MeshStandardMaterial;
   templates: TreeDescription[];
   leavesPerCluster: number;
@@ -34,6 +36,33 @@ export type SharedForestAssets = {
   leafPalette: number[];
   trunkHeight: number;
 };
+
+function createGrassGeometry() {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const blades = [0, Math.PI / 3, (Math.PI * 2) / 3];
+  for (let blade = 0; blade < blades.length; blade += 1) {
+    const angle = blades[blade];
+    const sideX = Math.cos(angle) * 0.16;
+    const sideZ = Math.sin(angle) * 0.16;
+    const leanX = -Math.sin(angle) * 0.1;
+    const leanZ = Math.cos(angle) * 0.1;
+    const offset = positions.length / 3;
+    positions.push(
+      -sideX, 0, -sideZ,
+      sideX, 0, sideZ,
+      sideX * 0.48 + leanX * 0.35, 0.42, sideZ * 0.48 + leanZ * 0.35,
+      leanX, 0.86, leanZ,
+      -sideX * 0.48 + leanX * 0.35, 0.42, -sideZ * 0.48 + leanZ * 0.35,
+    );
+    indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 4, offset + 4, offset + 2, offset + 3);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
 
 function rotateY(x: number, z: number, twist: number) {
   const cos = Math.cos(twist);
@@ -66,6 +95,7 @@ export function createSharedForestAssets(
     tipGeometry: createLeafGeometry(),
     rootGeometry: new THREE.ConeGeometry(1, 1, 6),
     stoneGeometry: new THREE.DodecahedronGeometry(0.34, 0),
+    grassGeometry: createGrassGeometry(),
     groundGeometry: new THREE.PlaneGeometry(CHUNK_SIZE * 1.01, CHUNK_SIZE * 1.01),
     trunkMaterial: new THREE.MeshStandardMaterial({
       color: 0x81725b,
@@ -90,6 +120,14 @@ export function createSharedForestAssets(
     }),
     rootMaterial: new THREE.MeshStandardMaterial({ color: 0x6f5f4a, roughness: 0.98 }),
     stoneMaterial: new THREE.MeshStandardMaterial({ color: 0x879083, roughness: 1 }),
+    grassMaterial: new THREE.MeshPhongMaterial({
+      color: 0xffffff,
+      emissive: 0x3c5b24,
+      emissiveIntensity: 0.58,
+      shininess: 6,
+      side: THREE.DoubleSide,
+      vertexColors: true,
+    }),
     groundMaterial: new THREE.MeshStandardMaterial({
       color: groundColor,
       map: groundMap,
@@ -112,6 +150,7 @@ export function disposeSharedForestAssets(assets: SharedForestAssets) {
     assets.tipGeometry,
     assets.rootGeometry,
     assets.stoneGeometry,
+    assets.grassGeometry,
     assets.groundGeometry,
   ];
   geos.forEach((geometry) => geometry.dispose());
@@ -122,6 +161,7 @@ export function disposeSharedForestAssets(assets: SharedForestAssets) {
     assets.tipMaterial,
     assets.rootMaterial,
     assets.stoneMaterial,
+    assets.grassMaterial,
     assets.groundMaterial,
   ];
   materials.forEach((material) => {
@@ -143,6 +183,8 @@ export type ChunkBuildContext = {
 export type BuiltChunk = {
   group: THREE.Group;
   treeCount: number;
+  grassCount: number;
+  stoneCount: number;
   drawCalls: number;
 };
 
@@ -180,10 +222,6 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
       twist: random() * Math.PI * 2,
       description: assets.templates[Math.floor(random() * assets.templates.length)],
     });
-  }
-
-  if (!placed.length) {
-    return { group, treeCount: 0, drawCalls: 1 };
   }
 
   let branchTotal = 0;
@@ -308,17 +346,57 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
   roots.instanceMatrix.needsUpdate = true;
   group.add(trunks, roots, branches, leaves, tipLeaves);
 
-  // Trail stones: denser along the path — mostly pebbles, fewer large rocks, rare boulders.
-  const stoneTarget = Math.round(28 + forestDensity * 18);
+  // Dense understory: three crossed, tapered blades per tuft. Like the trees,
+  // every tuft is seeded, instanced, and color-varied rather than billboarded.
+  const grassTarget = Math.round(145 + forestDensity * 135);
+  const grassPlacements: Array<{ x: number; z: number; scale: number; color: number; twist: number }> = [];
+  const grassPoint = new THREE.Vector3();
+  for (let attempt = 0; attempt < grassTarget * 5 && grassPlacements.length < grassTarget; attempt += 1) {
+    grassPoint.set(origin.x + random() * CHUNK_SIZE, 0, origin.z + random() * CHUNK_SIZE);
+    if (!insideWorld(grassPoint.x, grassPoint.z, 16)) continue;
+    const distance = roadDistance(grassPoint);
+    if (distance < roadWidth * 1.2 + range(random, 0.25, 1.4)) continue;
+    const base = assets.leafPalette[Math.floor(random() * assets.leafPalette.length)];
+    grassPlacements.push({
+      x: grassPoint.x,
+      z: grassPoint.z,
+      scale: range(random, 0.5, 1.35) * (random() < 0.1 ? range(random, 1.25, 1.65) : 1),
+      color: base,
+      twist: random() * Math.PI * 2,
+    });
+  }
+
+  if (grassPlacements.length) {
+    const grass = new THREE.InstancedMesh(assets.grassGeometry, assets.grassMaterial, grassPlacements.length);
+    for (let i = 0; i < grassPlacements.length; i += 1) {
+      const tuft = grassPlacements[i];
+      dummy.position.set(tuft.x, 0.015, tuft.z);
+      dummy.rotation.set(0, tuft.twist, range(random, -0.08, 0.08));
+      dummy.scale.set(tuft.scale * range(random, 0.75, 1.08), tuft.scale, tuft.scale * range(random, 0.75, 1.08));
+      dummy.updateMatrix();
+      grass.setMatrixAt(i, dummy.matrix);
+      color.set(tuft.color).offsetHSL(range(random, -0.018, 0.018), range(random, -0.05, 0.05), range(random, -0.035, 0.11));
+      grass.setColorAt(i, color);
+    }
+    grass.instanceMatrix.needsUpdate = true;
+    if (grass.instanceColor) grass.instanceColor.needsUpdate = true;
+    grass.receiveShadow = true;
+    group.add(grass);
+  }
+
+  // Rocks exist in every streamed chunk. Roadside chunks are denser along the
+  // verge, while deep-forest chunks still receive a seeded scatter.
+  const stoneTarget = Math.round(22 + forestDensity * 16);
   const stonePlacements: Array<{ x: number; z: number; scale: number; y: number; sx: number; sy: number; sz: number }> = [];
   const stonePoint = new THREE.Vector3();
-  for (let attempt = 0; attempt < stoneTarget * 6 && stonePlacements.length < stoneTarget; attempt += 1) {
+  for (let attempt = 0; attempt < stoneTarget * 10 && stonePlacements.length < stoneTarget; attempt += 1) {
     stonePoint.set(origin.x + random() * CHUNK_SIZE, 0, origin.z + random() * CHUNK_SIZE);
     if (!insideWorld(stonePoint.x, stonePoint.z, 34)) continue;
     const distance = roadDistance(stonePoint);
     const onShoulder = distance >= roadWidth * 0.85 && distance < roadWidth * 4.8;
     const inClearing = distance >= roadWidth * 4.8 && distance < roadWidth * 9;
-    if (!onShoulder && !(inClearing && random() < 0.28)) continue;
+    const inDeepForest = distance >= roadWidth * 9;
+    if (!onShoulder && !(inClearing && random() < 0.42) && !(inDeepForest && random() < 0.34)) continue;
     if (distance < roadWidth * 0.85) continue;
 
     const profile = pickStoneProfile(random);
@@ -351,7 +429,14 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     group.add(stones);
   }
 
-  return { group, treeCount: placed.length, drawCalls: 7 };
+  const drawCalls = 6 + (grassPlacements.length ? 1 : 0) + (stonePlacements.length ? 1 : 0);
+  return {
+    group,
+    treeCount: placed.length,
+    grassCount: grassPlacements.length,
+    stoneCount: stonePlacements.length,
+    drawCalls,
+  };
 }
 
 /** Mostly pebbles, some large rocks, rare boulders. */
@@ -391,7 +476,7 @@ function pickStoneProfile(random: () => number) {
 }
 
 function TREES_PER_CHUNK_SAFE(forestDensity: number) {
-  return Math.round(22 * forestDensity);
+  return Math.round(28 * forestDensity);
 }
 
 /** Dispose chunk-owned meshes without touching shared geometries/materials. */
