@@ -36,9 +36,9 @@ export type SceneStats = {
 type StatsListener = (stats: SceneStats) => void;
 
 const SEASONS: Record<Season, { ground: number; leaves: number[]; tip: number; fog: number }> = {
-  spring: { ground: 0xa8b99a, leaves: [0x50782d, 0x6b9235, 0x84a746, 0x9cba60], tip: 0xb7cf77, fog: 0xe7ece2 },
-  summer: { ground: 0x8fa77d, leaves: [0x315b2d, 0x47742f, 0x608b3c, 0x7a9f4b], tip: 0x9fb761, fog: 0xdde7da },
-  autumn: { ground: 0xa69b78, leaves: [0x874723, 0xad642b, 0xc98b37, 0xe0ad50], tip: 0xefc978, fog: 0xeee3d2 },
+  spring: { ground: 0x789663, leaves: [0x50782d, 0x6b9235, 0x84a746, 0x9cba60], tip: 0xb7cf77, fog: 0xe7ece2 },
+  summer: { ground: 0x5f7f50, leaves: [0x315b2d, 0x47742f, 0x608b3c, 0x7a9f4b], tip: 0x9fb761, fog: 0xdde7da },
+  autumn: { ground: 0x887b56, leaves: [0x874723, 0xad642b, 0xc98b37, 0xe0ad50], tip: 0xefc978, fog: 0xeee3d2 },
 };
 
 export class ForestScene {
@@ -157,6 +157,7 @@ export class ForestScene {
       assets: this.shared,
       worldSeed: settings.seed,
       forestDensity: settings.forestDensity,
+      treeHeightScale: settings.treeHeightScale,
       roadWidth: settings.roadWidth,
       roadDistance: (point) => roadIndex.minDistance(point, settings.roadWidth),
       insideWorld: (x, z, inset = 0) => isInsideWorld(x, z, settings.seed, inset),
@@ -276,6 +277,13 @@ export class ForestScene {
     this.controls.update();
   }
 
+  setUnderstoryCamera() {
+    const focus = this.controls.target.clone();
+    this.controls.target.set(focus.x, 2.8, focus.z);
+    this.camera.position.set(focus.x + 12, 4.6, focus.z + 18);
+    this.controls.update();
+  }
+
   resize() {
     const canvas = this.renderer.domElement;
     const width = canvas.clientWidth;
@@ -317,6 +325,7 @@ export class ForestScene {
       settings: {
         seed: this.settings.seed,
         forestDensity: this.settings.forestDensity,
+        treeHeightScale: this.settings.treeHeightScale,
         season: this.settings.season,
       },
     };

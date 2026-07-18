@@ -20,6 +20,7 @@ export type SharedForestAssets = {
   rootGeometry: THREE.ConeGeometry;
   stoneGeometry: THREE.DodecahedronGeometry;
   grassGeometry: THREE.BufferGeometry;
+  weedGeometry: THREE.BufferGeometry;
   groundGeometry: THREE.PlaneGeometry;
   trunkMaterial: THREE.MeshStandardMaterial;
   branchMaterial: THREE.MeshStandardMaterial;
@@ -27,7 +28,8 @@ export type SharedForestAssets = {
   tipMaterial: THREE.MeshPhongMaterial;
   rootMaterial: THREE.MeshStandardMaterial;
   stoneMaterial: THREE.MeshStandardMaterial;
-  grassMaterial: THREE.MeshPhongMaterial;
+  grassMaterial: THREE.MeshBasicMaterial;
+  weedMaterial: THREE.MeshPhongMaterial;
   groundMaterial: THREE.MeshStandardMaterial;
   templates: TreeDescription[];
   leavesPerCluster: number;
@@ -37,25 +39,91 @@ export type SharedForestAssets = {
   trunkHeight: number;
 };
 
+function pushBlade(
+  positions: number[],
+  indices: number[],
+  angle: number,
+  radius: number,
+  width: number,
+  height: number,
+  lean: number,
+) {
+  const sideX = Math.cos(angle) * width;
+  const sideZ = Math.sin(angle) * width;
+  const leanX = -Math.sin(angle) * lean;
+  const leanZ = Math.cos(angle) * lean;
+  const centerX = Math.cos(angle) * radius;
+  const centerZ = Math.sin(angle) * radius;
+  const offset = positions.length / 3;
+  positions.push(
+    centerX - sideX, 0, centerZ - sideZ,
+    centerX + sideX, 0, centerZ + sideZ,
+    centerX + sideX * 0.62 + leanX * 0.42, height * 0.48, centerZ + sideZ * 0.62 + leanZ * 0.42,
+    centerX + leanX, height, centerZ + leanZ,
+    centerX - sideX * 0.62 + leanX * 0.42, height * 0.48, centerZ - sideZ * 0.62 + leanZ * 0.42,
+  );
+  indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 4, offset + 4, offset + 2, offset + 3);
+}
+
 function createGrassGeometry() {
   const positions: number[] = [];
   const indices: number[] = [];
-  const blades = [0, Math.PI / 3, (Math.PI * 2) / 3];
-  for (let blade = 0; blade < blades.length; blade += 1) {
-    const angle = blades[blade];
-    const sideX = Math.cos(angle) * 0.16;
-    const sideZ = Math.sin(angle) * 0.16;
-    const leanX = -Math.sin(angle) * 0.1;
-    const leanZ = Math.cos(angle) * 0.1;
-    const offset = positions.length / 3;
-    positions.push(
-      -sideX, 0, -sideZ,
-      sideX, 0, sideZ,
-      sideX * 0.48 + leanX * 0.35, 0.42, sideZ * 0.48 + leanZ * 0.35,
-      leanX, 0.86, leanZ,
-      -sideX * 0.48 + leanX * 0.35, 0.42, -sideZ * 0.48 + leanZ * 0.35,
+  // A real tuft is a fan of overlapping blades, not a single black spike.
+  for (let blade = 0; blade < 13; blade += 1) {
+    const angle = (blade / 13) * Math.PI * 2 + (blade % 2) * 0.13;
+    pushBlade(
+      positions,
+      indices,
+      angle,
+      0.035 + (blade % 3) * 0.028,
+      0.024 + (blade % 3) * 0.007,
+      0.34 + (blade % 5) * 0.09,
+      0.1 + (blade % 3) * 0.045,
     );
-    indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 4, offset + 4, offset + 2, offset + 3);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function pushLeaf(
+  positions: number[],
+  indices: number[],
+  x: number,
+  y: number,
+  z: number,
+  angle: number,
+  size: number,
+) {
+  const dx = Math.cos(angle);
+  const dz = Math.sin(angle);
+  const sx = -dz * size * 0.48;
+  const sz = dx * size * 0.48;
+  const offset = positions.length / 3;
+  positions.push(
+    x, y, z,
+    x + dx * size * 0.48 + sx, y + size * 0.08, z + dz * size * 0.48 + sz,
+    x + dx * size, y + size * 0.16, z + dz * size,
+    x + dx * size * 0.48 - sx, y + size * 0.08, z + dz * size * 0.48 - sz,
+  );
+  indices.push(offset, offset + 1, offset + 2, offset, offset + 2, offset + 3);
+}
+
+function createBroadleafWeedGeometry() {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  // Two narrow crossed stem ribbons keep the plant readable from every angle.
+  for (const angle of [0, Math.PI / 2]) {
+    pushBlade(positions, indices, angle, 0, 0.028, 1.45, 0.025);
+  }
+  for (let level = 0; level < 5; level += 1) {
+    const y = 0.28 + level * 0.23;
+    const size = 0.34 - level * 0.032;
+    const angle = level * 2.34;
+    pushLeaf(positions, indices, 0, y, 0, angle, size);
+    pushLeaf(positions, indices, 0, y + 0.035, 0, angle + Math.PI, size * 0.9);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
@@ -87,6 +155,13 @@ export function createSharedForestAssets(
   for (let i = 0; i < 8; i += 1) {
     templates.push(describeTree(templateRandom, resolved));
   }
+  const grassColor = new THREE.Color(leafPalette[Math.min(2, leafPalette.length - 1)]);
+  const weedColor = new THREE.Color(leafPalette[Math.min(3, leafPalette.length - 1)]);
+  const groundHsl = { h: 0, s: 0, l: 0 };
+  grassColor.getHSL(groundHsl);
+  grassColor.setHSL(groundHsl.h, THREE.MathUtils.clamp(groundHsl.s + 0.2, 0.66, 0.9), 0.3);
+  weedColor.getHSL(groundHsl);
+  weedColor.setHSL(groundHsl.h, THREE.MathUtils.clamp(groundHsl.s + 0.18, 0.64, 0.9), 0.38);
 
   return {
     trunkGeometry: createRippledTrunkGeometry(templates[0].trunkHeight, 12, 10),
@@ -96,6 +171,7 @@ export function createSharedForestAssets(
     rootGeometry: new THREE.ConeGeometry(1, 1, 6),
     stoneGeometry: new THREE.DodecahedronGeometry(0.34, 0),
     grassGeometry: createGrassGeometry(),
+    weedGeometry: createBroadleafWeedGeometry(),
     groundGeometry: new THREE.PlaneGeometry(CHUNK_SIZE * 1.01, CHUNK_SIZE * 1.01),
     trunkMaterial: new THREE.MeshStandardMaterial({
       color: 0x81725b,
@@ -120,13 +196,17 @@ export function createSharedForestAssets(
     }),
     rootMaterial: new THREE.MeshStandardMaterial({ color: 0x6f5f4a, roughness: 0.98 }),
     stoneMaterial: new THREE.MeshStandardMaterial({ color: 0x879083, roughness: 1 }),
-    grassMaterial: new THREE.MeshPhongMaterial({
-      color: 0xffffff,
-      emissive: 0x3c5b24,
-      emissiveIntensity: 0.58,
-      shininess: 6,
+    grassMaterial: new THREE.MeshBasicMaterial({
+      color: grassColor,
       side: THREE.DoubleSide,
-      vertexColors: true,
+    }),
+    weedMaterial: new THREE.MeshPhongMaterial({
+      color: weedColor,
+      emissive: weedColor,
+      emissiveIntensity: 0.32,
+      specular: 0x8fb85a,
+      shininess: 18,
+      side: THREE.DoubleSide,
     }),
     groundMaterial: new THREE.MeshStandardMaterial({
       color: groundColor,
@@ -151,6 +231,7 @@ export function disposeSharedForestAssets(assets: SharedForestAssets) {
     assets.rootGeometry,
     assets.stoneGeometry,
     assets.grassGeometry,
+    assets.weedGeometry,
     assets.groundGeometry,
   ];
   geos.forEach((geometry) => geometry.dispose());
@@ -162,6 +243,7 @@ export function disposeSharedForestAssets(assets: SharedForestAssets) {
     assets.rootMaterial,
     assets.stoneMaterial,
     assets.grassMaterial,
+    assets.weedMaterial,
     assets.groundMaterial,
   ];
   materials.forEach((material) => {
@@ -175,6 +257,7 @@ export type ChunkBuildContext = {
   assets: SharedForestAssets;
   worldSeed: number;
   forestDensity: number;
+  treeHeightScale: number;
   roadWidth: number;
   roadDistance: (point: THREE.Vector3) => number;
   insideWorld: (x: number, z: number, inset?: number) => boolean;
@@ -189,7 +272,7 @@ export type BuiltChunk = {
 };
 
 export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): BuiltChunk {
-  const { assets, worldSeed, forestDensity, roadWidth, roadDistance, insideWorld } = context;
+  const { assets, worldSeed, forestDensity, treeHeightScale, roadWidth, roadDistance, insideWorld } = context;
   const group = new THREE.Group();
   group.name = `chunk:${coord.cx},${coord.cz}`;
   const origin = chunkOrigin(coord.cx, coord.cz);
@@ -205,6 +288,7 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
   type Placement = {
     p: THREE.Vector3;
     scale: number;
+    heightScale: number;
     color: number;
     twist: number;
     description: TreeDescription;
@@ -218,6 +302,7 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     placed.push({
       p: point.clone(),
       scale: pickTreeScale(random),
+      heightScale: treeHeightScale * range(random, 0.88, 1.14),
       color: assets.leafPalette[Math.floor(random() * assets.leafPalette.length)],
       twist: random() * Math.PI * 2,
       description: assets.templates[Math.floor(random() * assets.templates.length)],
@@ -260,19 +345,20 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
 
   for (let treeIndex = 0; treeIndex < placed.length; treeIndex += 1) {
     const tree = placed[treeIndex];
-    const { p, scale, twist, description } = tree;
+    const { p, scale, heightScale, twist, description } = tree;
+    const verticalScale = scale * heightScale;
 
-    dummy.position.set(p.x, assets.trunkHeight * 0.5 * scale, p.z);
+    dummy.position.set(p.x, assets.trunkHeight * 0.5 * verticalScale, p.z);
     dummy.rotation.set(0, twist, 0);
-    dummy.scale.setScalar(scale);
+    dummy.scale.set(scale, verticalScale, scale);
     dummy.updateMatrix();
     trunks.setMatrixAt(treeIndex, dummy.matrix);
 
     for (const segment of description.branches) {
       const from = rotateY(segment.ax, segment.az, twist);
       const to = rotateY(segment.bx, segment.bz, twist);
-      a.set(p.x + from.x * scale, segment.ay * scale, p.z + from.z * scale);
-      b.set(p.x + to.x * scale, segment.by * scale, p.z + to.z * scale);
+      a.set(p.x + from.x * scale, segment.ay * verticalScale, p.z + from.z * scale);
+      b.set(p.x + to.x * scale, segment.by * verticalScale, p.z + to.z * scale);
       const delta = b.clone().sub(a);
       const length = delta.length();
       if (length < 1e-4) continue;
@@ -286,13 +372,13 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     for (const cluster of description.clusters) {
       const rotated = rotateY(cluster.x, cluster.z, twist);
       const cx = p.x + rotated.x * scale;
-      const cy = cluster.y * scale;
+      const cy = cluster.y * verticalScale;
       const cz = p.z + rotated.z * scale;
       const clusterRadius = cluster.radius * scale;
       for (let i = 0; i < assets.leavesPerCluster; i += 1) {
         const theta = random() * Math.PI * 2;
         const spread = Math.pow(random(), 0.62) * clusterRadius;
-        const vertical = range(random, -clusterRadius * 0.55, clusterRadius * 0.55);
+        const vertical = range(random, -clusterRadius * 0.55, clusterRadius * 0.55) * Math.sqrt(heightScale);
         dummy.position.set(cx + Math.cos(theta) * spread, cy + vertical, cz + Math.sin(theta) * spread);
         dummy.rotation.set(range(random, -1, 1), theta + range(random, -0.7, 0.7), range(random, -0.6, 0.6));
         const size = range(random, 0.11, 0.175) * cluster.bias * scale;
@@ -308,12 +394,12 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     for (const cluster of description.tipClusters) {
       const rotated = rotateY(cluster.x, cluster.z, twist);
       const cx = p.x + rotated.x * scale;
-      const cy = cluster.y * scale;
+      const cy = cluster.y * verticalScale;
       const cz = p.z + rotated.z * scale;
       for (let i = 0; i < assets.tipLeavesPerCluster; i += 1) {
         dummy.position.set(
           cx + range(random, -0.21, 0.21) * scale,
-          cy + range(random, -0.16, 0.22) * scale,
+          cy + range(random, -0.16, 0.22) * verticalScale,
           cz + range(random, -0.21, 0.21) * scale,
         );
         dummy.rotation.set(range(random, -1, 1), range(random, 0, Math.PI * 2), range(random, -1, 1));
@@ -346,13 +432,28 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
   roots.instanceMatrix.needsUpdate = true;
   group.add(trunks, roots, branches, leaves, tipLeaves);
 
-  // Dense understory: three crossed, tapered blades per tuft. Like the trees,
-  // every tuft is seeded, instanced, and color-varied rather than billboarded.
-  const grassTarget = Math.round(145 + forestDensity * 135);
+  // Meadow-like ground cover: hundreds of nine-blade fans form overlapping
+  // patches, with occasional open pockets like the supplied forest reference.
+  const grassTarget = Math.round(6300 + Math.min(forestDensity, 2.3) * 500);
   const grassPlacements: Array<{ x: number; z: number; scale: number; color: number; twist: number }> = [];
   const grassPoint = new THREE.Vector3();
-  for (let attempt = 0; attempt < grassTarget * 5 && grassPlacements.length < grassTarget; attempt += 1) {
-    grassPoint.set(origin.x + random() * CHUNK_SIZE, 0, origin.z + random() * CHUNK_SIZE);
+  const patchCenters = Array.from({ length: 15 }, () => ({
+    x: origin.x + random() * CHUNK_SIZE,
+    z: origin.z + random() * CHUNK_SIZE,
+  }));
+  for (let attempt = 0; attempt < grassTarget * 6 && grassPlacements.length < grassTarget; attempt += 1) {
+    if (random() < 0.5) {
+      const patch = patchCenters[Math.floor(random() * patchCenters.length)];
+      const angle = random() * Math.PI * 2;
+      const radius = Math.sqrt(random()) * range(random, 5, 15);
+      grassPoint.set(
+        THREE.MathUtils.clamp(patch.x + Math.cos(angle) * radius, origin.x + 0.4, origin.x + CHUNK_SIZE - 0.4),
+        0,
+        THREE.MathUtils.clamp(patch.z + Math.sin(angle) * radius, origin.z + 0.4, origin.z + CHUNK_SIZE - 0.4),
+      );
+    } else {
+      grassPoint.set(origin.x + random() * CHUNK_SIZE, 0, origin.z + random() * CHUNK_SIZE);
+    }
     if (!insideWorld(grassPoint.x, grassPoint.z, 16)) continue;
     const distance = roadDistance(grassPoint);
     if (distance < roadWidth * 1.2 + range(random, 0.25, 1.4)) continue;
@@ -360,7 +461,7 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     grassPlacements.push({
       x: grassPoint.x,
       z: grassPoint.z,
-      scale: range(random, 0.5, 1.35) * (random() < 0.1 ? range(random, 1.25, 1.65) : 1),
+      scale: range(random, 0.72, 1.28),
       color: base,
       twist: random() * Math.PI * 2,
     });
@@ -372,16 +473,56 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
       const tuft = grassPlacements[i];
       dummy.position.set(tuft.x, 0.015, tuft.z);
       dummy.rotation.set(0, tuft.twist, range(random, -0.08, 0.08));
-      dummy.scale.set(tuft.scale * range(random, 0.75, 1.08), tuft.scale, tuft.scale * range(random, 0.75, 1.08));
+      dummy.scale.set(
+        tuft.scale * range(random, 1.08, 1.62),
+        tuft.scale * range(random, 0.72, 1.18),
+        tuft.scale * range(random, 1.08, 1.62),
+      );
       dummy.updateMatrix();
       grass.setMatrixAt(i, dummy.matrix);
-      color.set(tuft.color).offsetHSL(range(random, -0.018, 0.018), range(random, -0.05, 0.05), range(random, -0.035, 0.11));
-      grass.setColorAt(i, color);
     }
     grass.instanceMatrix.needsUpdate = true;
-    if (grass.instanceColor) grass.instanceColor.needsUpdate = true;
     grass.receiveShadow = true;
     group.add(grass);
+  }
+
+  // Broadleaf weeds and taller sapling-like stems break up the grass carpet.
+  const weedTarget = Math.round(150 + Math.min(forestDensity, 2.3) * 72);
+  const weedPlacements: Array<{ x: number; z: number; scale: number; color: number; twist: number }> = [];
+  const weedPoint = new THREE.Vector3();
+  for (let attempt = 0; attempt < weedTarget * 8 && weedPlacements.length < weedTarget; attempt += 1) {
+    const patch = patchCenters[Math.floor(random() * patchCenters.length)];
+    const angle = random() * Math.PI * 2;
+    const radius = Math.sqrt(random()) * range(random, 3, 13);
+    weedPoint.set(
+      THREE.MathUtils.clamp(patch.x + Math.cos(angle) * radius, origin.x + 1, origin.x + CHUNK_SIZE - 1),
+      0,
+      THREE.MathUtils.clamp(patch.z + Math.sin(angle) * radius, origin.z + 1, origin.z + CHUNK_SIZE - 1),
+    );
+    if (!insideWorld(weedPoint.x, weedPoint.z, 18)) continue;
+    if (roadDistance(weedPoint) < roadWidth * 1.5 + range(random, 0.4, 1.8)) continue;
+    weedPlacements.push({
+      x: weedPoint.x,
+      z: weedPoint.z,
+      scale: range(random, 0.38, 0.92) * (random() < 0.18 ? range(random, 1.45, 2.05) : 1),
+      color: assets.leafPalette[Math.floor(random() * assets.leafPalette.length)],
+      twist: random() * Math.PI * 2,
+    });
+  }
+
+  if (weedPlacements.length) {
+    const weeds = new THREE.InstancedMesh(assets.weedGeometry, assets.weedMaterial, weedPlacements.length);
+    for (let i = 0; i < weedPlacements.length; i += 1) {
+      const weed = weedPlacements[i];
+      dummy.position.set(weed.x, 0.018, weed.z);
+      dummy.rotation.set(0, weed.twist, range(random, -0.05, 0.05));
+      dummy.scale.set(weed.scale * range(random, 0.85, 1.12), weed.scale, weed.scale * range(random, 0.85, 1.12));
+      dummy.updateMatrix();
+      weeds.setMatrixAt(i, dummy.matrix);
+    }
+    weeds.instanceMatrix.needsUpdate = true;
+    weeds.receiveShadow = true;
+    group.add(weeds);
   }
 
   // Rocks exist in every streamed chunk. Roadside chunks are denser along the
@@ -429,11 +570,11 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     group.add(stones);
   }
 
-  const drawCalls = 6 + (grassPlacements.length ? 1 : 0) + (stonePlacements.length ? 1 : 0);
+  const drawCalls = 6 + (grassPlacements.length ? 1 : 0) + (weedPlacements.length ? 1 : 0) + (stonePlacements.length ? 1 : 0);
   return {
     group,
     treeCount: placed.length,
-    grassCount: grassPlacements.length,
+    grassCount: grassPlacements.length + weedPlacements.length,
     stoneCount: stonePlacements.length,
     drawCalls,
   };

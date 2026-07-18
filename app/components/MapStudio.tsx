@@ -120,6 +120,7 @@ export function MapStudio() {
             {riderVisible ? "隐藏骑手" : "显示骑手"}
           </button>
           <button type="button" onClick={() => sceneRef.current?.resetCamera()}>俯瞰视角</button>
+          <button type="button" onClick={() => sceneRef.current?.setUnderstoryCamera()}>林下视角</button>
           <button className="mobile-panel-button" type="button" onClick={() => setPanelOpen((value) => !value)}>
             {panelOpen ? "收起参数" : "地图参数"}
           </button>
@@ -149,7 +150,7 @@ export function MapStudio() {
 
         <section className="control-group">
           <div className="section-label"><span>世界参数</span><b>01</b></div>
-          <Range label="森林密度" value={draft.forestDensity} min={0.36} max={1.15} step={0.01} display={`${Math.round(draft.forestDensity * 100)}%`} onChange={(v) => update("forestDensity", v)} />
+          <Range label="森林密度" value={draft.forestDensity} min={0.36} max={2.3} step={0.01} display={`${Math.round(draft.forestDensity * 100)}%`} onChange={(v) => update("forestDensity", v)} />
           <Range label="道路宽度" value={draft.roadWidth} min={2.2} max={5.4} step={0.1} display={`${draft.roadWidth.toFixed(1)}m`} onChange={(v) => update("roadWidth", v)} />
           <Range label="道路弯曲" value={draft.roadCurves} min={0.12} max={1} step={0.01} display={`${Math.round(draft.roadCurves * 100)}%`} onChange={(v) => update("roadCurves", v)} />
           <Range label="晨雾浓度" value={draft.fogDensity} min={0.001} max={0.01} step={0.0005} display={draft.fogDensity.toFixed(4)} onChange={(v) => update("fogDensity", v)} />
@@ -171,6 +172,7 @@ export function MapStudio() {
           <div className="section-label"><span>树木微调</span><b>03</b></div>
           <Range label="叶片密度" value={draft.treeLeafDensity} min={0.5} max={1.35} step={0.01} display={`${Math.round(draft.treeLeafDensity * 100)}%`} onChange={(v) => update("treeLeafDensity", v)} />
           <Range label="树冠宽度" value={draft.treeCanopyWidth} min={0.75} max={1.3} step={0.01} display={`${draft.treeCanopyWidth.toFixed(2)}×`} onChange={(v) => update("treeCanopyWidth", v)} />
+          <Range label="树木高度" value={draft.treeHeightScale} min={0.8} max={2.8} step={0.05} display={`${draft.treeHeightScale.toFixed(2)}×`} onChange={(v) => update("treeHeightScale", v)} />
         </section>
 
         <section className="seed-row">
@@ -189,7 +191,7 @@ export function MapStudio() {
           <input ref={importRef} type="file" accept="application/json" hidden onChange={(event) => importMap(event.target.files?.[0])} />
         </div>
 
-        <footer className="panel-footer"><span>DENSE FOREST UNDERSTORY</span><span>v0.4</span></footer>
+        <footer className="panel-footer"><span>DEEP FOREST CANOPY</span><span>v0.5</span></footer>
       </aside>
     </main>
   );

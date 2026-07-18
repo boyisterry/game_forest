@@ -21,10 +21,12 @@ test("server-renders the forest map studio", async () => {
   const html = await response.text();
   assert.match(html, /<title>林间速递 · 地图工坊<\/title>/);
   assert.match(html, /森林密度<\/b><em>86%<\/em>/);
+  assert.match(html, /森林密度 86%[^>]*value="0\.86"|max="2\.3"/);
+  assert.match(html, /树木高度/);
   assert.match(html, /簇草/);
   assert.match(html, /块石/);
   assert.match(html, /西侧与南侧以河流封边，北侧与东侧以连续山脉封边/);
-  assert.match(html, /DENSE FOREST UNDERSTORY/);
+  assert.match(html, /DEEP FOREST CANOPY/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/);
 });
 
@@ -36,7 +38,9 @@ test("keeps grass and rocks inside every streamed forest chunk", async () => {
   ]);
 
   assert.match(forestAssets, /createGrassGeometry/);
+  assert.match(forestAssets, /createBroadleafWeedGeometry/);
   assert.match(forestAssets, /new THREE\.InstancedMesh\(assets\.grassGeometry/);
+  assert.match(forestAssets, /new THREE\.InstancedMesh\(assets\.weedGeometry/);
   assert.match(forestAssets, /const inDeepForest = distance >= roadWidth \* 9/);
   assert.match(forestAssets, /inDeepForest && random\(\) < 0\.34/);
   assert.match(forestAssets, /grassCount: grassPlacements\.length/);
@@ -44,4 +48,5 @@ test("keeps grass and rocks inside every streamed forest chunk", async () => {
   assert.match(manager, /grassCount: built\.grassCount/);
   assert.match(manager, /stoneCount: built\.stoneCount/);
   assert.match(settings, /forestDensity: 0\.86/);
+  assert.match(settings, /treeHeightScale: 1\.55/);
 });

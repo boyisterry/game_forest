@@ -12,6 +12,8 @@ export type MapSettings = {
   treeLeafDensity: number;
   /** Scales crown envelope width. */
   treeCanopyWidth: number;
+  /** Vertical-only scale so trunks can become towering without ballooning crowns. */
+  treeHeightScale: number;
 };
 
 export const DEFAULT_SETTINGS: MapSettings = {
@@ -24,4 +26,5 @@ export const DEFAULT_SETTINGS: MapSettings = {
   season: "spring",
   treeLeafDensity: 1,
   treeCanopyWidth: 1.12,
+  treeHeightScale: 1.55,
 };

@@ -174,9 +174,10 @@ export function buildRoadIndex(points: THREE.Vector3[], cellSize = CHUNK_SIZE) {
 
 export function pickTreeScale(random: () => number) {
   const roll = random();
-  // Landmark elders, mid canopy, and understory — overall larger than the old 0.38–0.68 band.
-  if (roll < 0.07) return range(random, 1.55, 2.25);
-  if (roll < 0.28) return range(random, 1.05, 1.45);
-  if (roll < 0.65) return range(random, 0.78, 1.05);
-  return range(random, 0.55, 0.78);
+  // A deep forest needs dominant trunks, not a field of bonsai. Vertical scale
+  // is applied separately, so these values mainly control trunk girth/crown mass.
+  if (roll < 0.12) return range(random, 1.8, 2.65);
+  if (roll < 0.43) return range(random, 1.25, 1.78);
+  if (roll < 0.82) return range(random, 0.94, 1.3);
+  return range(random, 0.68, 0.96);
 }
