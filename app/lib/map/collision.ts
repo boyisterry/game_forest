@@ -278,7 +278,16 @@ export class CollisionWorld {
   }
 
   /** Advance rolling stones and stop them on trees or world bounds. */
-  stepStones(dt: number, clampToWorld: (x: number, z: number) => { x: number; z: number }) {
+  stepStones(
+    dt: number,
+    clampToWorld: (x: number, z: number) => { x: number; z: number },
+    sampleBoundary: (x: number, z: number) => { ax: number; az: number; steep: boolean; height: number } = () => ({
+      ax: 0,
+      az: 0,
+      steep: false,
+      height: 0,
+    }),
+  ) {
     for (const body of this.bodies.values()) {
       if (!body.active) continue;
       const v = Math.hypot(body.vx, body.vz);
@@ -296,6 +305,13 @@ export class CollisionWorld {
       body.vz *= scale;
       body.x += body.vx * dt;
       body.z += body.vz * dt;
+      const b = sampleBoundary(body.x, body.z);
+      body.vx += b.ax * dt;
+      body.vz += b.az * dt;
+      if (b.steep) {
+        body.vx *= 0.85;
+        body.vz *= 0.85;
+      }
       body.roll += (v * dt) / body.collider.r;
       // World edge -> stop in place.
       const clamped = clampToWorld(body.x, body.z);

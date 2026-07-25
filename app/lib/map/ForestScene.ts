@@ -519,7 +519,7 @@ export class ForestScene {
         const clampFn = (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
         const boundaryFn = (x: number, z: number) => sampleBoundary(x, z, seed);
         this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
-        this.collision.stepStones(dt, clampFn);
+        this.collision.stepStones(dt, clampFn, boundaryFn);
         this.collision.writeMatrices(this.dummy);
         const pose = this.moto.getPose();
         if (this.rider) {
@@ -564,7 +564,7 @@ export class ForestScene {
       const clampFn = (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
       const boundaryFn = (x: number, z: number) => sampleBoundary(x, z, seed);
       this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
-      this.collision.stepStones(dt, clampFn);
+      this.collision.stepStones(dt, clampFn, boundaryFn);
       this.collision.writeMatrices(this.dummy);
       const pose = this.moto.getPose();
       if (this.rider) {
