@@ -242,11 +242,11 @@ export function buildNearMountainMeshes(seed: number): THREE.Group {
     flatShading: true,
   });
 
-  const east = new THREE.Mesh(buildEdgeRidgeGeometry(seed, "east", 96, 12), material);
+  const east = new THREE.Mesh(buildEdgeRidgeGeometry(seed, "east", 128, 18), material);
   east.castShadow = true;
   east.receiveShadow = true;
 
-  const north = new THREE.Mesh(buildEdgeRidgeGeometry(seed, "north", 96, 12), northMaterial);
+  const north = new THREE.Mesh(buildEdgeRidgeGeometry(seed, "north", 128, 18), northMaterial);
   north.castShadow = true;
   north.receiveShadow = true;
 

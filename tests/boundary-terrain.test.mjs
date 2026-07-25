@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   sampleBoundary,
   buildRiverGroup,
+  buildNearMountainMeshes,
   BEACH_WIDTH,
   BEACH_CAP_NEAR,
   BEACH_CAP_FAR,
@@ -185,4 +186,25 @@ test("bank ribbon carries per-vertex grass→sand color", () => {
     }
     assert.ok(grass > 0 && sand > 0, `both colors present: grass=${grass} sand=${sand}`);
   }
+});
+
+test("east ridge mesh height varies along the ridge (ruggedness relief)", () => {
+  const group = buildNearMountainMeshes(SEED);
+  // The group's first mesh is the east ridge (buildNearMountainMeshes adds east, then north).
+  const east = group.children.find((m) => m.geometry && m.geometry.getAttribute("position"));
+  assert.ok(east, "east ridge mesh present");
+  const pos = east.geometry.getAttribute("position");
+  const count = pos.count;
+  // Collect the max height at each unique x (x is the along-ridge coordinate for the east ridge).
+  const byX = new Map();
+  for (let i = 0; i < count; i += 1) {
+    const x = Number(pos.getX(i).toFixed(1));
+    const y = pos.getY(i);
+    byX.set(x, Math.max(byX.has(x) ? byX.get(x) : 0, y));
+  }
+  const ridgeHeights = [...byX.values()].filter((h) => h > 1); // ignore near-zero foot vertices
+  const max = Math.max(...ridgeHeights);
+  const min = Math.min(...ridgeHeights);
+  assert.ok(ridgeHeights.length > 20, `ridge sampled at many x stations: ${ridgeHeights.length}`);
+  assert.ok(max - min > 4, `ridge height varies along the ridge (ruggedness): spread ${min.toFixed(1)}..${max.toFixed(1)}`);
 });
