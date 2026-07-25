@@ -19,12 +19,12 @@ export type TreeParams = {
 
 /** Forest-scaled defaults: gpt_demo silhouette with denser canopy for map-scale readability. */
 export const DEFAULT_TREE_PARAMS: TreeParams = {
-  primaryLimbs: 26,
-  segmentsPerLimb: 4,
+  primaryLimbs: 30,
+  segmentsPerLimb: 5,
   fillerClusters: 64,
   leavesPerCluster: 16,
   tipLeavesPerCluster: 6,
-  rootCount: 6,
+  rootCount: 7,
   canopyWidth: 1.12,
   canopyHeight: 0.92,
   leafDensity: 1,
@@ -48,12 +48,36 @@ export type LeafCluster = {
   bias: number;
 };
 
+/**
+ * Surface root / buttress rib in local tree space.
+ * Rendered as a tapered triangular-section wedge from the bole surface
+ * outward along the ground.
+ */
 export type RootFlare = {
   angle: number;
+  /** Horizontal reach beyond the bole surface. */
   length: number;
+  /** Thick radius where the root meets the trunk. */
   radius: number;
-  scaleZ: number;
+  /** Lateral squash (smaller = flatter buttress plate). */
+  flatten: number;
+  /** Attach height on the bole. */
+  lift: number;
 };
+
+/** One tapered, ground-hugging section of a winding surface root. */
+export type RootRunSegment = {
+  ax: number;
+  ay: number;
+  az: number;
+  bx: number;
+  by: number;
+  bz: number;
+  radius: number;
+};
+
+/** Matches createRippledTrunkGeometry bottom radius — roots must attach outside this. */
+export const TRUNK_BASE_RADIUS = 0.56;
 
 /** Local-space tree description (origin at ground, Y up). */
 export type TreeDescription = {
@@ -61,6 +85,7 @@ export type TreeDescription = {
   clusters: LeafCluster[];
   tipClusters: LeafCluster[];
   roots: RootFlare[];
+  rootSegments: RootRunSegment[];
   trunkHeight: number;
 };
 
@@ -131,15 +156,14 @@ export function describeTree(random: () => number, params: Partial<TreeParams> =
     addBranch(sway, next, THREE.MathUtils.lerp(0.19, 0.035, y / treeTop) * canopyWidth);
   }
 
-  // Three rising scaffold forks turn the single pole into a mature trunk crown.
-  // They reuse the shared low-poly branch mesh, so the stronger silhouette adds
-  // instances but no draw calls or unique geometry.
+  // Rising scaffold forks turn the single pole into a mature trunk crown.
+  // Extra forks + side splits sell a denser branching silhouette.
   const forkBaseY = 5.86 * canopyHeight;
-  for (let fork = 0; fork < 4; fork += 1) {
+  for (let fork = 0; fork < 7; fork += 1) {
     const angle = fork * GOLDEN_ANGLE + range(random, -0.28, 0.28);
     let previous = new THREE.Vector3(
       Math.cos(angle) * 0.08 * canopyWidth,
-      forkBaseY + fork * 0.32 * canopyHeight,
+      forkBaseY + fork * 0.28 * canopyHeight,
       Math.sin(angle) * 0.08 * canopyWidth,
     );
     for (let segment = 1; segment <= 6; segment += 1) {
@@ -158,6 +182,32 @@ export function describeTree(random: () => number, params: Partial<TreeParams> =
           range(random, 0.32, 0.48) * canopyWidth,
           segment === 6 ? 1.22 : 1.02,
         );
+      }
+      // Mid-scaffold Y-split so the crown reads as repeatedly forked wood.
+      if (segment === 3 || (segment === 5 && random() < 0.7)) {
+        const splitAngle = turn + range(random, 0.55, 1.05) * (random() < 0.5 ? 1 : -1);
+        const splitLen = reach * range(random, 0.28, 0.48);
+        const splitTip = point.clone().add(
+          new THREE.Vector3(
+            Math.cos(splitAngle) * splitLen,
+            range(random, 0.35, 0.95) * canopyHeight,
+            Math.sin(splitAngle) * splitLen,
+          ),
+        );
+        addBranch(point, splitTip, THREE.MathUtils.lerp(0.07, 0.024, f) * canopyWidth);
+        addCluster(splitTip, range(random, 0.28, 0.42) * canopyWidth, 1.12);
+        if (random() < 0.55) {
+          const tipAngle = splitAngle + range(random, -0.8, 0.8);
+          const tip = splitTip.clone().add(
+            new THREE.Vector3(
+              Math.cos(tipAngle) * splitLen * range(random, 0.35, 0.6),
+              range(random, 0.12, 0.42) * canopyHeight,
+              Math.sin(tipAngle) * splitLen * range(random, 0.35, 0.6),
+            ),
+          );
+          addBranch(splitTip, tip, range(random, 0.016, 0.028) * canopyWidth);
+          addCluster(tip, range(random, 0.24, 0.38) * canopyWidth, 1.15);
+        }
       }
       previous = point;
     }
@@ -195,13 +245,15 @@ export function describeTree(random: () => number, params: Partial<TreeParams> =
       }
     }
 
-    // Secondary twigs — the depth that sells a real canopy instead of a green blob.
+    // Secondary / tertiary twigs — repeated forks so limbs read as branching wood.
     for (let s = 1; s <= primaryPoints.length; s += 1) {
       const anchor = primaryPoints[s - 1];
-      const sideCount = s === 1 || s === primaryPoints.length ? 2 : 3;
+      const sideCount = s === 1 ? 3 : s === primaryPoints.length ? 4 : 4;
       for (let side = 0; side < sideCount; side += 1) {
-        const sideAngle = angle + (side % 2 ? 1 : -1) * range(random, 0.62, 1.05) + range(random, -0.18, 0.18);
-        const twigLength = length * range(random, 0.14, 0.28) * (1 - s * 0.06);
+        const sideSign = side % 2 ? 1 : -1;
+        const sideAngle =
+          angle + sideSign * range(random, 0.55, 1.15) + range(random, -0.22, 0.22) + Math.floor(side / 2) * 0.35;
+        const twigLength = length * range(random, 0.14, 0.3) * (1 - s * 0.05);
         const tip = anchor.clone().add(
           new THREE.Vector3(
             Math.cos(sideAngle) * twigLength,
@@ -213,21 +265,58 @@ export function describeTree(random: () => number, params: Partial<TreeParams> =
         addCluster(anchor.clone().lerp(tip, 0.5), range(random, 0.24, 0.36) * canopyWidth, 0.9);
         addCluster(tip, range(random, 0.28, 0.45) * canopyWidth, 1.18);
 
-        // A short tertiary fork fills the outer crown without adding another
-        // mesh type. It starts only on the upper/outer primary segments.
-        if (s >= 2 && side === 0) {
-          const tertiaryAngle = sideAngle + range(random, -0.72, 0.72);
-          const tertiaryLength = twigLength * range(random, 0.42, 0.68);
+        // Tertiary forks on most twigs; occasionally a short quaternary tip.
+        if (s >= 1 && (side < 3 || random() < 0.55)) {
+          const tertiaryAngle = sideAngle + range(random, -0.85, 0.85);
+          const tertiaryLength = twigLength * range(random, 0.4, 0.72);
           const tertiaryTip = tip.clone().add(
             new THREE.Vector3(
               Math.cos(tertiaryAngle) * tertiaryLength,
-              range(random, 0.12, 0.32) * canopyHeight,
+              range(random, 0.1, 0.34) * canopyHeight,
               Math.sin(tertiaryAngle) * tertiaryLength,
             ),
           );
           addBranch(tip, tertiaryTip, range(random, 0.016, 0.028) * canopyWidth);
           addCluster(tertiaryTip, range(random, 0.26, 0.4) * canopyWidth, 1.1);
+
+          if (random() < 0.45) {
+            const quatAngle = tertiaryAngle + range(random, -0.9, 0.9);
+            const quatTip = tertiaryTip.clone().add(
+              new THREE.Vector3(
+                Math.cos(quatAngle) * tertiaryLength * range(random, 0.35, 0.62),
+                range(random, 0.08, 0.26) * canopyHeight,
+                Math.sin(quatAngle) * tertiaryLength * range(random, 0.35, 0.62),
+              ),
+            );
+            addBranch(tertiaryTip, quatTip, range(random, 0.012, 0.022) * canopyWidth);
+            addCluster(quatTip, range(random, 0.22, 0.34) * canopyWidth, 1.08);
+          }
         }
+      }
+
+      // Primary mid-limb bifurcation: split the growing limb into two leads.
+      if (s >= 2 && s <= primaryPoints.length - 1 && random() < 0.55) {
+        const forkAngle = angle + range(random, 0.7, 1.25) * (random() < 0.5 ? 1 : -1);
+        const forkLen = length * range(random, 0.18, 0.32) * (1 - s * 0.04);
+        const forkTip = anchor.clone().add(
+          new THREE.Vector3(
+            Math.cos(forkAngle) * forkLen,
+            range(random, 0.2, 0.55) * canopyHeight,
+            Math.sin(forkAngle) * forkLen,
+          ),
+        );
+        addBranch(anchor, forkTip, range(random, 0.03, 0.05) * canopyWidth);
+        addCluster(forkTip, range(random, 0.28, 0.42) * canopyWidth, 1.14);
+        const childAngle = forkAngle + range(random, -0.7, 0.7);
+        const childTip = forkTip.clone().add(
+          new THREE.Vector3(
+            Math.cos(childAngle) * forkLen * range(random, 0.4, 0.7),
+            range(random, 0.1, 0.3) * canopyHeight,
+            Math.sin(childAngle) * forkLen * range(random, 0.4, 0.7),
+          ),
+        );
+        addBranch(forkTip, childTip, range(random, 0.016, 0.03) * canopyWidth);
+        addCluster(childTip, range(random, 0.24, 0.38) * canopyWidth, 1.12);
       }
     }
   }
@@ -246,26 +335,76 @@ export function describeTree(random: () => number, params: Partial<TreeParams> =
     return radial > envelope * 0.58 || cluster.y > 10.3 * canopyHeight;
   });
 
+  // Short broad flares fuse the trunk into the ground; separate tapered chains
+  // continue selected flares into crooked, branching old-growth runners.
   const roots: RootFlare[] = [];
+  const rootSegments: RootRunSegment[] = [];
   for (let i = 0; i < rootCount; i += 1) {
+    const dominant = random() < 0.38;
+    const angle = (i / rootCount) * Math.PI * 2 + range(random, -0.62, 0.62);
+    const flareLength = range(random, 0.48, 0.82) * canopyWidth;
+    const flareRadius = range(random, 0.25, 0.42) * canopyWidth;
     roots.push({
-      angle: (i / rootCount) * Math.PI * 2 + range(random, -0.15, 0.15),
-      length: range(random, 0.65, 1.05) * canopyHeight,
-      radius: range(random, 0.07, 0.12) * canopyWidth,
-      scaleZ: range(random, 0.7, 1.4),
+      angle,
+      length: flareLength,
+      radius: flareRadius,
+      flatten: range(random, 0.42, 0.92),
+      lift: range(random, 0.52, 0.86),
     });
+
+    if (!dominant && random() > 0.42) continue;
+    const sectionCount = dominant ? 4 : 2;
+    const runnerLength = range(random, dominant ? 1.7 : 0.7, dominant ? 2.8 : 1.35) * canopyWidth;
+    let runnerAngle = angle + range(random, -0.16, 0.16);
+    let px = Math.cos(angle) * (TRUNK_BASE_RADIUS * 0.58 + flareLength * 0.78);
+    let pz = Math.sin(angle) * (TRUNK_BASE_RADIUS * 0.58 + flareLength * 0.78);
+    let py = range(random, 0.006, 0.018);
+    const runnerPoints: THREE.Vector3[] = [new THREE.Vector3(px, py, pz)];
+    for (let section = 0; section < sectionCount; section += 1) {
+      runnerAngle += range(random, -0.28, 0.28);
+      const step = (runnerLength / sectionCount) * range(random, 0.84, 1.16);
+      px += Math.cos(runnerAngle) * step;
+      pz += Math.sin(runnerAngle) * step;
+      py = Math.max(0.004, py + range(random, -0.008, 0.009));
+      const next = new THREE.Vector3(px, py, pz);
+      const previous = runnerPoints[runnerPoints.length - 1];
+      rootSegments.push({
+        ax: previous.x, ay: previous.y, az: previous.z,
+        bx: next.x, by: next.y, bz: next.z,
+        radius: flareRadius * THREE.MathUtils.lerp(0.48, 0.16, (section + 0.5) / sectionCount),
+      });
+      runnerPoints.push(next);
+    }
+
+    // A short side root on some dominant chains breaks the radial-star read.
+    if (dominant && runnerPoints.length > 2 && random() < 0.72) {
+      const fork = runnerPoints[1];
+      const forkAngle = runnerAngle + (random() < 0.5 ? -1 : 1) * range(random, 0.52, 0.9);
+      const forkLength = range(random, 0.55, 1.05) * canopyWidth;
+      const forkMid = fork.clone().add(new THREE.Vector3(Math.cos(forkAngle) * forkLength * 0.55, -0.004, Math.sin(forkAngle) * forkLength * 0.55));
+      const forkTipAngle = forkAngle + range(random, -0.18, 0.18);
+      const forkTip = fork.clone().add(new THREE.Vector3(Math.cos(forkTipAngle) * forkLength, -0.008, Math.sin(forkTipAngle) * forkLength));
+      forkMid.y = Math.max(0.004, forkMid.y);
+      forkTip.y = Math.max(0.003, forkTip.y);
+      rootSegments.push(
+        { ax: fork.x, ay: fork.y, az: fork.z, bx: forkMid.x, by: forkMid.y, bz: forkMid.z, radius: flareRadius * 0.24 },
+        { ax: forkMid.x, ay: forkMid.y, az: forkMid.z, bx: forkTip.x, by: forkTip.y, bz: forkTip.z, radius: flareRadius * 0.15 },
+      );
+    }
   }
 
-  return { branches, clusters, tipClusters, roots, trunkHeight };
+  return { branches, clusters, tipClusters, roots, rootSegments, trunkHeight };
 }
 
-export function createRippledTrunkGeometry(height: number, radial = 14, heightSegments = 12) {
+export function createRippledTrunkGeometry(height: number, radial = 7, heightSegments = 6) {
   const geometry = new THREE.CylinderGeometry(0.32, 0.56, height, radial, heightSegments, false);
   const position = geometry.attributes.position;
   for (let i = 0; i < position.count; i += 1) {
     const y = position.getY(i);
     const angle = Math.atan2(position.getZ(i), position.getX(i));
-    const ripple = 1 + Math.sin(angle * 7 + y * 1.7) * 0.035 + Math.sin(angle * 3 - y * 2.8) * 0.018;
+    // Lower-frequency lobes survive the seven-sided silhouette without aliasing
+    // into a single skewed facet, retaining the mature irregular bole shape.
+    const ripple = 1 + Math.sin(angle * 3 + y * 1.7) * 0.035 + Math.sin(angle * 2 - y * 2.8) * 0.018;
     position.setX(i, position.getX(i) * ripple);
     position.setZ(i, position.getZ(i) * ripple);
   }

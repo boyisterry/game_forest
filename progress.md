@@ -143,3 +143,106 @@ Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可�
 - Kept the existing world fog as the ground-level depth layer so trees and mountains blend naturally into the rendered horizon.
 - Spring and autumn low-view browser checks confirm distinct seasonal sky tones, a continuous fog horizon, and no geometry clipping.
 - Production build and 4/4 regression tests pass; the dedicated bundled game client remains unavailable because its own Playwright dependency is missing.
+
+## Current iteration: weighty lawn and dirt surfaces
+
+- Rebuilt the grass tile around broad raised hummocks, aligned blade relief, sparse soil pockets, stronger normals, and a height-derived roughness map.
+- Rebuilt the dirt path as a width-aware PBR surface with damp wheel channels, a raised center ridge, transverse clods, and embedded stones.
+- Corrected the road texture's world-space aspect ratio to roughly four-meter tiles; clods stay round instead of stretching into wood grain, while two seamless longitudinal ruts remain continuous.
+- Low-view QA caught and corrected an initial longitudinal stretch that read as wood grain.
+- Final low-view QA shows compacted dirt, readable ruts/ridge/pebbles, layered turf relief, and no browser warnings or errors; production build and 5/5 regression tests pass.
+
+## Current iteration: lower-poly tree wood
+
+- Reduced the shared near-tree trunk from 12 radial × 10 height segments (264 triangles) to 7 × 6 (98 triangles), a 62.9% trunk reduction.
+- Reduced every near-tree branch cylinder from six sides / 24 triangles to three sides / 12 triangles, a 50% per-branch reduction.
+- Kept all 30 primary limbs, five limb segments, scaffold forks, secondary/tertiary branches, canopy settings, and leaf counts unchanged.
+- Reduced far-geometry trunks from six to four sides and sampled far branches from five to three sides.
+- Low/overview browser QA confirms mature trunk silhouettes remain rounded under smooth shading, root collars stay connected, and the dense canopy hides branch facets at normal play distance.
+- Near/far transition remains visually coherent with no browser warnings or errors; production build and 6/6 regression tests pass.
+
+## Current iteration: detailed PBR bark
+
+- Replaced the unseeded color-only bark with a deterministic 512px PBR set: layered color, aligned height-derived normals, and roughness variation.
+- Built broad raised plates, deep longitudinal fissures with lifted rims, short cross-checks, fine pores, and restrained lichen into the same surface structure.
+- Applied the shared bark maps to trunks, every branch, roots/buttresses, and far-geometry wood without adding triangles or draw calls.
+- Deduplicated shared texture disposal so the three bark maps occupy one shared material set rather than being cloned per wood layer.
+- Roadside and deep-forest low-view QA confirms the bark reads as layered vertical plates with dark recessed fissures, restrained highlights, and consistent roots at normal play distance.
+- Near and far trunks now share the same wood language; browser logs are clean and production build plus 7/7 regression tests pass.
+
+## Current iteration: grounded buttress roots
+
+- Replaced the radial horizontal cones that formed dark star-shaped spikes with a purpose-built 14-triangle surface-root wedge.
+- Four tapered cross-sections now create a broad raised root base, two gradual transitions, and a low tip that settles into the terrain.
+- Shortened the excessive root reach, widened the attachment, lowered the lift, and matched the root collar to the seven-sided trunk.
+- Root UVs now carry the same color/normal/roughness bark surface as trunks and branches.
+- Enabled received shadows on the decimated branch layer so the low-cost wood still reads with canopy depth.
+- Production build and 8/8 regression tests pass; a production-server smoke request returns the complete map studio shell. The optional Playwright screenshot client is unavailable in this workspace because its Playwright package is not installed.
+
+## Current iteration: reference-driven old-growth roots
+
+- Reworked the root silhouette from a thin wedge into a 43-triangle, five-point arched section with six tapered rings, subtle vertical undulation, and a visible lateral bend.
+- Raised and widened the shared root neck to flow continuously from the straight bole into the surface roots.
+- Increased root ribs from seven to nine, but split their lengths into compact buttress ribs and roughly 30% long dominant runners so the base no longer reads as a regular star.
+- Closed the runner tips and retained the shared bark color/normal/roughness maps; no holes, missing faces, or material discontinuity were visible in the low-view check.
+- In-app low-view QA first caught the over-regular star skirt; the second pass confirmed asymmetric short/long roots, grounded tips, and continuous trunk joins. Browser warnings/errors are empty; production build plus 8/8 regression tests pass.
+
+## Current iteration: structural root-chain replacement
+
+- Confirmed the prior visual limitation: all roots were still rotations/scales of one flare mesh, so parameter changes could not remove the radial-star structure.
+- Split the model into seven short trunk flares plus a new `rootSegments` chain layer; dominant roots use four tapered links, secondary roots use two, and selected dominant roots grow a two-link side fork.
+- Replaced round cylinders with a dedicated 14-triangle flat-bottomed/domed runner link so surface roots sit above the turf without black half-buried tubes.
+- Corrected runner control points from the former cylinder-center height to the new ground baseline and added restrained root-material fill light.
+- Repeated low-view QA through the initial road and a deep-forest minimap jump. The final image shows visible bends, unequal reach, side forks, grounded links, and continuous flare joins; browser warnings/errors are empty and production build plus 8/8 tests pass.
+
+## Current iteration: ride mode with arcade moto dynamics + stone kicking
+
+- Added a toggleable ride mode on the existing ForestScene: self-built arcade motorcycle dynamics (no physics engine), chase camera, and kinematic collision.
+- `input.ts`: window-level keyboard state (W/↑ throttle, Shift boost, S/↓ brake, Space hard brake with press edge, A/D + arrows steer, Esc exit); ignores form fields, preventDefaults Space/arrows, clears keys on blur.
+- `motorcycle.ts`: pure-math single-track model — longitudinal force balance (throttle/boost/rolling+air drag/brake/hard brake), bicycle-model yaw capped by a ~0.7 g lateral-grip limit, lean springing toward the physical steady bank atan(a_lat/g) (max ~31°), hard-brake nod, small-inset world clamp.
+- `collision.ts`: CollisionWorld synced with streamed chunks. Trees and delivery posts are static circles (pushout + speed scrub + tangent slide). Stones are dynamic bodies with mass ∝ r³: kicks use RELATIVE closing speed and momentum-consistent transfer, so pebbles scatter, boulders barely budge, and a rolling stone can be re-struck; kicked stones roll (angle = distance/radius), decelerate on grass, stop on trees/bounds, and write their pose back into the chunk InstancedMesh.
+- Data exposure: `treeModels.ts` precomputes per-template trunkRadius from the wood geometry's base band; `forestAssets.ts` emits per-chunk tree circles + stone bodies (with initial TRS and the stone InstancedMesh); `ChunkManager.loadedEntries()` feeds the collision world each frame.
+- `chaseCamera.ts`: smoothed follow cam with speed pullback and a small boost FOV kick.
+- ForestScene: `setDriveMode` (guards unloaded rider, disables Orbit, focuses canvas, restores Orbit target on exit), unified focus (drive=rider / edit=Orbit target) feeding chunks/farField/shadow/sky/minimap, far-field hysteresis in ride mode (pending<6) so distant forest doesn't flicker at speed, minimap jump ignored while driving, build() exits drive mode, `getTextState` exposes drive state, `advanceForTest` steps the dynamics for browser QA.
+- MapStudio: 骑行模式 toggle (synced via scene listener so Esc exits update the UI), key hint pill, drive-mode CSS.
+
+## Validation
+
+- New `tests/motorcycle.test.mjs` runs the TS modules directly under `node --experimental-strip-types --test`: 8 behavior tests (cruise/boost top speed, coasting, hard<brake<coast stopping distances, lean sign + no turn at standstill, tree block without penetration, slow-nudge vs fast-launch stone distances, world clamp) — all pass.
+- Two pre-existing stale tests surfaced and were fixed: `roots.receiveShadow = true` assertion had no matching source (added the line), and the old 3D-grass assertions were invalidated by the intentional texture-only ground cover refactor (updated the test to the current stone/texture reality).
+- Full `npm test` (production build + SSR test + 8 regex tests + 8 logic tests): 16/16 pass. ESLint clean on all touched files.
+
+## TODO / next ideas
+
+- Wheel-spin / handlebar-turn animation if the rider GLB exposes separate wheel nodes.
+- Stump/branch prop colliders; camera-vs-tree occlusion handling.
+- If obstacles/jumps/multiplayer determinism ever appear, re-evaluate Rapier in a hybrid role (engine for contacts, self-built drive/lean).
+
+## Current iteration: Tripo dawn-redwood texture refinement
+
+- Audited the 41MB source GLB: 807,585 vertices, 1,427,015 faces, one material, and only one embedded 2048px/407KB JPEG base-color map; no normal or metallic-roughness texture existed.
+- Preserved the original mesh and UVs while remapping the oversaturated magenta-red bark to layered red-brown and the muddy yellow-olive foliage to deeper natural needle greens.
+- Generated UV-matched 2048px tangent normal and ORM maps, bound them through standard glTF `normalTexture` and `metallicRoughnessTexture`, and kept metallic at zero.
+- Added `scripts/refine-glb-textures.mjs` as a repeatable GLB repacking workflow; the source file remains untouched and the refined output is written with a `_textured.glb` suffix.
+- Assimp re-import validates three embedded textures with unchanged geometry counts. Side-by-side WebGL QA confirms improved color separation, bark/foliage relief, and reduced plastic sheen with no browser warnings or errors.
+
+## Current iteration: procedural ride-mode audio
+
+- Added a zero-asset, no-library Web Audio engine for the motorcycle ride mode: electric-motor drone, speed-coupled wind, resonant tire screech for drift/hard-brake slip, soft brake drag, and short impact bursts for stone kicks and tree rams.
+- `audioEngine.ts`: a fixed node graph (three motor oscillators through a speed-coupled lowpass, pink-noise wind through a rising lowpass, a bandpass screech with a warbling LFO, a lowpassed brake drag) feeding a `DynamicsCompressorNode` → master gain → destination. Continuous voices are modulated each frame with `setTargetAtTime` (no zipper noise, no per-frame node churn); impacts build a short one-shot graph per event with a 40 ms retrigger throttle. The context is created lazily on entering ride mode (a user gesture), voices ramp to silence and suspend on exit. The pure parameter math (`motorFundamental`/`motorBusGain`/`windGain`/`skidAmount`/`brakeGain`) is exported for headless testing.
+- `motorcycle.ts`: exposed the already-computed signed `slip` (nose-vs-travel angle) on `MotoPose` — ~0 while gripping, grows while drifting — as the screech signal.
+- `collision.ts`: optional `onKick`/`onTreeHit` callbacks delivering a 0..1 intensity, fired from `collideStone`/`collideStatic`. Undefined-safe, so existing tests are unaffected.
+- `ForestScene.ts`: owns an `AudioEngine`, wires the collision callbacks to impact bursts in the constructor, calls `init()/start()` on drive enter and `stop()` on exit, retargets voices from the drive branch each frame, exposes `setAudioMuted/isAudioMuted`, and disposes the engine on teardown.
+- `MapStudio.tsx` + i18n: a mute/unmute toggle in the play-mode action bar (green when sound is on), wired to `scene.setAudioMuted`, with bilingual labels.
+
+### Validation
+
+- New `tests/audio.test.mjs` runs the pure mapping functions under `node --experimental-strip-types`: motor pitch/level rise with speed, wind silent at low speed and whooshing near the top, skid silent while gripping and opening up while drifting or under a high-speed hard brake, brake drag scaling with input — all pass.
+- Full `npm test` (build + SSR + 8 regex regression + 8 moto logic + 5 audio logic): 24/24 pass. ESLint clean on every audio-touched file.
+- Note: `app/components/MapStudio.tsx` still carries 3 pre-existing lint errors from the earlier (uncommitted) locale/i18n refactor (`react-hooks/refs` on the `localeRef`/`playModeRef` writes during render, and `react-hooks/set-state-in-effect` on the mount-time `setLocale`). They predate this audio work and live in hydration-sensitive code, so they are left untouched here for a dedicated follow-up.
+
+### TODO / next ideas
+
+- In-browser QA of the feel: motor whine tracking speed, wind whoosh near top speed, drift screech, and kick/impact weight. Tune the constants at the top of `audioEngine.ts` if needed.
+- Optional one-shot "startup whirr" sample layered on drive enter, and a volume slider next to the mute toggle.
+- Resolve the MapStudio locale-sync lint errors (refs → effects; mount locale read via a hydration-safe pattern) as a separate change.

@@ -11,3 +11,13 @@ export function createRandom(seed: number) {
 
 export const range = (random: () => number, min: number, max: number) =>
   min + (max - min) * random();
+
+/** Standard normal via Box–Muller; mean/std optional. */
+export function gaussian(random: () => number, mean = 0, stdDev = 1) {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = random();
+  while (v === 0) v = random();
+  const mag = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  return mean + mag * stdDev;
+}

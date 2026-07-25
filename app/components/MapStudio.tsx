@@ -3,6 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_SETTINGS, type MapSettings, type Season } from "../lib/map/types";
 import { ForestScene, type SceneStats } from "../lib/map/ForestScene";
+import {
+  COPY,
+  DEFAULT_LOCALE,
+  readStoredLocale,
+  writeStoredLocale,
+  type Locale,
+} from "../lib/i18n";
+import { DriveGauge } from "./DriveGauge";
 
 declare global {
   interface Window {
@@ -11,7 +19,13 @@ declare global {
   }
 }
 
-const SEASON_LABELS: Record<Season, string> = { spring: "新绿", summer: "盛夏", autumn: "金秋" };
+type DriveHud = {
+  speedKmh: number;
+  horsepower: number;
+  powerNorm: number;
+  reverse: boolean;
+  drifting: boolean;
+};
 
 export function MapStudio() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -23,15 +37,80 @@ export function MapStudio() {
   const [stats, setStats] = useState<SceneStats>({ trees: 0, grass: 0, stones: 0, deliveryStops: 0, drawCalls: 0, chunks: 0 });
   const [panelOpen, setPanelOpen] = useState(true);
   const [riderVisible, setRiderVisible] = useState(true);
-  const [status, setStatus] = useState("正在唤醒森林…");
+  const [playMode, setPlayMode] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(false);
+  const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
+  const [status, setStatus] = useState(COPY[DEFAULT_LOCALE].statusWaking);
+  const [driveHud, setDriveHud] = useState<DriveHud>({
+    speedKmh: 0,
+    horsepower: 0,
+    powerNorm: 0,
+    reverse: false,
+    drifting: false,
+  });
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
+  const playModeRef = useRef(playMode);
+  playModeRef.current = playMode;
+  const t = COPY[locale];
+
+  useEffect(() => {
+    const stored = readStoredLocale();
+    setLocale(stored);
+    setStatus(COPY[stored].statusWaking);
+  }, []);
+
+  useEffect(() => {
+    writeStoredLocale(locale);
+    if (typeof document !== "undefined") {
+      document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+    }
+    setStatus((current) => {
+      // Refresh mode-bound status lines when language flips.
+      if (playModeRef.current) return COPY[locale].statusPlay;
+      if (
+        current === COPY.en.statusWaking ||
+        current === COPY.zh.statusWaking ||
+        current === COPY.en.statusWorkshop ||
+        current === COPY.zh.statusWorkshop ||
+        current === COPY.en.statusPlay ||
+        current === COPY.zh.statusPlay ||
+        current.startsWith("Streaming") ||
+        current.startsWith("流式加载")
+      ) {
+        return playModeRef.current ? COPY[locale].statusPlay : COPY[locale].statusWorkshop;
+      }
+      return current;
+    });
+  }, [locale]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
     const scene = new ForestScene(canvasRef.current, settings, (next) => {
       setStats(next);
-      setStatus(`流式加载 · ${next.chunks} 区块在场 · 拖拽巡视，点击小地图跳跃`);
+      setStatus((current) => {
+        const copy = COPY[localeRef.current];
+        if (current === copy.statusPlay || current === copy.statusEnterPlay || current === copy.statusRiderLoading) {
+          return current;
+        }
+        if (playModeRef.current) return copy.statusPlay;
+        return copy.statusStreaming(next.chunks);
+      });
     });
     sceneRef.current = scene;
+    scene.setDriveModeListener((on) => {
+      setPlayMode(on);
+      const copy = COPY[localeRef.current];
+      if (on) {
+        setRiderVisible(true);
+        setPanelOpen(false);
+        setStatus(copy.statusPlay);
+      } else {
+        setPanelOpen(true);
+        setStatus(copy.statusWorkshop);
+      }
+      requestAnimationFrame(() => scene.resize());
+    });
     const renderHook = () => JSON.stringify(scene.getTextState());
     const advanceHook = (ms: number) => scene.advanceForTest(ms);
     window.render_game_to_text = renderHook;
@@ -56,11 +135,26 @@ export function MapStudio() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!playMode) {
+      setDriveHud({ speedKmh: 0, horsepower: 0, powerNorm: 0, reverse: false, drifting: false });
+      return;
+    }
+    let frame = 0;
+    const tick = () => {
+      const hud = sceneRef.current?.getDriveHud();
+      if (hud) setDriveHud(hud);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [playMode]);
+
   const update = <K extends keyof MapSettings>(key: K, value: MapSettings[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
 
   const generate = (next = draft) => {
-    setStatus("正在铺设林间小路…");
+    setStatus(t.statusLaying);
     setSettings(next);
     setDraft(next);
     requestAnimationFrame(() => sceneRef.current?.build(next));
@@ -89,105 +183,213 @@ export function MapStudio() {
       if (!parsed.settings || typeof parsed.settings.seed !== "number") throw new Error("invalid map");
       generate({ ...DEFAULT_SETTINGS, ...parsed.settings });
     } catch {
-      setStatus("无法读取地图，请选择由本工具导出的 JSON 文件");
+      setStatus(t.statusImportFail);
     }
   };
 
+  const enterPlay = () => {
+    setStatus(sceneRef.current?.isRiderReady() ? t.statusEnterPlay : t.statusRiderLoading);
+    setPanelOpen(false);
+    sceneRef.current?.setDriveMode(true);
+  };
+
+  const enterWorkshop = () => {
+    sceneRef.current?.setDriveMode(false);
+  };
+
+  const toggleAudio = () => {
+    setAudioMuted((current) => {
+      const next = !current;
+      sceneRef.current?.setAudioMuted(next);
+      return next;
+    });
+  };
+
+  const setLang = (next: Locale) => {
+    if (next === locale) return;
+    setLocale(next);
+  };
+
+  const seasonLabel = (season: Season) =>
+    season === "spring" ? t.seasonSpring : season === "summer" ? t.seasonSummer : t.seasonAutumn;
+
   return (
-    <main className="studio-shell">
-      <a className="skip-link" href="#map-controls">跳到地图参数</a>
-      <section className="viewport" aria-label="森林地图三维预览">
+    <main className={`studio-shell ${playMode ? "play-mode" : "workshop-mode"}`}>
+      <a className="skip-link" href="#map-controls">{t.skipLink}</a>
+      <section className="viewport" aria-label={playMode ? t.viewportPlay : t.viewportWorkshop}>
         <canvas ref={canvasRef} className="scene-canvas" tabIndex={0} />
         <div className="atmosphere" aria-hidden="true" />
 
-        <header className="brand-lockup">
+        <header className="brand-lockup" aria-label="Rabbit">
           <div className="brand-mark">兔</div>
-          <div>
-            <p>FOREST COURIER · WORLD LAB</p>
-            <h1>林间速递</h1>
-          </div>
+          <p className="brand-version">{t.brandVersion}</p>
         </header>
 
-        <div className="scene-stats" aria-live="polite">
-          <span><b>{stats.trees}</b> 棵树</span>
-          <span><b>{stats.grass}</b> 簇草</span>
-          <span><b>{stats.stones}</b> 块石</span>
-          <span><b>{stats.chunks}</b> 区块</span>
+        <div className="mode-switch" role="tablist" aria-label={t.modeSwitch}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!playMode}
+            className={!playMode ? "active" : ""}
+            onClick={enterWorkshop}
+          >
+            {t.workshop}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={playMode}
+            className={playMode ? "active" : ""}
+            onClick={enterPlay}
+          >
+            {t.play}
+          </button>
         </div>
+
+        <div className="lang-switch" role="group" aria-label={t.langSwitch}>
+          <button
+            type="button"
+            className={locale === "en" ? "active" : ""}
+            aria-pressed={locale === "en"}
+            onClick={() => setLang("en")}
+          >
+            {t.langEn}
+          </button>
+          <button
+            type="button"
+            className={locale === "zh" ? "active" : ""}
+            aria-pressed={locale === "zh"}
+            onClick={() => setLang("zh")}
+          >
+            {t.langZh}
+          </button>
+        </div>
+
+        {!playMode && (
+          <div className="scene-stats" aria-live="polite">
+            <span><b>{stats.trees}</b> {t.trees}</span>
+            <span><b>{stats.grass}</b> {t.grass}</span>
+            <span><b>{stats.stones}</b> {t.stones}</span>
+            <span><b>{stats.chunks}</b> {t.chunks}</span>
+          </div>
+        )}
 
         <div className="view-actions">
-          <button type="button" onClick={() => { const next = !riderVisible; setRiderVisible(next); sceneRef.current?.toggleRider(next); }}>
-            {riderVisible ? "隐藏骑手" : "显示骑手"}
-          </button>
-          <button type="button" onClick={() => sceneRef.current?.resetCamera()}>俯瞰视角</button>
-          <button type="button" onClick={() => sceneRef.current?.setUnderstoryCamera()}>林下视角</button>
-          <button className="mobile-panel-button" type="button" onClick={() => setPanelOpen((value) => !value)}>
-            {panelOpen ? "收起参数" : "地图参数"}
-          </button>
+          {playMode ? (
+            <>
+              <button type="button" className="active" onClick={enterWorkshop}>
+                {t.backToWorkshop}
+              </button>
+              <button
+                type="button"
+                className={audioMuted ? "" : "active"}
+                aria-pressed={!audioMuted}
+                onClick={toggleAudio}
+              >
+                {audioMuted ? t.unmute : t.mute}
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="play-cta" onClick={enterPlay}>
+                {t.play}
+              </button>
+              <button type="button" onClick={() => { const next = !riderVisible; setRiderVisible(next); sceneRef.current?.toggleRider(next); }}>
+                {riderVisible ? t.hideRider : t.showRider}
+              </button>
+              <button type="button" onClick={() => sceneRef.current?.resetCamera()}>{t.overviewCam}</button>
+              <button type="button" onClick={() => sceneRef.current?.setUnderstoryCamera()}>{t.understoryCam}</button>
+              <button className="mobile-panel-button" type="button" onClick={() => setPanelOpen((value) => !value)}>
+                {panelOpen ? t.collapseParams : t.mapParams}
+              </button>
+            </>
+          )}
         </div>
 
-        <aside className="minimap-panel" aria-label="世界小地图">
+        <aside className="minimap-panel" aria-label="Minimap">
           <canvas ref={minimapRef} className="minimap-canvas" width={188} height={188} />
-          <p>点击跳跃 · 西南河流 / 东北山脉</p>
+          <p>{playMode ? t.minimapPlay : t.minimapWorkshop}</p>
         </aside>
 
         <div className="status-pill"><i />{status}</div>
-        <div className="route-note">
-          <span>ROUTE 01</span>
-          <p>让每一条弯路，都通向一份温热的包裹。</p>
-        </div>
+        {playMode && (
+          <div className="drive-hint" role="status">
+            {t.driveHint}
+          </div>
+        )}
+        {playMode && (
+          <DriveGauge
+            speedKmh={driveHud.speedKmh}
+            horsepower={driveHud.horsepower}
+            powerNorm={driveHud.powerNorm}
+            reverse={driveHud.reverse}
+            labelSpeed={t.gaugeSpeed}
+            labelHp={t.gaugeHp}
+            labelReverse={t.gaugeReverse}
+          />
+        )}
+        {!playMode && (
+          <div className="route-note">
+            <span>{t.routeLabel}</span>
+            <p>{t.routeNote}</p>
+          </div>
+        )}
       </section>
 
-      <aside id="map-controls" className={`control-panel ${panelOpen ? "open" : ""}`}>
+      <aside id="map-controls" className={`control-panel ${panelOpen && !playMode ? "open" : ""}`} hidden={playMode}>
         <div className="panel-heading">
           <div>
-            <p className="eyebrow">MAP GENERATOR / 01</p>
-            <h2>地图工坊</h2>
+            <p className="eyebrow">{t.panelEyebrow}</p>
+            <h2>{t.panelTitle}</h2>
           </div>
-          <button className="close-panel" type="button" aria-label="收起参数" onClick={() => setPanelOpen(false)}>×</button>
+          <button className="close-panel" type="button" aria-label={t.closePanel} onClick={() => setPanelOpen(false)}>×</button>
         </div>
-        <p className="panel-intro">不规则方形世界；西侧与南侧以河流封边，北侧与东侧以连续山脉封边。</p>
+        <p className="panel-intro">{t.panelIntro}</p>
 
         <section className="control-group">
-          <div className="section-label"><span>世界参数</span><b>01</b></div>
-          <Range label="森林密度" value={draft.forestDensity} min={0.36} max={2.3} step={0.01} display={`${Math.round(draft.forestDensity * 100)}%`} onChange={(v) => update("forestDensity", v)} />
-          <Range label="道路宽度" value={draft.roadWidth} min={2.2} max={5.4} step={0.1} display={`${draft.roadWidth.toFixed(1)}m`} onChange={(v) => update("roadWidth", v)} />
-          <Range label="道路弯曲" value={draft.roadCurves} min={0.12} max={1} step={0.01} display={`${Math.round(draft.roadCurves * 100)}%`} onChange={(v) => update("roadCurves", v)} />
-          <Range label="晨雾浓度" value={draft.fogDensity} min={0.001} max={0.01} step={0.0005} display={draft.fogDensity.toFixed(4)} onChange={(v) => update("fogDensity", v)} />
-          <Range label="配送站点" value={draft.deliveryStops} min={2} max={8} step={1} display={`${draft.deliveryStops} 站`} onChange={(v) => update("deliveryStops", v)} />
+          <div className="section-label"><span>{t.worldParams}</span><b>01</b></div>
+          <Range label={t.forestDensity} value={draft.forestDensity} min={0.36} max={2.3} step={0.01} display={`${Math.round(draft.forestDensity * 100)}%`} onChange={(v) => update("forestDensity", v)} />
+          <Range label={t.roadWidth} value={draft.roadWidth} min={2.2} max={5.4} step={0.1} display={`${draft.roadWidth.toFixed(1)}m`} onChange={(v) => update("roadWidth", v)} />
+          <Range label={t.roadCurves} value={draft.roadCurves} min={0.12} max={1} step={0.01} display={`${Math.round(draft.roadCurves * 100)}%`} onChange={(v) => update("roadCurves", v)} />
+          <Range label={t.fogDensity} value={draft.fogDensity} min={0.001} max={0.01} step={0.0005} display={draft.fogDensity.toFixed(4)} onChange={(v) => update("fogDensity", v)} />
+          <Range label={t.deliveryStops} value={draft.deliveryStops} min={2} max={8} step={1} display={t.stopsUnit(draft.deliveryStops)} onChange={(v) => update("deliveryStops", v)} />
         </section>
 
         <section className="control-group">
-          <div className="section-label"><span>季节色谱</span><b>02</b></div>
+          <div className="section-label"><span>{t.seasonPalette}</span><b>02</b></div>
           <div className="season-grid">
-            {(Object.keys(SEASON_LABELS) as Season[]).map((season) => (
+            {(["spring", "summer", "autumn"] as Season[]).map((season) => (
               <button key={season} className={draft.season === season ? "active" : ""} type="button" onClick={() => update("season", season)}>
-                <i className={`swatch ${season}`} />{SEASON_LABELS[season]}
+                <i className={`swatch ${season}`} />{seasonLabel(season)}
               </button>
             ))}
           </div>
         </section>
 
         <section className="control-group">
-          <div className="section-label"><span>树木微调</span><b>03</b></div>
-          <Range label="叶片密度" value={draft.treeLeafDensity} min={0.5} max={1.35} step={0.01} display={`${Math.round(draft.treeLeafDensity * 100)}%`} onChange={(v) => update("treeLeafDensity", v)} />
-          <Range label="树冠宽度" value={draft.treeCanopyWidth} min={0.75} max={1.3} step={0.01} display={`${draft.treeCanopyWidth.toFixed(2)}×`} onChange={(v) => update("treeCanopyWidth", v)} />
-          <Range label="树木高度" value={draft.treeHeightScale} min={0.8} max={2.8} step={0.05} display={`${draft.treeHeightScale.toFixed(2)}×`} onChange={(v) => update("treeHeightScale", v)} />
+          <div className="section-label"><span>{t.treeTune}</span><b>03</b></div>
+          <Range label={t.leafDensity} value={draft.treeLeafDensity} min={0.5} max={1.35} step={0.01} display={`${Math.round(draft.treeLeafDensity * 100)}%`} onChange={(v) => update("treeLeafDensity", v)} />
+          <Range label={t.canopyWidth} value={draft.treeCanopyWidth} min={0.75} max={1.3} step={0.01} display={`${draft.treeCanopyWidth.toFixed(2)}×`} onChange={(v) => update("treeCanopyWidth", v)} />
+          <Range label={t.treeHeight} value={draft.treeHeightScale} min={0.8} max={2.8} step={0.05} display={`${draft.treeHeightScale.toFixed(2)}×`} onChange={(v) => update("treeHeightScale", v)} />
         </section>
 
         <section className="seed-row">
-          <label htmlFor="seed">地图种子</label>
+          <label htmlFor="seed">{t.mapSeed}</label>
           <div><span>#</span><input id="seed" value={draft.seed} inputMode="numeric" onChange={(event) => update("seed", Number(event.target.value) || 1)} /></div>
         </section>
 
         <div className="primary-actions">
-          <button className="generate-button" type="button" onClick={() => generate()}>生成这片森林 <span>↗</span></button>
-          <button className="dice-button" type="button" aria-label="随机地图" onClick={randomize}>✦</button>
+          <button className="generate-button" type="button" onClick={() => generate()}>{t.generate} <span>↗</span></button>
+          <button className="dice-button" type="button" aria-label={t.randomMap} onClick={randomize}>✦</button>
         </div>
 
+        <button className="play-entry-button" type="button" onClick={enterPlay}>
+          {t.playEntry} <span>→</span>
+        </button>
+
         <div className="file-actions">
-          <button type="button" onClick={exportMap}>导出 JSON</button>
-          <button type="button" onClick={() => importRef.current?.click()}>导入地图</button>
+          <button type="button" onClick={exportMap}>{t.exportJson}</button>
+          <button type="button" onClick={() => importRef.current?.click()}>{t.importMap}</button>
           <input ref={importRef} type="file" accept="application/json" hidden onChange={(event) => importMap(event.target.files?.[0])} />
         </div>
 

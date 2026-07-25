@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "description": "Decimated Tripo forest pack; leaves are 2-face cards.",
+  "assets": [
+    {
+      "file": "tree_large_redwood_a.glb",
+      "bytes": 241592,
+      "vertices": 9033,
+      "faces": 7948,
+      "wood_faces": 7728,
+      "leaf_faces": 220,
+      "leaf_cards": 110,
+      "height": 22.0,
+      "id": "tree_large_redwood_a",
+      "kind": "tree",
+      "seed": 11,
+      "yaw": 0.2
+    },
+    {
+      "file": "tree_large_ancient_a.glb",
+      "bytes": 237948,
+      "vertices": 8886,
+      "faces": 7840,
+      "wood_faces": 7600,
+      "leaf_faces": 240,
+      "leaf_cards": 120,
+      "height": 20.0,
+      "id": "tree_large_ancient_a",
+      "kind": "tree",
+      "seed": 17,
+      "yaw": -0.4
+    },
+    {
+      "file": "tree_large_redwood_b.glb",
+      "bytes": 240484,
+      "vertices": 8980,
+      "faces": 7926,
+      "wood_faces": 7726,
+      "leaf_faces": 200,
+      "leaf_cards": 100,
+      "height": 24.0,
+      "id": "tree_large_redwood_b",
+      "kind": "tree",
+      "seed": 23,
+      "yaw": 1.1
+    },
+    {
+      "file": "tree_medium_redwood_a.glb",
+      "bytes": 238676,
+      "vertices": 8888,
+      "faces": 7898,
+      "wood_faces": 7758,
+      "leaf_faces": 140,
+      "leaf_cards": 70,
+      "height": 13.0,
+      "id": "tree_medium_redwood_a",
+      "kind": "tree",
+      "seed": 31,
+      "yaw": 0.7
+    },
+    {
+      "file": "tree_medium_ancient_a.glb",
+      "bytes": 234576,
+      "vertices": 8728,
+      "faces": 7770,
+      "wood_faces": 7620,
+      "leaf_faces": 150,
+      "leaf_cards": 75,
+      "height": 12.0,
+      "id": "tree_medium_ancient_a",
+      "kind": "tree",
+      "seed": 37,
+      "yaw": -1.0
+    },
+    {
+      "file": "tree_medium_redwood_b.glb",
+      "bytes": 237044,
+      "vertices": 8829,
+      "faces": 7841,
+      "wood_faces": 7711,
+      "leaf_faces": 130,
+      "leaf_cards": 65,
+      "height": 11.5,
+      "id": "tree_medium_redwood_b",
+      "kind": "tree",
+      "seed": 41,
+      "yaw": 2.0
+    },
+    {
+      "file": "tree_small_redwood_a.glb",
+      "bytes": 233884,
+      "vertices": 8692,
+      "faces": 7760,
+      "wood_faces": 7688,
+      "leaf_faces": 72,
+      "leaf_cards": 36,
+      "height": 6.5,
+      "id": "tree_small_redwood_a",
+      "kind": "tree",
+      "seed": 53,
+      "yaw": 0.3
+    },
+    {
+      "file": "tree_small_ancient_a.glb",
+      "bytes": 230440,
+      "vertices": 8528,
+      "faces": 7692,
+      "wood_faces": 7628,
+      "leaf_faces": 64,
+      "leaf_cards": 32,
+      "height": 5.8,
+      "id": "tree_small_ancient_a",
+      "kind": "tree",
+      "seed": 59,
+      "yaw": -1.4
+    },
+    {
+      "file": "branch_redwood_a.glb",
+      "bytes": 124184,
+      "vertices": 4614,
+      "faces": 4059,
+      "wood_faces": 4043,
+      "leaf_faces": 16,
+      "leaf_cards": 8,
+      "height": 3.1866096671636184,
+      "id": "branch_redwood_a",
+      "kind": "branch",
+      "length": 4.5,
+      "seed": 71
+    },
+    {
+      "file": "branch_ancient_a.glb",
+      "bytes": 99736,
+      "vertices": 3686,
+      "faces": 3258,
+      "wood_faces": 3242,
+      "leaf_faces": 16,
+      "leaf_cards": 8,
+      "height": 2.647127005762058,
+      "id": "branch_ancient_a",
+      "kind": "branch",
+      "length": 5.2,
+      "seed": 73
+    },
+    {
+      "file": "branch_redwood_b.glb",
+      "bytes": 124204,
+      "vertices": 4614,
+      "faces": 4059,
+      "wood_faces": 4043,
+      "leaf_faces": 16,
+      "leaf_cards": 8,
+      "height": 2.407660637412512,
+      "id": "branch_redwood_b",
+      "kind": "branch",
+      "length": 3.4,
+      "seed": 79
+    },
+    {
+      "file": "stump_redwood_a.glb",
+      "bytes": 27572,
+      "vertices": 974,
+      "faces": 858,
+      "wood_faces": 854,
+      "leaf_faces": 4,
+      "leaf_cards": 2,
+      "height": 1.4,
+      "id": "stump_redwood_a",
+      "kind": "stump",
+      "seed": 83
+    },
+    {
+      "file": "stump_ancient_a.glb",
+      "bytes": 76152,
+      "vertices": 2749,
+      "faces": 2540,
+      "wood_faces": 2536,
+      "leaf_faces": 4,
+      "leaf_cards": 2,
+      "height": 1.7,
+      "id": "stump_ancient_a",
+      "kind": "stump",
+      "seed": 89
+    },
+    {
+      "file": "shrub_redwood_a.glb",
+      "bytes": 118316,
+      "vertices": 4382,
+      "faces": 3874,
+      "wood_faces": 3778,
+      "leaf_faces": 96,
+      "leaf_cards": 48,
+      "height": 2.2,
+      "id": "shrub_redwood_a",
+      "kind": "shrub",
+      "seed": 97
+    },
+    {
+      "file": "shrub_ancient_a.glb",
+      "bytes": 140564,
+      "vertices": 5181,
+      "faces": 4663,
+      "wood_faces": 4553,
+      "leaf_faces": 110,
+      "leaf_cards": 55,
+      "height": 2.6,
+      "id": "shrub_ancient_a",
+      "kind": "shrub",
+      "seed": 101
+    },
+    {
+      "file": "shrub_redwood_b.glb",
+      "bytes": 118512,
+      "vertices": 4378,
+      "faces": 3896,
+      "wood_faces": 3816,
+      "leaf_faces": 80,
+      "leaf_cards": 40,
+      "height": 1.8,
+      "id": "shrub_redwood_b",
+      "kind": "shrub",
+      "seed": 103
+    }
+  ],
+  "groups": {
+    "tree_large": [
+      "tree_large_redwood_a",
+      "tree_large_ancient_a",
+      "tree_large_redwood_b"
+    ],
+    "tree_medium": [
+      "tree_medium_redwood_a",
+      "tree_medium_ancient_a",
+      "tree_medium_redwood_b"
+    ],
+    "tree_small": [
+      "tree_small_redwood_a",
+      "tree_small_ancient_a"
+    ],
+    "branch": [
+      "branch_redwood_a",
+      "branch_ancient_a",
+      "branch_redwood_b"
+    ],
+    "stump": [
+      "stump_redwood_a",
+      "stump_ancient_a"
+    ],
+    "shrub": [
+      "shrub_redwood_a",
+      "shrub_ancient_a",
+      "shrub_redwood_b"
+    ]
+  }
+}

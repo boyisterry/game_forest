@@ -5,6 +5,7 @@ import {
   type ChunkBuildContext,
   type SharedForestAssets,
 } from "./forestAssets";
+import type { ChunkColliders } from "./collision";
 import {
   CHUNK_SIZE,
   LOAD_RADIUS_CHUNKS,
@@ -22,6 +23,7 @@ type LoadedChunk = {
   grassCount: number;
   stoneCount: number;
   drawCalls: number;
+  colliders: ChunkColliders;
 };
 
 const LOADS_PER_FRAME = 2;
@@ -124,7 +126,15 @@ export class ChunkManager {
       grassCount: built.grassCount,
       stoneCount: built.stoneCount,
       drawCalls: built.drawCalls,
+      colliders: built.colliders,
     });
+  }
+
+  /** Snapshot of loaded chunks' collision data for the ride-mode collision world. */
+  loadedEntries(): Array<{ key: string; colliders: ChunkColliders }> {
+    const out: Array<{ key: string; colliders: ChunkColliders }> = [];
+    for (const [key, chunk] of this.loaded) out.push({ key, colliders: chunk.colliders });
+    return out;
   }
 
   private unload(key: string) {

@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { MapSettings, Season } from "./types";
 import { createRandom, range } from "./random";
-import { createRoadTexture } from "./textures";
+import { createRoadTextures } from "./textures";
 import { ChunkManager } from "./ChunkManager";
 import { Minimap } from "./Minimap";
 import {
@@ -25,6 +25,13 @@ import {
 import { createWorldBoundaries } from "./boundaries";
 import { FarFieldLayer } from "./farField";
 import { ProceduralSky } from "./sky";
+import { loadForestModelPack, disposeForestModelPack, type ForestModelPack } from "./treeModels";
+import { InputController } from "./input";
+import { MotorcycleController, PEAK_HORSEPOWER } from "./motorcycle";
+import { ChaseCamera } from "./chaseCamera";
+import { CollisionWorld } from "./collision";
+import { SkidMarks } from "./skidMarks";
+import { AudioEngine } from "./audioEngine";
 
 export type SceneStats = {
   trees: number;
@@ -65,8 +72,19 @@ export class ForestScene {
   private minimap: Minimap | null = null;
   private farField: FarFieldLayer | null = null;
   private sky: ProceduralSky;
+  private modelPack: ForestModelPack | null = null;
   private lastChunkFocus = "";
   private deliveryStopCount = 0;
+  private driveMode = false;
+  private pendingDrive = false;
+  private input: InputController | null = null;
+  private readonly moto = new MotorcycleController();
+  private readonly chase = new ChaseCamera();
+  private readonly collision = new CollisionWorld();
+  private readonly skids = new SkidMarks();
+  private readonly audio = new AudioEngine();
+  private readonly dummy = new THREE.Object3D();
+  private driveModeListener: ((on: boolean) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, settings: MapSettings, onStats: StatsListener) {
     this.settings = settings;
@@ -89,12 +107,26 @@ export class ForestScene {
     this.controls.target.set(0, 0, -8);
     this.resetCamera();
     this.setupLights();
-    this.world.add(this.staticLayer, this.chunkLayer);
+    this.world.add(this.staticLayer, this.chunkLayer, this.skids.group);
     this.scene.add(this.world);
-    this.build(settings);
     this.loadRider();
+    this.input = new InputController(() => this.setDriveMode(false));
+    // Stone kicks and tree rams feed short impact bursts into the ride audio.
+    this.collision.onKick = (intensity) => this.audio.triggerImpact(intensity);
+    this.collision.onTreeHit = (intensity) => this.audio.triggerImpact(intensity);
     this.resize();
     this.animate();
+    void this.bootstrap(settings);
+  }
+
+  private async bootstrap(settings: MapSettings) {
+    try {
+      this.modelPack = await loadForestModelPack();
+    } catch (error) {
+      console.warn("Forest model pack unavailable, falling back to procedural trees.", error);
+      this.modelPack = null;
+    }
+    this.build(settings);
   }
 
   attachMinimap(canvas: HTMLCanvasElement) {
@@ -117,6 +149,7 @@ export class ForestScene {
     sun.shadow.camera.near = 4;
     sun.shadow.camera.far = 160;
     sun.shadow.bias = -0.00035;
+    sun.shadow.normalBias = 0.04;
     this.sun = sun;
     this.scene.add(sun);
     const rim = new THREE.DirectionalLight(0xa8cda2, 0.78);
@@ -125,8 +158,10 @@ export class ForestScene {
   }
 
   build(settings: MapSettings) {
+    if (this.driveMode) this.setDriveMode(false);
     this.settings = settings;
     this.disposeWorld();
+    this.skids.clear();
     const random = createRandom(settings.seed);
     const palette = SEASONS[settings.season];
     this.scene.background = new THREE.Color(palette.fog);
@@ -138,9 +173,17 @@ export class ForestScene {
 
     this.roadPoints = createWorldRoad(settings.seed, settings.roadCurves);
     const roadIndex = buildRoadIndex(this.roadPoints);
+    const roadTextures = createRoadTextures(settings.seed, this.renderer.capabilities.getMaxAnisotropy());
     const road = new THREE.Mesh(
       makeRibbon(this.roadPoints, settings.roadWidth, 0.012),
-      new THREE.MeshStandardMaterial({ color: 0xd6c49d, map: createRoadTexture(), roughness: 1 }),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: roadTextures.map,
+        normalMap: roadTextures.normalMap,
+        normalScale: new THREE.Vector2(1.35, 1.35),
+        roughnessMap: roadTextures.roughnessMap,
+        roughness: 0.96,
+      }),
     );
     road.receiveShadow = true;
     this.staticLayer.add(road);
@@ -158,6 +201,7 @@ export class ForestScene {
         canopyWidth: settings.treeCanopyWidth,
       },
       settings.seed,
+      this.modelPack,
     );
 
     const roadDistance = (point: THREE.Vector3) => roadIndex.minDistance(point, settings.roadWidth);
@@ -168,6 +212,9 @@ export class ForestScene {
       this.farField = new FarFieldLayer({
         groundMap,
         normalMap: this.shared.groundMaterial.normalMap ?? null,
+        barkMap: this.shared.trunkMaterial.map,
+        barkNormalMap: this.shared.trunkMaterial.normalMap,
+        barkRoughnessMap: this.shared.trunkMaterial.roughnessMap,
         seed: settings.seed,
         canopyColors: palette.leaves,
         canopyWidth: settings.treeCanopyWidth,
@@ -238,6 +285,7 @@ export class ForestScene {
       lantern.castShadow = true;
       group.add(post, lantern);
       points.push({ x: post.position.x, z: post.position.z });
+      this.collision.registerStatic({ x: post.position.x, z: post.position.z, r: 0.4 });
     }
     this.staticLayer.add(group);
     return points;
@@ -257,6 +305,8 @@ export class ForestScene {
       const size = box.getSize(new THREE.Vector3());
       const scale = 2.4 / Math.max(size.y, size.x, size.z, 0.001);
       model.scale.setScalar(scale);
+      // GLB length is along +X; arcade dynamics treat heading 0 as +Z forward.
+      model.rotation.y = -Math.PI / 2;
       box.setFromObject(model);
       const center = box.getCenter(new THREE.Vector3());
       model.position.sub(center);
@@ -265,15 +315,100 @@ export class ForestScene {
       rider.add(model);
       this.rider = rider;
       this.build(this.settings);
+      if (this.pendingDrive) {
+        this.pendingDrive = false;
+        this.setDriveMode(true);
+      }
     });
+  }
+
+  isRiderReady() {
+    return Boolean(this.rider);
   }
 
   toggleRider(visible: boolean) {
     this.riderVisible = visible;
     if (this.rider) this.rider.visible = visible;
+    if (!visible && this.driveMode) this.setDriveMode(false);
+  }
+
+  setDriveMode(on: boolean) {
+    if (on === this.driveMode) {
+      if (!on) this.pendingDrive = false;
+      return;
+    }
+    if (on && !this.rider) {
+      // Enter play as soon as the GLB finishes loading.
+      this.pendingDrive = true;
+      return;
+    }
+    this.pendingDrive = false;
+    this.driveMode = on;
+    if (on) {
+      this.toggleRider(true);
+      this.controls.enabled = false;
+      if (this.rider) {
+        this.moto.reset(this.rider.position.x, this.rider.position.z, this.rider.rotation.y);
+      }
+      this.input?.attach();
+      this.input?.clearVirtual();
+      this.chase.reset();
+      this.chase.attach(this.renderer.domElement);
+      // Entering ride mode is a user gesture, so this is where audio may start.
+      this.audio.init();
+      this.audio.start();
+      // Flush accumulated time so the first ride frame doesn't jump.
+      this.clock.getDelta();
+      this.renderer.domElement.focus?.();
+    } else {
+      this.input?.detach();
+      this.chase.detach();
+      this.audio.stop();
+      this.controls.enabled = true;
+      if (this.rider) {
+        this.controls.target.set(this.rider.position.x, 0, this.rider.position.z);
+        this.controls.update();
+      }
+    }
+    this.driveModeListener?.(on);
+  }
+
+  setDriveModeListener(listener: (on: boolean) => void) {
+    this.driveModeListener = listener;
+  }
+
+  /** Inject drive input for browser QA / tests. */
+  setDriveInput(partial: Parameters<InputController["setVirtual"]>[0]) {
+    this.input?.setVirtual(partial);
+  }
+
+  isDriveMode() {
+    return this.driveMode;
+  }
+
+  setAudioMuted(muted: boolean) {
+    this.audio.setMuted(muted);
+  }
+
+  isAudioMuted() {
+    return this.audio.isMuted();
+  }
+
+  /** Live telemetry for the corner speedometer (km/h + HP). */
+  getDriveHud() {
+    const pose = this.moto.getPose();
+    const speedMs = Math.abs(pose.speed);
+    return {
+      speedKmh: speedMs * 3.6,
+      horsepower: pose.power * PEAK_HORSEPOWER,
+      powerNorm: pose.power,
+      reverse: pose.speed < -0.15,
+      drifting: pose.drifting,
+    };
   }
 
   jumpTo(x: number, z: number) {
+    if (this.driveMode) return; // minimap jump would teleport the rider mid-drive
     const clamped = clampToWorld(x, z, this.settings.seed, 150);
     this.controls.target.set(clamped.x, 0, clamped.z);
     const distances = [
@@ -335,13 +470,23 @@ export class ForestScene {
 
   getTextState() {
     const stats = this.chunks.getStats();
+    const pose = this.moto.getPose();
     return {
-      mode: "map-editor",
+      mode: this.driveMode ? "ride" : "map-editor",
       coordinateSystem: "world origin at map center; +x east/right, +z south/down",
-      cameraFocus: {
-        x: Number(this.controls.target.x.toFixed(1)),
-        z: Number(this.controls.target.z.toFixed(1)),
-      },
+      cameraFocus: this.driveMode
+        ? { x: Number(pose.x.toFixed(1)), z: Number(pose.z.toFixed(1)) }
+        : {
+            x: Number(this.controls.target.x.toFixed(1)),
+            z: Number(this.controls.target.z.toFixed(1)),
+          },
+      drive: this.driveMode
+        ? {
+            speed: Number(pose.speed.toFixed(2)),
+            rider: { x: Number(pose.x.toFixed(1)), z: Number(pose.z.toFixed(1)) },
+            rollingStones: this.collision.activeStoneCount(),
+          }
+        : null,
       streamedForest: {
         focusChunk: stats.focus,
         loadedChunks: stats.loadedKeys,
@@ -361,19 +506,38 @@ export class ForestScene {
 
   advanceForTest(ms: number) {
     const frames = Math.max(1, Math.ceil(ms / (1000 / 60)));
+    const dt = 1 / 60;
     let changed = false;
-    for (let i = 0; i < frames; i += 1) changed = this.chunks.pump() || changed;
+    for (let i = 0; i < frames; i += 1) {
+      if (this.driveMode) {
+        const input = this.input
+          ? this.input.poll()
+          : { throttle: 0, brake: 0, steer: 0, boost: false, hardBrake: false, hardBrakeEdge: false };
+        this.moto.update(dt, input, this.collision, (x, z) => clampToWorld(x, z, this.settings.seed, 5));
+        this.collision.stepStones(dt, (x, z) => clampToWorld(x, z, this.settings.seed, 4));
+        this.collision.writeMatrices(this.dummy);
+        const pose = this.moto.getPose();
+        if (this.rider) {
+          this.rider.position.set(pose.x, 0.012, pose.z);
+          this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
+        }
+        this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
+        this.chase.update(dt, this.camera, pose, input.boost);
+        changed = this.chunks.pump() || changed;
+      } else {
+        changed = this.chunks.pump() || changed;
+      }
+    }
     if (changed) this.publishStats();
-    this.controls.update();
+    if (!this.driveMode) this.controls.update();
     this.sky.follow(this.camera);
     this.renderer.render(this.scene, this.camera);
   }
 
-  private syncShadowRig() {
+  private syncShadowRig(focusX: number, focusZ: number) {
     if (!this.sun) return;
-    const t = this.controls.target;
-    this.sun.position.set(t.x - 28, 48, t.z + 22);
-    this.sun.target.position.copy(t);
+    this.sun.position.set(focusX - 28, 48, focusZ + 22);
+    this.sun.target.position.set(focusX, 0, focusZ);
     this.sun.target.updateMatrixWorld();
     const shadow = this.sun.shadow.camera;
     shadow.left = -70;
@@ -385,26 +549,62 @@ export class ForestScene {
 
   private animate = () => {
     this.animationFrame = requestAnimationFrame(this.animate);
-    this.controls.update();
-    const boundedFocus = clampToWorld(this.controls.target.x, this.controls.target.z, this.settings.seed, 28);
-    const correctionX = boundedFocus.x - this.controls.target.x;
-    const correctionZ = boundedFocus.z - this.controls.target.z;
-    if (Math.abs(correctionX) > 0.01 || Math.abs(correctionZ) > 0.01) {
-      this.controls.target.x = boundedFocus.x;
-      this.controls.target.z = boundedFocus.z;
-      this.camera.position.x += correctionX;
-      this.camera.position.z += correctionZ;
+    const dt = Math.min(this.clock.getDelta(), 1 / 20);
+    let focusX: number;
+    let focusZ: number;
+
+    if (this.driveMode) {
+      const input = this.input!.poll();
+      this.moto.update(dt, input, this.collision, (x, z) => clampToWorld(x, z, this.settings.seed, 5));
+      this.collision.stepStones(dt, (x, z) => clampToWorld(x, z, this.settings.seed, 4));
+      this.collision.writeMatrices(this.dummy);
+      const pose = this.moto.getPose();
+      if (this.rider) {
+        this.rider.position.set(pose.x, 0.012, pose.z);
+        this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
+      }
+      this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
+      this.chase.update(dt, this.camera, pose, input.boost);
+      this.audio.update({
+        speed: pose.speed,
+        throttle: input.throttle,
+        brake: input.brake,
+        boost: input.boost,
+        hardBrake: input.hardBrake,
+        slip: pose.slip,
+        drifting: pose.drifting,
+      });
+      focusX = pose.x;
+      focusZ = pose.z;
+    } else {
+      this.controls.update();
+      const boundedFocus = clampToWorld(this.controls.target.x, this.controls.target.z, this.settings.seed, 28);
+      const correctionX = boundedFocus.x - this.controls.target.x;
+      const correctionZ = boundedFocus.z - this.controls.target.z;
+      if (Math.abs(correctionX) > 0.01 || Math.abs(correctionZ) > 0.01) {
+        this.controls.target.x = boundedFocus.x;
+        this.controls.target.z = boundedFocus.z;
+        this.camera.position.x += correctionX;
+        this.camera.position.z += correctionZ;
+      }
+      focusX = boundedFocus.x;
+      focusZ = boundedFocus.z;
     }
-    const focusX = boundedFocus.x;
-    const focusZ = boundedFocus.z;
+
     const focusKey = `${Math.round(focusX / 24)},${Math.round(focusZ / 24)}`;
     if (focusKey !== this.lastChunkFocus) {
       this.lastChunkFocus = focusKey;
       this.chunks.update(focusX, focusZ);
     }
+    this.collision.syncChunks(this.chunks.loadedEntries());
     if (this.chunks.pump()) this.publishStats();
-    this.farField?.update(focusX, focusZ, this.chunks.getStats().pending === 0);
-    this.syncShadowRig();
+    // Far field hides during refresh to avoid LOD leaks; in ride mode the near
+    // ring only ever has a couple of pending chunks, so a threshold keeps the
+    // distant forest from flickering on/off at speed.
+    const pending = this.chunks.getStats().pending;
+    const farReady = this.driveMode ? pending < 6 : pending === 0;
+    this.farField?.update(focusX, focusZ, this.camera, farReady);
+    this.syncShadowRig(focusX, focusZ);
     this.sky.follow(this.camera);
     this.renderer.render(this.scene, this.camera);
 
@@ -424,6 +624,7 @@ export class ForestScene {
 
   private disposeWorld() {
     this.chunks.clear();
+    this.collision.clear();
     if (this.farField) {
       this.staticLayer.remove(this.farField.group);
       this.farField.dispose();
@@ -445,9 +646,11 @@ export class ForestScene {
           const withMap = material as THREE.Material & {
             map?: THREE.Texture;
             normalMap?: THREE.Texture;
+            roughnessMap?: THREE.Texture;
           };
           withMap.map?.dispose();
           withMap.normalMap?.dispose();
+          withMap.roughnessMap?.dispose();
           material.dispose();
         });
       });
@@ -456,10 +659,16 @@ export class ForestScene {
 
   dispose() {
     cancelAnimationFrame(this.animationFrame);
+    this.input?.detach();
+    this.chase.detach();
+    this.audio.dispose();
+    this.skids.dispose();
     this.minimap?.dispose();
     this.minimap = null;
     this.controls.dispose();
     this.disposeWorld();
+    disposeForestModelPack(this.modelPack);
+    this.modelPack = null;
     this.scene.remove(this.sky.mesh);
     this.sky.dispose();
     this.renderer.dispose();
