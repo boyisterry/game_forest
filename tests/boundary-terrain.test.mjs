@@ -5,7 +5,14 @@ import {
   FOOTHILL_WIDTH,
   STEEP_WIDTH,
 } from "../app/lib/map/boundaryTerrain.ts";
-import { eastBoundaryX, westBoundaryX, northBoundaryZ, southBoundaryZ } from "../app/lib/map/world.ts";
+import {
+  clampToWorld,
+  eastBoundaryX,
+  westBoundaryX,
+  northBoundaryZ,
+  southBoundaryZ,
+  FAILSAFE_INSET,
+} from "../app/lib/map/world.ts";
 
 const SEED = 42;
 
@@ -50,4 +57,13 @@ test("south of south foot: force points north", () => {
   const s = sampleBoundary(x, z, SEED);
   assert.equal(s.steep, true);
   assert.ok(s.az < -1, `expect north accel, az=${s.az}`);
+});
+
+test("failsafe clamp allows foothill/steep entry but stops mid-upper slope", () => {
+  const z = 0;
+  const foot = eastBoundaryX(z, SEED);
+  const deep = foot + FOOTHILL_WIDTH + STEEP_WIDTH + 40; // past steep band
+  const c = clampToWorld(deep, z, SEED, FAILSAFE_INSET);
+  assert.ok(c.x < deep, "clamps back from beyond steep");
+  assert.ok(c.x > foot + FOOTHILL_WIDTH, "still past foot — not a flat-grass wall");
 });
