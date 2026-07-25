@@ -332,3 +332,23 @@ test("climbing tilts the nose up (pitch negative)", () => {
   }
   assert.ok(moto.pitch < -0.05, `nose up (negative pitch) while climbing, got ${moto.pitch}`);
 });
+
+test("rolling stone follows boundary terrain height", () => {
+  const mesh = fakeStoneMesh();
+  const stone = { x: 0, z: 5, y: 0.1, r: 0.3, mass: 2, index: 0, q: { x: 0, y: 0, z: 0, w: 1 }, s: { x: 1, y: 1, z: 1 } };
+  const cw = new CollisionWorld();
+  cw.syncChunks([{ key: "0,0", colliders: { trees: [], stones: [stone], stoneMesh: mesh } }]);
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, 0);
+  moto.speed = 10;
+  const dummy = new Object3D();
+  const slope = () => ({ ax: 0, az: 0, steep: false, height: 8, gx: 0, gz: 0, speedCap: Infinity });
+  for (let t = 0; t < 1; t += DT) {
+    moto.update(DT, input(), cw, noClamp, slope);
+    cw.stepStones(DT, noClamp, slope);
+    cw.writeMatrices(dummy);
+  }
+  assert.ok(mesh.last, "stone matrix rewritten");
+  // Stone y (instance matrix translation, element 13) should reflect terrain height 8.
+  assert.ok(mesh.last[13] > 4, `stone lifted onto terrain, y=${mesh.last[13]}`);
+});

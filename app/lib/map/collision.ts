@@ -65,6 +65,7 @@ export class CollisionWorld {
   private readonly qInitial = new Quaternion();
   private readonly qTotal = new Quaternion();
   private readonly axis = new Vector3();
+  private lastSampler: ((x: number, z: number) => { height: number }) | null = null;
 
   /** Fired with a 0..1 intensity when a stone is kicked (drives the impact SFX). */
   onKick?: (intensity: number) => void;
@@ -288,6 +289,7 @@ export class CollisionWorld {
       height: 0,
     }),
   ) {
+    this.lastSampler = sampleBoundary;
     for (const body of this.bodies.values()) {
       if (!body.active) continue;
       const v = Math.hypot(body.vx, body.vz);
@@ -354,7 +356,7 @@ export class CollisionWorld {
         continue;
       }
       const c = body.collider;
-      dummy.position.set(body.x, c.y, body.z);
+      dummy.position.set(body.x, this.stoneY(body, c), body.z);
       // Roll about the horizontal axis perpendicular to travel (pure rolling, no slip).
       const axisX = body.dirZ;
       const axisZ = -body.dirX;
@@ -381,6 +383,11 @@ export class CollisionWorld {
   private hasDirty() {
     for (const body of this.bodies.values()) if (body.dirty) return true;
     return false;
+  }
+
+  private stoneY(body: StoneBody, c: StoneCollider): number {
+    const h = this.lastSampler ? this.lastSampler(body.x, body.z).height : 0;
+    return (h || 0) + c.y; // rest the stone's local offset on top of the terrain
   }
 
   /** Count currently rolling stones (for diagnostics / tests). */
