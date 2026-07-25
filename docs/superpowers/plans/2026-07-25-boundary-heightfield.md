@@ -1,6 +1,6 @@
 # Boundary Heightfield Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace flat-ground air walls with Path-A xz slope/river boundary forces, rebuild near-ridge + far-silhouette visuals, raise drift floor to 25 km/h, and keep dual-pass `clampToWorld` only as a mid-slope failsafe.
 
@@ -37,7 +37,7 @@
 - Create: `app/lib/map/boundaryTerrain.ts`
 - Modify: `package.json` (`test` script)
 
-- [ ] **Step 1: Commit the revised spec if dirty**
+- [x] **Step 1: Commit the revised spec if dirty**
 
 ```bash
 git add docs/superpowers/specs/2026-07-25-boundary-heightfield-design.md
@@ -49,7 +49,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 2: Write failing tests for force + steep**
+- [x] **Step 2: Write failing tests for force + steep**
 
 Create `tests/boundary-terrain.test.mjs`:
 
@@ -109,12 +109,12 @@ test("south of south foot: force points north", () => {
 });
 ```
 
-- [ ] **Step 3: Run tests — expect FAIL (module missing)**
+- [x] **Step 3: Run tests — expect FAIL (module missing)**
 
 Run: `node --experimental-strip-types --test tests/boundary-terrain.test.mjs`  
 Expected: FAIL resolving `boundaryTerrain.ts`
 
-- [ ] **Step 4: Implement pure force sampler (no THREE)**
+- [x] **Step 4: Implement pure force sampler (no THREE)**
 
 Create `app/lib/map/boundaryTerrain.ts` with at least:
 
@@ -203,14 +203,14 @@ export function boundaryHeight(x: number, z: number, seed: number): number {
 }
 ```
 
-- [ ] **Step 5: Wire test script + run tests — expect PASS**
+- [x] **Step 5: Wire test script + run tests — expect PASS**
 
 In `package.json` `test` script, append `tests/boundary-terrain.test.mjs` to the node test list.
 
 Run: `node --experimental-strip-types --test tests/boundary-terrain.test.mjs`  
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/lib/map/boundaryTerrain.ts tests/boundary-terrain.test.mjs package.json
@@ -230,7 +230,7 @@ EOF
 - Modify: `app/lib/map/world.ts`
 - Modify: `tests/boundary-terrain.test.mjs`
 
-- [ ] **Step 1: Add failsafe constant + test**
+- [x] **Step 1: Add failsafe constant + test**
 
 Append to `tests/boundary-terrain.test.mjs`:
 
@@ -247,11 +247,11 @@ test("failsafe clamp allows foothill/steep entry but stops mid-upper slope", () 
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL (`FAILSAFE_INSET` missing)**
+- [x] **Step 2: Run — expect FAIL (`FAILSAFE_INSET` missing)**
 
 Run: `node --experimental-strip-types --test tests/boundary-terrain.test.mjs`
 
-- [ ] **Step 3: Update `world.ts`**
+- [x] **Step 3: Update `world.ts`**
 
 ```ts
 /**
@@ -275,9 +275,9 @@ Keep the dual-pass structure exactly; only change the default `inset` to `FAILSA
 
 Note: call sites that used inset `5`, `4`, `28`, `150`, `90` must be updated in Task 4 — for now leave explicit positive insets at those call sites so behavior does not silently widen.
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib/map/world.ts tests/boundary-terrain.test.mjs
@@ -297,7 +297,7 @@ EOF
 - Modify: `app/lib/map/motorcycle.ts`
 - Modify: `tests/motorcycle.test.mjs`
 
-- [ ] **Step 1: Update / add motorcycle tests**
+- [x] **Step 1: Update / add motorcycle tests**
 
 In `tests/motorcycle.test.mjs`:
 
@@ -353,11 +353,11 @@ test("boundary force scrubs speed when driving against it", () => {
 });
 ```
 
-- [ ] **Step 2: Run motorcycle tests — expect FAIL on new API / DRIFT_MIN**
+- [x] **Step 2: Run motorcycle tests — expect FAIL on new API / DRIFT_MIN**
 
 Run: `node --experimental-strip-types --test tests/motorcycle.test.mjs`
 
-- [ ] **Step 3: Implement motorcycle changes**
+- [x] **Step 3: Implement motorcycle changes**
 
 ```ts
 // DRIFT_MIN = 6.9; // 25 km/h
@@ -489,7 +489,7 @@ Implementers: prefer **applying boundary force before the position integrate** (
 6. Sample again; if steep kill drift; optional small post-collision force
 7. Failsafe clamp
 
-- [ ] **Step 4: Run motorcycle + boundary tests — expect PASS**
+- [x] **Step 4: Run motorcycle + boundary tests — expect PASS**
 
 Run:
 
@@ -497,7 +497,7 @@ Run:
 node --experimental-strip-types --test tests/motorcycle.test.mjs tests/boundary-terrain.test.mjs
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib/map/motorcycle.ts tests/motorcycle.test.mjs
@@ -516,7 +516,7 @@ EOF
 **Files:**
 - Modify: `app/lib/map/ForestScene.ts`
 
-- [ ] **Step 1: Import + helpers**
+- [x] **Step 1: Import + helpers**
 
 ```ts
 import { FAILSAFE_INSET, clampToWorld } from "./world";
@@ -535,9 +535,9 @@ this.collision.stepStones(dt, clampFn, boundaryFn);
 
 Keep minimap jump / editor camera insets intentional and **positive** (stay in playable), e.g. jump `150`, editor `28` — do not use `FAILSAFE_INSET` there.
 
-- [ ] **Step 2: Manual smoke (dev server)** — drive east/west/north/south; confirm slide-back, no grass wall; confirm low-speed Space+steer does not drift.
+- [x] **Step 2: Manual smoke (dev server)** — drive east/west/north/south; confirm slide-back, no grass wall; confirm low-speed Space+steer does not drift.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add app/lib/map/ForestScene.ts
@@ -555,7 +555,7 @@ EOF
 - Modify: `app/lib/map/boundaryTerrain.ts` (add mesh builders)
 - Modify: `app/lib/map/boundaries.ts`
 
-- [ ] **Step 1: Add mesh builders in `boundaryTerrain.ts`**
+- [x] **Step 1: Add mesh builders in `boundaryTerrain.ts`**
 
 Use THREE here only for builders:
 
@@ -605,7 +605,7 @@ function buildEdgeHeightMesh(
 }
 ```
 
-- [ ] **Step 2: Replace `boundaries.ts` mountains**
+- [x] **Step 2: Replace `boundaries.ts` mountains**
 
 ```ts
 export function createWorldBoundaries(seed: number) {
@@ -620,9 +620,9 @@ export function createWorldBoundaries(seed: number) {
 
 Remove `addMountains` cone `InstancedMesh` path (or leave unused private helpers deleted).
 
-- [ ] **Step 3: Visual check in play mode** — continuous near wall at former clamp line; far silhouette behind; rivers align with west/south push bands.
+- [x] **Step 3: Visual check in play mode** — continuous near wall at former clamp line; far silhouette behind; rivers align with west/south push bands.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app/lib/map/boundaryTerrain.ts app/lib/map/boundaries.ts
@@ -642,7 +642,7 @@ EOF
 - Modify: `app/lib/map/collision.ts`
 - Modify: `app/lib/map/farField.ts`
 
-- [ ] **Step 1: Extend `stepStones`**
+- [x] **Step 1: Extend `stepStones`**
 
 ```ts
 stepStones(
@@ -666,9 +666,9 @@ stepStones(
 }
 ```
 
-- [ ] **Step 2: Far-field** — in `farField.ts`, increase card/tree `isInsideWorld` insets slightly (e.g. cards `36 → 52`, trees `48 → 64`) so horizon cards sit behind the new near ridge rather than floating on the foothills.
+- [x] **Step 2: Far-field** — in `farField.ts`, increase card/tree `isInsideWorld` insets slightly (e.g. cards `36 → 52`, trees `48 → 64`) so horizon cards sit behind the new near ridge rather than floating on the foothills.
 
-- [ ] **Step 3: Run unit tests**
+- [x] **Step 3: Run unit tests**
 
 ```bash
 node --experimental-strip-types --test tests/boundary-terrain.test.mjs tests/motorcycle.test.mjs tests/audio.test.mjs
@@ -676,7 +676,7 @@ node --experimental-strip-types --test tests/boundary-terrain.test.mjs tests/mot
 
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app/lib/map/collision.ts app/lib/map/farField.ts
@@ -692,11 +692,11 @@ EOF
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Run full `npm test`** (includes build + rendered-html)
+- [x] **Step 1: Run full `npm test`** (includes build + rendered-html)
 
 Expected: PASS
 
-- [ ] **Step 2: Play-mode checklist**
+- [x] **Step 2: Play-mode checklist**
 
 1. East/north: reach visible foothills → slide back; no empty grass wall.  
 2. West/south: river bank stops with slide-back.  
@@ -706,7 +706,7 @@ Expected: PASS
 6. Below 25 km/h: Space+steer = straight hard brake.  
 7. Drift into steep band ends immediately.
 
-- [ ] **Step 3: Commit any leftover fixups** (only if needed)
+- [x] **Step 3: Commit any leftover fixups** (only if needed)
 
 ---
 
