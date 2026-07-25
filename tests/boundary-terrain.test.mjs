@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   sampleBoundary,
+  buildRiverGroup,
   BEACH_WIDTH,
   BEACH_CAP_NEAR,
   BEACH_CAP_FAR,
@@ -160,4 +161,28 @@ test("east/north past foot: speedCap is Infinity (beach cap never fires on mount
   const nFoot = northBoundaryZ(x, SEED);
   const nSample = sampleBoundary(x, nFoot - 10, SEED);
   assert.equal(nSample.speedCap, Infinity, "north mountain has no beach cap");
+});
+
+test("bank ribbon carries per-vertex grass→sand color", () => {
+  const group = buildRiverGroup(SEED, 0x789663);
+  const banks = group.children.filter((m) => m.geometry.getAttribute("color"));
+  assert.ok(banks.length >= 2, `west+south bank meshes, got ${banks.length}`);
+  for (const bank of banks) {
+    const pos = bank.geometry.getAttribute("position");
+    const col = bank.geometry.getAttribute("color");
+    let grass = 0;
+    let sand = 0;
+    // Vertices come in pairs (a = +side, b = −side) per ribbon point.
+    for (let i = 0; i < pos.count; i += 2) {
+      const ra = Math.hypot(pos.getX(i), pos.getZ(i));
+      const rb = Math.hypot(pos.getX(i + 1), pos.getZ(i + 1));
+      const aGrass = col.getX(i) < col.getY(i);
+      const bGrass = col.getX(i + 1) < col.getY(i + 1);
+      if (aGrass) grass += 1; else sand += 1;
+      if (bGrass) grass += 1; else sand += 1;
+      if (ra < rb) assert.ok(aGrass, `nearer vert is grass (pair ${i})`);
+      else assert.ok(bGrass, `nearer vert is grass (pair ${i})`);
+    }
+    assert.ok(grass > 0 && sand > 0, `both colors present: grass=${grass} sand=${sand}`);
+  }
 });

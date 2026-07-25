@@ -159,6 +159,8 @@ export function boundaryHeight(x: number, z: number, seed: number): number {
 // by node --experimental-strip-types unit tests without any renderer.
 // ---------------------------------------------------------------------------
 
+const SAND_COLOR = 0x9b9275;
+
 const RIDGE_MARGIN = 80;
 /** Inner edge starts slightly before the foot line so the mesh blends into flat ground. */
 const RIDGE_INNER_OVERLAP = 8;
@@ -348,25 +350,67 @@ function sampleHorizontalEdge(seed: number, side: "north" | "south", samples: nu
 }
 
 const EDGE_SAMPLES = 72;
-/** Widest (outer) ribbon band; nested water/foam ribbons share the same shift. */
-const BANK_WIDTH = 126;
 
-/** River banks/water/foam, shifted outward so the inner bank edge meets the force foot line. */
-export function buildRiverGroup(seed: number): THREE.Group {
+/** Ribbon with per-vertex color: the edge nearer the world center is `inner`, the
+ *  farther edge is `outer`. Triangle interpolation yields a smooth gradient. */
+function makeGradientRibbon(
+  points: THREE.Vector3[],
+  width: number,
+  y: number,
+  innerColor: number,
+  outerColor: number,
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  const inner = new THREE.Color(innerColor);
+  const outer = new THREE.Color(outerColor);
+  for (let i = 0; i < points.length; i += 1) {
+    const previous = points[Math.max(0, i - 1)];
+    const next = points[Math.min(points.length - 1, i + 1)];
+    const tangent = next.clone().sub(previous).normalize();
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x).multiplyScalar(width * 0.5);
+    const a = points[i].clone().add(side);
+    const b = points[i].clone().sub(side);
+    positions.push(a.x, y, a.z, b.x, y, b.z);
+    const v = i / Math.max(points.length - 1, 1);
+    uvs.push(0, v * 48, 1, v * 48);
+    const aInner = a.length() < b.length();
+    const ca = aInner ? inner : outer;
+    const cb = aInner ? outer : inner;
+    colors.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b);
+    if (i < points.length - 1) {
+      const k = i * 2;
+      indices.push(k, k + 2, k + 1, k + 2, k + 3, k + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** River banks/water/foam. Bank spans the beach zone with a per-vertex grass→sand
+ *  gradient; open water sits just outside the beach. */
+export function buildRiverGroup(seed: number, groundColor: number): THREE.Group {
   const group = new THREE.Group();
   group.name = "rivers";
 
   const west = sampleVerticalEdge(seed, "west", EDGE_SAMPLES);
   const south = sampleHorizontalEdge(seed, "south", EDGE_SAMPLES);
+  // Shift so the bank's inner edge sits on the foot line; bank spans the beach zone.
+  const shiftedWest = west.map((p) => new THREE.Vector3(p.x - BEACH_WIDTH / 2, p.y, p.z));
+  const shiftedSouth = south.map((p) => new THREE.Vector3(p.x, p.y, p.z + BEACH_WIDTH / 2));
 
-  // The force foot line is the raw boundary curve itself. Shifting the sample
-  // points outward by half the (widest) bank ribbon width means that ribbon's
-  // inner edge lands exactly on the foot line instead of bleeding onto safe,
-  // playable ground.
-  const shiftedWest = west.map((p) => new THREE.Vector3(p.x - BANK_WIDTH / 2, p.y, p.z));
-  const shiftedSouth = south.map((p) => new THREE.Vector3(p.x, p.y, p.z + BANK_WIDTH / 2));
-
-  const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x9b9275, roughness: 1 });
+  const bankMaterial = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 1,
+    metalness: 0,
+  });
   const waterMaterial = new THREE.MeshPhysicalMaterial({
     color: 0x6e9da2,
     roughness: 0.32,
@@ -378,27 +422,26 @@ export function buildRiverGroup(seed: number): THREE.Group {
   const foamMaterial = new THREE.MeshBasicMaterial({ color: 0xdce9e2, transparent: true, opacity: 0.22 });
 
   for (const points of [shiftedWest, shiftedSouth]) {
-    const bank = new THREE.Mesh(makeRibbon(points, BANK_WIDTH, 0.015), bankMaterial);
+    const bank = new THREE.Mesh(makeGradientRibbon(points, BEACH_WIDTH, 0.015, groundColor, SAND_COLOR), bankMaterial);
     bank.receiveShadow = true;
-    const water = new THREE.Mesh(makeRibbon(points, 82, 0.045), waterMaterial);
-    const sheen = new THREE.Mesh(makeRibbon(points, 58, 0.058), foamMaterial);
+    // Water sits just outside the beach zone.
+    const waterPts = points.map((p) => new THREE.Vector3(
+      p.x + (points === shiftedWest ? -WATER_WIDTH / 2 - BEACH_WIDTH : 0),
+      p.y,
+      p.z + (points === shiftedSouth ? WATER_WIDTH / 2 + BEACH_WIDTH : 0),
+    ));
+    const water = new THREE.Mesh(makeRibbon(waterPts, 82, 0.045), waterMaterial);
+    const sheen = new THREE.Mesh(makeRibbon(waterPts, 58, 0.058), foamMaterial);
     group.add(bank, water, sheen);
   }
 
-  // Water continues beyond the playable bank, so the west and south edges read
-  // as real geographic limits rather than decorative strips on an endless lawn.
-  const westSea = new THREE.Mesh(
-    new THREE.PlaneGeometry(920, WORLD_HALF_DEPTH * 2 + 920),
-    waterMaterial,
-  );
+  // Open sea beyond the banks so the edges read as real geographic limits.
+  const westSea = new THREE.Mesh(new THREE.PlaneGeometry(920, WORLD_HALF_DEPTH * 2 + 920), waterMaterial);
   westSea.rotation.x = -Math.PI / 2;
-  westSea.position.set(-WORLD_HALF_WIDTH - 430 - BANK_WIDTH / 2, 0.035, 120);
-  const southSea = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_HALF_WIDTH * 2 + 920, 920),
-    waterMaterial,
-  );
+  westSea.position.set(-WORLD_HALF_WIDTH - 430 - BEACH_WIDTH / 2, 0.035, 120);
+  const southSea = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_HALF_WIDTH * 2 + 920, 920), waterMaterial);
   southSea.rotation.x = -Math.PI / 2;
-  southSea.position.set(-120, 0.035, WORLD_HALF_DEPTH + 430 + BANK_WIDTH / 2);
+  southSea.position.set(-120, 0.035, WORLD_HALF_DEPTH + 430 + BEACH_WIDTH / 2);
   group.add(westSea, southSea);
 
   return group;

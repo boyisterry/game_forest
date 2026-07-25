@@ -172,7 +172,7 @@ export class ForestScene {
     // Larger world needs thinner fog so distant canopy still reads.
     this.scene.fog = new THREE.FogExp2(palette.fog, Math.min(settings.fogDensity, 0.0035));
 
-    this.staticLayer.add(createWorldBoundaries(settings.seed));
+    this.staticLayer.add(createWorldBoundaries(settings.seed, palette.ground));
 
     this.roadPoints = createWorldRoad(settings.seed, settings.roadCurves);
     const roadIndex = buildRoadIndex(this.roadPoints);
