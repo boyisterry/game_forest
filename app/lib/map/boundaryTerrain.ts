@@ -9,31 +9,79 @@ import {
   makeRibbon,
 } from "./world.ts";
 
-export const FOOTHILL_WIDTH = 18;
-export const STEEP_WIDTH = 55;
+// --- shared widths: mechanics + visuals aligned ---
+export const FOOTHILL_WIDTH = 18;   // E/N gentle approach
+export const STEEP_WIDTH = 55;      // E/N blocking band
+export const BEACH_WIDTH = 22;      // W/S foot → waterline (rideable, speed-capped)
+export const WATER_WIDTH = 60;      // W/S open water (hard wall)
+
+// --- forces / caps ---
 export const STEEP_ACCEL = 14;
 export const FOOTHILL_ACCEL = 3.5;
+export const WATER_ACCEL = 18;
+export const BEACH_CAP_NEAR = 1.67; // ~6 km/h at the foot line
+export const BEACH_CAP_FAR = 0.28;  // ~1 km/h at the waterline
 
 export type BoundarySample = {
+  /** Interior-pointing accel (mountain + open water). 0 on the beach. */
   ax: number;
   az: number;
+  /** Hard block (open water / steep mountain). */
   steep: boolean;
+  /** Terrain y. Mountain rises with ruggedness; beach/water ≈ 0. */
   height: number;
+  /** Height gradient (∂h/∂x, ∂h/∂z) for nose pitch. */
+  gx: number;
+  gz: number;
+  /** Beach crawl ceiling (m/s). Infinity off the beach. */
+  speedCap: number;
 };
 
-function bandFromSigned(distPastFoot: number): { t: number; steep: boolean; height: number } {
-  if (distPastFoot <= 0) return { t: 0, steep: false, height: 0 };
+const smooth = (t: number) => t * t * (3 - 2 * t);
+
+/** Low-frequency ruggedness along a ridge coordinate → [0.2, 1.0]. */
+function ridgeRuggedness(along: number, seed: number, salt: number): number {
+  const mixed = Math.imul((seed ^ salt) >>> 0, 0x2545f491) >>> 0;
+  const phase = (mixed / 4294967296) * Math.PI * 2;
+  const n = Math.sin(along * 0.0042 + phase) * 0.55 + Math.sin(along * 0.0113 - phase * 1.3) * 0.45;
+  return 0.6 + 0.4 * Math.max(-1, Math.min(1, n)); // [0.2, 1.0]
+}
+
+/** E/N mountain height profile, scaled by ruggedness (gentle ~10m, steep ~55m). */
+function mountainHeight(distPastFoot: number, ruggedness: number): number {
+  if (distPastFoot <= 0) return 0;
+  const span = FOOTHILL_WIDTH + STEEP_WIDTH;
+  const u = Math.min(1, distPastFoot / span);
+  const maxH = 10 + ruggedness * 45;
+  return maxH * smooth(u);
+}
+
+/** Central-difference gradient of mountainHeight w.r.t. distance past the foot line. */
+function mountainGradient(distPastFoot: number, ruggedness: number): number {
+  const eps = 0.5;
+  return (mountainHeight(distPastFoot + eps, ruggedness) - mountainHeight(distPastFoot - eps, ruggedness)) / (2 * eps);
+}
+
+/** E/N mountain force intensity + steep flag, scaled by ruggedness. Continuous across FOOTHILL_WIDTH. */
+function mountainForce(distPastFoot: number, ruggedness: number): { t: number; steep: boolean } {
+  if (distPastFoot <= 0) return { t: 0, steep: false };
+  const baseF = FOOTHILL_ACCEL / STEEP_ACCEL; // foothill force ceiling as a fraction of STEEP_ACCEL (~0.25)
   if (distPastFoot < FOOTHILL_WIDTH) {
     const u = distPastFoot / FOOTHILL_WIDTH;
-    return { t: u * (FOOTHILL_ACCEL / STEEP_ACCEL), steep: false, height: u * 4 };
+    return { t: u * baseF, steep: false }; // 0 → baseF
   }
-  const into = distPastFoot - FOOTHILL_WIDTH;
-  const u = Math.min(1, into / STEEP_WIDTH);
-  return {
-    t: FOOTHILL_ACCEL / STEEP_ACCEL + u * (1 - FOOTHILL_ACCEL / STEEP_ACCEL),
-    steep: true,
-    height: 4 + u * 46,
-  };
+  const u = Math.min(1, (distPastFoot - FOOTHILL_WIDTH) / STEEP_WIDTH);
+  // Gentle ridges block later; steep ones block early and push harder.
+  const steepAt = 0.55 - 0.35 * ruggedness; // [0.2, 0.55]
+  return { t: baseF + u * (1 - baseF) * (0.5 + 0.5 * ruggedness), steep: u > steepAt }; // baseF → up to 1
+}
+
+/** W/S beach speed cap across the beach zone (foot → waterline). */
+function beachSpeedCap(distPastFoot: number): number {
+  if (distPastFoot <= 0) return Infinity;
+  if (distPastFoot >= BEACH_WIDTH) return BEACH_CAP_FAR;
+  const u = distPastFoot / BEACH_WIDTH;
+  return BEACH_CAP_NEAR + (BEACH_CAP_FAR - BEACH_CAP_NEAR) * u;
 }
 
 export function sampleBoundary(x: number, z: number, seed: number): BoundarySample {
@@ -46,32 +94,60 @@ export function sampleBoundary(x: number, z: number, seed: number): BoundarySamp
   let az = 0;
   let steep = false;
   let height = 0;
+  let gx = 0;
+  let gz = 0;
+  let speedCap = Infinity;
 
-  const e = bandFromSigned(eastPast);
-  if (e.t > 0) {
-    ax += -STEEP_ACCEL * e.t;
-    steep ||= e.steep;
-    height = Math.max(height, e.height);
+  // East mountain (ruggedness along z).
+  if (eastPast > 0) {
+    const rugged = ridgeRuggedness(z, seed, 0x9a11);
+    const f = mountainForce(eastPast, rugged);
+    if (f.t > 0) {
+      ax += -STEEP_ACCEL * f.t;
+      steep ||= f.steep;
+    }
+    const h = mountainHeight(eastPast, rugged);
+    if (h > height) {
+      height = h;
+      gx = mountainGradient(eastPast, rugged); // height rises with +x here
+    }
   }
-  const w = bandFromSigned(westPast);
-  if (w.t > 0) {
-    ax += STEEP_ACCEL * w.t;
-    steep ||= w.steep;
-    height = Math.max(height, w.height * 0.15);
+  // North mountain (ruggedness along x).
+  if (northPast > 0) {
+    const rugged = ridgeRuggedness(x, seed, 0x3c77);
+    const f = mountainForce(northPast, rugged);
+    if (f.t > 0) {
+      az += STEEP_ACCEL * f.t;
+      steep ||= f.steep;
+    }
+    const h = mountainHeight(northPast, rugged);
+    if (h > height) {
+      height = h;
+      gz = -mountainGradient(northPast, rugged); // outward here is −z, so ∂h/∂z flips
+    }
   }
-  const n = bandFromSigned(northPast);
-  if (n.t > 0) {
-    az += STEEP_ACCEL * n.t;
-    steep ||= n.steep;
-    height = Math.max(height, n.height);
+  // West: beach cap then open-water hard wall. Beach height ≈ 0.
+  if (westPast > 0) {
+    if (westPast < BEACH_WIDTH) {
+      speedCap = Math.min(speedCap, beachSpeedCap(westPast));
+    } else {
+      const u = Math.min(1, (westPast - BEACH_WIDTH) / WATER_WIDTH);
+      ax += STEEP_ACCEL * (0.6 + 0.4 * u) + WATER_ACCEL * u; // shove east (interior)
+      steep = true;
+    }
   }
-  const s = bandFromSigned(southPast);
-  if (s.t > 0) {
-    az += -STEEP_ACCEL * s.t;
-    steep ||= s.steep;
+  // South: beach cap then open-water hard wall.
+  if (southPast > 0) {
+    if (southPast < BEACH_WIDTH) {
+      speedCap = Math.min(speedCap, beachSpeedCap(southPast));
+    } else {
+      const u = Math.min(1, (southPast - BEACH_WIDTH) / WATER_WIDTH);
+      az += -(STEEP_ACCEL * (0.6 + 0.4 * u) + WATER_ACCEL * u); // shove north (interior)
+      steep = true;
+    }
   }
 
-  return { ax, az, steep, height };
+  return { ax, az, steep, height, gx, gz, speedCap };
 }
 
 export function boundaryHeight(x: number, z: number, seed: number): number {

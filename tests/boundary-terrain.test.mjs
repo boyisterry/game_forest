@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   sampleBoundary,
+  BEACH_WIDTH,
+  BEACH_CAP_NEAR,
+  BEACH_CAP_FAR,
   FOOTHILL_WIDTH,
   STEEP_WIDTH,
 } from "../app/lib/map/boundaryTerrain.ts";
@@ -66,4 +69,95 @@ test("failsafe clamp allows foothill/steep entry but stops mid-upper slope", () 
   const c = clampToWorld(deep, z, SEED, FAILSAFE_INSET);
   assert.ok(c.x < deep, "clamps back from beyond steep");
   assert.ok(c.x > foot + FOOTHILL_WIDTH, "still past foot — not a flat-grass wall");
+});
+
+test("beach speed cap falls from ~6 km/h at foot to ~1 km/h at waterline (west)", () => {
+  const z = 0;
+  const foot = westBoundaryX(z, SEED);
+  const atFoot = sampleBoundary(foot - 0.5, z, SEED);
+  const atMid = sampleBoundary(foot - BEACH_WIDTH * 0.5, z, SEED);
+  const atWater = sampleBoundary(foot - BEACH_WIDTH + 0.01, z, SEED);
+  assert.ok(atFoot.speedCap <= BEACH_CAP_NEAR + 0.01, `foot cap ~near, got ${atFoot.speedCap}`);
+  assert.ok(atMid.speedCap < atFoot.speedCap, `cap drops toward water: ${atMid.speedCap} < ${atFoot.speedCap}`);
+  assert.ok(atWater.speedCap <= BEACH_CAP_FAR + 0.05, `waterline cap ~far, got ${atWater.speedCap}`);
+  assert.ok(Math.hypot(atFoot.ax, atFoot.az) < 0.01, "beach exerts no push force");
+  assert.equal(atFoot.steep, false, "beach is not a hard block");
+});
+
+test("open water (west, past beach) is a steep hard wall shoving east", () => {
+  const z = 0;
+  const foot = westBoundaryX(z, SEED);
+  const inWater = sampleBoundary(foot - BEACH_WIDTH - 10, z, SEED);
+  assert.equal(inWater.steep, true, "open water is steep");
+  assert.ok(inWater.ax > 10, `water shoves east (interior), ax=${inWater.ax}`);
+});
+
+test("mountain ruggedness produces varied heights along the east ridge", () => {
+  const z1 = 200;
+  const z2 = 900;
+  const foot1 = eastBoundaryX(z1, SEED);
+  const foot2 = eastBoundaryX(z2, SEED);
+  const deep = FOOTHILL_WIDTH + STEEP_WIDTH * 0.8;
+  const h1 = sampleBoundary(foot1 + deep, z1, SEED).height;
+  const h2 = sampleBoundary(foot2 + deep, z2, SEED).height;
+  assert.ok(h1 > 8 && h1 < 55, `height in range, got ${h1}`);
+  assert.ok(h2 > 8 && h2 < 55, `height in range, got ${h2}`);
+  assert.ok(Math.abs(h1 - h2) > 3, `ruggedness varies along the ridge: ${h1} vs ${h2}`);
+});
+
+test("terrain height is 0 at the foot line (smooth playable transition)", () => {
+  const z = 0;
+  const foot = eastBoundaryX(z, SEED);
+  const atFoot = sampleBoundary(foot + 0.01, z, SEED);
+  assert.ok(atFoot.height < 0.5, `height ~0 at foot, got ${atFoot.height}`);
+});
+
+test("north ridge gradient sign: height rises outward (−z), so gz is negative", () => {
+  const x = 0;
+  const foot = northBoundaryZ(x, SEED);
+  const justInside = sampleBoundary(x, foot + 0.01, SEED);   // foot+eps in z = just inside (playable)
+  const aBitOut = sampleBoundary(x, foot - 8, SEED);          // foot-8 in z = into the north band
+  // Going outward (z decreasing), height should increase → ∂h/∂z < 0 → gz negative.
+  assert.ok(aBitOut.height > justInside.height, `height rises outward: ${aBitOut.height} > ${justInside.height}`);
+  assert.ok(aBitOut.gz < 0, `gz negative outward (−z), got ${aBitOut.gz}`);
+});
+
+test("east ridge gradient sign: height rises outward (+x), so gx is positive", () => {
+  const z = 0;
+  const foot = eastBoundaryX(z, SEED);
+  const aBitOut = sampleBoundary(foot + 8, z, SEED);
+  assert.ok(aBitOut.gx > 0, `gx positive outward (+x), got ${aBitOut.gx}`);
+});
+
+test("south beach cap mirrors west (symmetry)", () => {
+  const x = 0;
+  const foot = southBoundaryZ(x, SEED);
+  const atFoot = sampleBoundary(x, foot + 0.5, SEED);
+  const atWater = sampleBoundary(x, foot + BEACH_WIDTH - 0.01, SEED);
+  assert.ok(atFoot.speedCap <= BEACH_CAP_NEAR + 0.01, `south foot cap ~near, got ${atFoot.speedCap}`);
+  assert.ok(atWater.speedCap <= BEACH_CAP_FAR + 0.05, `south waterline cap ~far, got ${atWater.speedCap}`);
+  assert.ok(Math.hypot(atFoot.ax, atFoot.az) < 0.01, "south beach exerts no push force");
+});
+
+test("beach cap is monotonically decreasing toward water (west)", () => {
+  const z = 0;
+  const foot = westBoundaryX(z, SEED);
+  let prev = Infinity;
+  for (let i = 0; i < 6; i += 1) {
+    const d = (i / 5) * (BEACH_WIDTH - 0.5);
+    const cap = sampleBoundary(foot - d - 0.01, z, SEED).speedCap;
+    assert.ok(cap <= prev + 1e-6, `cap decreasing: ${cap} <= ${prev}`);
+    prev = cap;
+  }
+});
+
+test("east/north past foot: speedCap is Infinity (beach cap never fires on mountains)", () => {
+  const z = 0;
+  const eFoot = eastBoundaryX(z, SEED);
+  const eSample = sampleBoundary(eFoot + 10, z, SEED);
+  assert.equal(eSample.speedCap, Infinity, "east mountain has no beach cap");
+  const x = 0;
+  const nFoot = northBoundaryZ(x, SEED);
+  const nSample = sampleBoundary(x, nFoot - 10, SEED);
+  assert.equal(nSample.speedCap, Infinity, "north mountain has no beach cap");
 });
