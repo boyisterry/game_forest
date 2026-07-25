@@ -44,3 +44,8 @@ next-env.d.ts
 /outputs/
 /work/
 /.openai/
+
+# Local source assets and generated work files
+/tripo-output/
+/assets/
+/tmp/
