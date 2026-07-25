@@ -3,6 +3,78 @@
   "description": "Decimated Tripo forest pack; leaves are 2-face cards.",
   "assets": [
     {
+      "file": "tree_normal_large_redwood_a.glb",
+      "bytes": 417840,
+      "height": 22.0,
+      "id": "tree_normal_large_redwood_a",
+      "kind": "tree",
+      "state": "normal",
+      "seed": 111
+    },
+    {
+      "file": "tree_normal_large_ancient_a.glb",
+      "bytes": 745712,
+      "height": 20.0,
+      "id": "tree_normal_large_ancient_a",
+      "kind": "tree",
+      "state": "normal",
+      "seed": 117
+    },
+    {
+      "file": "tree_normal_large_redwood_b.glb",
+      "bytes": 417824,
+      "height": 24.0,
+      "id": "tree_normal_large_redwood_b",
+      "kind": "tree",
+      "state": "normal",
+      "seed": 123
+    },
+    {
+      "file": "tree_normal_medium_redwood_a.glb",
+      "bytes": 417836,
+      "height": 13.0,
+      "id": "tree_normal_medium_redwood_a",
+      "kind": "tree",
+      "state": "normal",
+      "seed": 131
+    },
+    {
+      "file": "tree_normal_medium_ancient_a.glb",
+      "bytes": 745720,
+      "height": 12.0,
+      "id": "tree_normal_medium_ancient_a",
+      "kind": "tree",
+      "state": "normal",
+      "seed": 137
+    },
+    {
+      "file": "tree_normal_medium_redwood_b.glb",
+      "bytes": 417840,
+      "height": 11.5,
+      "id": "tree_normal_medium_redwood_b",
+      "kind": "tree",
+      "state": "normal",
+      "seed": 141
+    },
+    {
+      "file": "tree_normal_small_redwood_a.glb",
+      "bytes": 417844,
+      "height": 6.5,
+      "id": "tree_normal_small_redwood_a",
+      "kind": "tree",
+      "state": "normal",
+      "seed": 153
+    },
+    {
+      "file": "tree_normal_small_ancient_a.glb",
+      "bytes": 745716,
+      "height": 5.8,
+      "id": "tree_normal_small_ancient_a",
+      "kind": "tree",
+      "state": "normal",
+      "seed": 159
+    },
+    {
       "file": "tree_large_redwood_a.glb",
       "bytes": 241592,
       "vertices": 9033,
@@ -224,16 +296,30 @@
   ],
   "groups": {
     "tree_large": [
+      "tree_normal_large_redwood_a",
+      "tree_normal_large_ancient_a",
+      "tree_normal_large_redwood_b"
+    ],
+    "tree_medium": [
+      "tree_normal_medium_redwood_a",
+      "tree_normal_medium_ancient_a",
+      "tree_normal_medium_redwood_b"
+    ],
+    "tree_small": [
+      "tree_normal_small_redwood_a",
+      "tree_normal_small_ancient_a"
+    ],
+    "tree_shattered_large": [
       "tree_large_redwood_a",
       "tree_large_ancient_a",
       "tree_large_redwood_b"
     ],
-    "tree_medium": [
+    "tree_shattered_medium": [
       "tree_medium_redwood_a",
       "tree_medium_ancient_a",
       "tree_medium_redwood_b"
     ],
-    "tree_small": [
+    "tree_shattered_small": [
       "tree_small_redwood_a",
       "tree_small_ancient_a"
     ],

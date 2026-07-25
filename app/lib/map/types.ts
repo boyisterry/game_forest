@@ -14,6 +14,11 @@ export type MapSettings = {
   treeCanopyWidth: number;
   /** Vertical-only scale so trunks can become towering without ballooning crowns. */
   treeHeightScale: number;
+  /**
+   * When true, forest presents the shattered floating-shard look (amount=1).
+   * When false, intact grounded trees (amount=0). Toggle animates blast/gather.
+   */
+  shatterMode: boolean;
 };
 
 export const DEFAULT_SETTINGS: MapSettings = {
@@ -27,4 +32,5 @@ export const DEFAULT_SETTINGS: MapSettings = {
   treeLeafDensity: 1,
   treeCanopyWidth: 1.12,
   treeHeightScale: 1.55,
+  shatterMode: false, // normal GLB is the default; shatter stays an opt-in FX state
 };

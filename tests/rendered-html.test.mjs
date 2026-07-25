@@ -23,6 +23,7 @@ test("server-renders the forest map studio", async () => {
   assert.match(html, /Forest density<\/b><em>86%<\/em>/);
   assert.match(html, /Forest density 86%[^>]*value="0\.86"|max="2\.3"/);
   assert.match(html, /Tree height/);
+  assert.match(html, /Shatter on|Shatter off/);
   assert.match(html, /tufts/);
   assert.match(html, /stones/);
   assert.match(html, /Tune the forest, then hit Play/);
@@ -46,6 +47,7 @@ test("keeps rocks inside every streamed forest chunk", async () => {
   assert.match(manager, /stoneCount: built\.stoneCount/);
   assert.match(settings, /forestDensity: 0\.86/);
   assert.match(settings, /treeHeightScale: 1\.55/);
+  assert.match(settings, /shatterMode: false/);
 });
 
 test("layers distant geometry and horizon cards while hiding both during refresh", async () => {

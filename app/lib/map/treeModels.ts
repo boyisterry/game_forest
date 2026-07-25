@@ -155,7 +155,13 @@ function computeTrunkRadius(wood: THREE.BufferGeometry, height: number): number 
 export async function loadForestModelPack(): Promise<ForestModelPack> {
   const loader = new GLTFLoader();
   const manifest = (await fetch(`${BASE}/manifest.json`).then((r) => r.json())) as Manifest;
-  const templates = await Promise.all(manifest.assets.map((entry) => loadOne(loader, entry)));
+  // Only load the active map groups. Shattered source GLBs stay registered in
+  // the manifest for the FX demo, but should not double the forest boot payload.
+  const activeGroupNames = ["tree_large", "tree_medium", "tree_small", "branch", "stump", "shrub"];
+  const activeIds = new Set(activeGroupNames.flatMap((name) => manifest.groups[name] ?? []));
+  const templates = await Promise.all(
+    manifest.assets.filter((entry) => activeIds.has(entry.id)).map((entry) => loadOne(loader, entry)),
+  );
   const byId = new Map(templates.map((t) => [t.id, t]));
   const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter(Boolean) as ForestModelTemplate[];
   return {

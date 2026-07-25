@@ -34,6 +34,7 @@ import { ChaseCamera } from "./chaseCamera";
 import { CollisionWorld } from "./collision";
 import { SkidMarks } from "./skidMarks";
 import { AudioEngine } from "./audioEngine";
+import { ShatterMorphController } from "./shatterMorph";
 
 export type SceneStats = {
   trees: number;
@@ -80,6 +81,7 @@ export class ForestScene {
   private driveMode = false;
   private pendingDrive = false;
   private roadDistanceFn: ((point: THREE.Vector3) => number) | null = null;
+  private readonly shatterMorph = new ShatterMorphController(0);
   private input: InputController | null = null;
   private readonly moto = new MotorcycleController();
   private readonly chase = new ChaseCamera();
@@ -163,6 +165,7 @@ export class ForestScene {
   build(settings: MapSettings) {
     if (this.driveMode) this.setDriveMode(false);
     this.settings = settings;
+    this.shatterMorph.snap(settings.shatterMode);
     this.disposeWorld();
     this.skids.clear();
     const random = createRandom(settings.seed);
@@ -400,38 +403,14 @@ export class ForestScene {
   }
 
   /**
-   * Toggle floating shattered land shards without leaving play / rebuilding the
-   * whole world. Re-streams the neighborhood around the current focus.
+   * Toggle shattered forest with the approved blast / gather morph.
+   * Does not rebuild chunks — dual-pose matrix lerp in place.
    */
   setShatterMode(on: boolean) {
-    if (this.settings.shatterMode === on) return;
-    if (!this.shared || !this.roadDistanceFn) {
-      this.settings = { ...this.settings, shatterMode: on };
-      return;
-    }
     this.settings = { ...this.settings, shatterMode: on };
-    const settings = this.settings;
-    const roadDistance = this.roadDistanceFn;
-    this.chunks.configure({
-      assets: this.shared,
-      worldSeed: settings.seed,
-      forestDensity: settings.forestDensity,
-      treeHeightScale: settings.treeHeightScale,
-      shatterMode: settings.shatterMode,
-      roadWidth: settings.roadWidth,
-      roadDistance,
-      insideWorld: (x, z, inset = 0) => isInsideWorld(x, z, settings.seed, inset),
-    });
-    const focusX = this.driveMode ? this.moto.x : this.controls.target.x;
-    const focusZ = this.driveMode ? this.moto.z : this.controls.target.z;
-    this.chunks.update(focusX, focusZ);
-    // Warm a few chunks immediately so the toggle doesn't leave an empty ring.
-    for (let i = 0; i < 6; i += 1) {
-      if (!this.chunks.pump()) break;
-    }
-    this.collision.syncChunks(this.chunks.loadedEntries());
-    this.lastChunkFocus = "";
-    this.publishStats();
+    this.shatterMorph.animateTo(on);
+    // Apply first frame immediately so the click feels responsive.
+    this.chunks.setShatterVisual(this.shatterMorph.getAmount(), this.shatterMorph.isBlasting());
   }
 
   isAudioMuted() {
@@ -554,6 +533,9 @@ export class ForestScene {
     const dt = 1 / 60;
     let changed = false;
     for (let i = 0; i < frames; i += 1) {
+      if (this.shatterMorph.update(dt)) {
+        this.chunks.setShatterVisual(this.shatterMorph.getAmount(), this.shatterMorph.isBlasting());
+      }
       if (this.driveMode) {
         const input = this.input
           ? this.input.poll()
@@ -598,6 +580,9 @@ export class ForestScene {
   private animate = () => {
     this.animationFrame = requestAnimationFrame(this.animate);
     const dt = Math.min(this.clock.getDelta(), 1 / 20);
+    if (this.shatterMorph.update(dt)) {
+      this.chunks.setShatterVisual(this.shatterMorph.getAmount(), this.shatterMorph.isBlasting());
+    }
     let focusX: number;
     let focusZ: number;
 

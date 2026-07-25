@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>破碎模式 · 展开/收拢 Demo</title>
+  <style>
+    :root {
+      --ink: #1c2a1a;
+      --panel: rgba(248, 252, 245, 0.88);
+      --accent: #2f6b3a;
+      --warn: #8a5a22;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #0e1610;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .hud {
+      position: fixed;
+      left: 20px;
+      top: 18px;
+      z-index: 2;
+      width: min(360px, calc(100vw - 40px));
+      padding: 16px 18px 14px;
+      border-radius: 14px;
+      background: var(--panel);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.28);
+    }
+    .hud h1 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .hud p {
+      margin: 0 0 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      opacity: 0.78;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      padding: 9px 16px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: #f5fff6;
+    }
+    button.secondary {
+      background: #d7e4d4;
+      color: var(--ink);
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+    .state {
+      margin-top: 10px;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      color: var(--warn);
+    }
+    .hint {
+      position: fixed;
+      right: 18px;
+      bottom: 16px;
+      z-index: 2;
+      font-size: 12px;
+      color: rgba(245, 255, 246, 0.72);
+      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+    }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <h1>Shatter morph demo</h1>
+    <p>正常树 ⇄ 破碎浮空碎片。开启是直接炸开；关闭再收拢成树。草案动效，非最终资源。</p>
+    <div class="row">
+      <button id="toggle" type="button">开启破碎</button>
+      <button id="replay" class="secondary" type="button">重播当前</button>
+    </div>
+    <div class="state" id="state">状态：正常森林 · idle</div>
+  </div>
+  <div class="hint">拖拽旋转 · 滚轮缩放</div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const SHARD_COUNT = 7;
+    const TREE_COUNT = 6;
+    const DURATION_BLAST = 0.85;
+    const DURATION_GATHER = 1.15;
+
+    const canvasHost = document.body;
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.shadowMap.enabled = true;
+    canvasHost.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xb7c9ae);
+    scene.fog = new THREE.Fog(0xb7c9ae, 28, 92);
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 200);
+    camera.position.set(14, 9, 18);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 3.2, 0);
+    controls.enableDamping = true;
+    controls.maxPolarAngle = Math.PI * 0.49;
+
+    scene.add(new THREE.AmbientLight(0xdde8d4, 0.72));
+    const sun = new THREE.DirectionalLight(0xfff2d4, 1.35);
+    sun.position.set(18, 28, 10);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    scene.add(sun);
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(40, 48),
+      new THREE.MeshStandardMaterial({ color: 0x6f8f5a, roughness: 0.95 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const bark = new THREE.MeshStandardMaterial({ color: 0x5a3b24, roughness: 0.92 });
+    const leaf = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.78 });
+    const shardMat = new THREE.MeshStandardMaterial({
+      color: 0x7d9a5c,
+      roughness: 0.88,
+      flatShading: true,
+      side: THREE.DoubleSide,
+      vertexColors: true,
+    });
+
+    function hash(n) {
+      const x = Math.sin(n * 127.1) * 43758.5453;
+      return x - Math.floor(x);
+    }
+
+    function makeShardGeo(seed) {
+      const sides = 8 + Math.floor(hash(seed) * 6);
+      const shape = new THREE.Shape();
+      for (let i = 0; i < sides; i += 1) {
+        const a = (i / sides) * Math.PI * 2;
+        const r = 0.35 + hash(seed + i * 3.1) * 0.85;
+        const notch = hash(seed + i * 7.7) < 0.35 ? 0.2 + hash(seed + i) * 0.25 : r;
+        const x = Math.cos(a) * notch;
+        const y = Math.sin(a) * notch;
+        if (i === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
+      }
+      shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, {
+        depth: 0.08 + hash(seed + 9) * 0.1,
+        bevelEnabled: false,
+      });
+      geo.rotateX(-Math.PI / 2);
+      geo.center();
+      const colors = [];
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i += 1) {
+        const y = pos.getY(i);
+        const t = y > 0.01 ? 1 : 0.55;
+        colors.push(0.42 * t + 0.2, 0.55 * t + 0.18, 0.28 * t + 0.1);
+      }
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+      return geo;
+    }
+
+    function makeTree() {
+      const group = new THREE.Group();
+      const trunkMat = bark.clone();
+      const leafMat = leaf.clone();
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 2.4, 8), trunkMat);
+      trunk.position.y = 1.2;
+      trunk.castShadow = true;
+      const crown = new THREE.Mesh(new THREE.ConeGeometry(1.35, 3.2, 9), leafMat);
+      crown.position.y = 3.35;
+      crown.castShadow = true;
+      group.add(trunk, crown);
+      group.userData.parts = { trunk, crown };
+      return group;
+    }
+
+    /** @type {Array<{
+      tree: THREE.Group,
+      home: THREE.Vector3,
+      shards: THREE.Mesh[],
+      shardHome: THREE.Vector3[],
+      shardShatter: Array<{p: THREE.Vector3, e: THREE.Euler, s: THREE.Vector3}>,
+    }>} */
+    const units = [];
+
+    for (let i = 0; i < TREE_COUNT; i += 1) {
+      const angle = (i / TREE_COUNT) * Math.PI * 2 + 0.35;
+      const radius = 4.2 + hash(i + 1) * 3.4;
+      const home = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+      const tree = makeTree();
+      tree.position.copy(home);
+      tree.rotation.y = hash(i + 20) * Math.PI * 2;
+      tree.scale.setScalar(0.85 + hash(i + 40) * 0.55);
+      scene.add(tree);
+
+      const shards = [];
+      const shardHome = [];
+      const shardShatter = [];
+      for (let s = 0; s < SHARD_COUNT; s += 1) {
+        const mesh = new THREE.Mesh(makeShardGeo(i * 17 + s * 13), shardMat);
+        mesh.castShadow = true;
+        mesh.visible = false;
+        scene.add(mesh);
+        shards.push(mesh);
+
+        const local = new THREE.Vector3(
+          (hash(i * 30 + s) - 0.5) * 0.9,
+          1.2 + hash(i * 31 + s) * 2.4,
+          (hash(i * 32 + s) - 0.5) * 0.9,
+        );
+        shardHome.push(home.clone().add(local));
+
+        const outward = new THREE.Vector3(
+          (hash(i * 50 + s) - 0.5) * 11,
+          5 + hash(i * 51 + s) * 14,
+          (hash(i * 52 + s) - 0.5) * 11,
+        );
+        shardShatter.push({
+          p: home.clone().add(outward),
+          e: new THREE.Euler(
+            (hash(i * 60 + s) - 0.5) * 1.8,
+            hash(i * 61 + s) * Math.PI * 2,
+            (hash(i * 62 + s) - 0.5) * 1.8,
+          ),
+          s: new THREE.Vector3(
+            0.7 + hash(i * 70 + s) * 1.8,
+            0.35 + hash(i * 71 + s) * 0.5,
+            0.7 + hash(i * 72 + s) * 1.6,
+          ),
+        });
+      }
+
+      units.push({ tree, home, shards, shardHome, shardShatter });
+    }
+
+    /** @type {"normal" | "shatter"} */
+    let mode = "normal";
+    /** @type {"idle" | "toShatter" | "toNormal"} */
+    let phase = "idle";
+    let t = 0;
+
+    const toggleBtn = document.getElementById("toggle");
+    const replayBtn = document.getElementById("replay");
+    const stateEl = document.getElementById("state");
+
+    // Blast: hard start outward. Gather: ease back in.
+    function easeOutExpo(x) {
+      return x >= 1 ? 1 : 1 - Math.pow(2, -10 * x);
+    }
+    function easeInCubic(x) {
+      return x * x * x;
+    }
+
+    function lerp(a, b, u) {
+      return a + (b - a) * u;
+    }
+
+    function setBusy(busy) {
+      toggleBtn.disabled = busy;
+      replayBtn.disabled = busy;
+    }
+
+    function updateLabel() {
+      const modeLabel = mode === "shatter" ? "破碎世界" : "正常森林";
+      stateEl.textContent = `状态：${modeLabel} · ${phase}`;
+      toggleBtn.textContent = mode === "shatter" ? "关闭破碎（收拢）" : "开启破碎（炸开）";
+    }
+
+    function applyPose(u) {
+      const expanding = phase === "toShatter";
+      const collapsing = phase === "toNormal";
+      const animating = expanding || collapsing;
+      const duration = expanding ? DURATION_BLAST : DURATION_GATHER;
+      let amount;
+      if (!animating) {
+        amount = mode === "shatter" ? 1 : 0;
+      } else if (expanding) {
+        // Direct detonation — no wind-up / shrink first.
+        amount = easeOutExpo(Math.min(1, Math.max(0, t / duration)));
+      } else {
+        amount = 1 - easeInCubic(Math.min(1, Math.max(0, t / duration)));
+      }
+
+      // Tree is replaced by shards immediately on blast (no compress phase).
+      if (expanding) {
+        const flash = Math.min(1, t / 0.08);
+        u.tree.visible = flash < 1;
+        // Slight outward pop, then gone — never scale down first.
+        const pop = 1 + flash * 0.35;
+        u.tree.position.copy(u.home);
+        u.tree.rotation.y = u.tree.userData.baseYaw;
+        u.tree.scale.setScalar(u.tree.userData.baseScale * pop);
+        for (const part of Object.values(u.tree.userData.parts)) {
+          part.material.transparent = true;
+          part.material.opacity = 1 - flash;
+        }
+      } else if (collapsing) {
+        const appear = 1 - amount;
+        u.tree.visible = appear > 0.12;
+        u.tree.position.copy(u.home);
+        u.tree.rotation.y = u.tree.userData.baseYaw;
+        u.tree.scale.setScalar(u.tree.userData.baseScale * Math.max(0.001, appear));
+        for (const part of Object.values(u.tree.userData.parts)) {
+          part.material.transparent = true;
+          part.material.opacity = Math.min(1, appear * 1.4);
+        }
+      } else {
+        u.tree.visible = amount < 0.5;
+        u.tree.position.copy(u.home);
+        u.tree.rotation.y = u.tree.userData.baseYaw;
+        u.tree.scale.setScalar(u.tree.userData.baseScale);
+        for (const part of Object.values(u.tree.userData.parts)) {
+          part.material.transparent = false;
+          part.material.opacity = 1;
+        }
+      }
+
+      for (let i = 0; i < u.shards.length; i += 1) {
+        const shard = u.shards[i];
+        const home = u.shardHome[i];
+        const shatter = u.shardShatter[i];
+        // Almost simultaneous blast — tiny radial offset only.
+        const stagger = expanding ? i * 0.012 : i * 0.04;
+        const localAmount = THREE.MathUtils.clamp(amount + (expanding ? stagger : -stagger), 0, 1);
+
+        shard.visible = localAmount > 0.001;
+        if (!animating && mode === "normal") shard.visible = false;
+
+        shard.position.set(
+          lerp(home.x, shatter.p.x, localAmount),
+          lerp(home.y, shatter.p.y, localAmount),
+          lerp(home.z, shatter.p.z, localAmount),
+        );
+        shard.rotation.set(
+          lerp(0.05, shatter.e.x, localAmount),
+          lerp(0, shatter.e.y, localAmount),
+          lerp(-0.05, shatter.e.z, localAmount),
+        );
+        // Full shard size from frame one of the blast (no grow-from-dot).
+        const size = expanding
+          ? 0.85 + localAmount * 0.15
+          : 0.55 + localAmount * 0.45;
+        shard.scale.set(
+          shatter.s.x * size,
+          shatter.s.y * size,
+          shatter.s.z * size,
+        );
+      }
+    }
+
+    function snapshotBases() {
+      for (const u of units) {
+        u.tree.userData.baseYaw = u.tree.rotation.y;
+        u.tree.userData.baseScale = u.tree.scale.x;
+      }
+    }
+
+    snapshotBases();
+    for (const u of units) applyPose(u);
+    updateLabel();
+
+    function startTransition(nextMode) {
+      if (phase !== "idle") return;
+      // Always begin from the opposite end so replay doesn't flash.
+      mode = nextMode === "shatter" ? "normal" : "shatter";
+      phase = nextMode === "shatter" ? "toShatter" : "toNormal";
+      t = 0;
+      for (const u of units) applyPose(u);
+      setBusy(true);
+      updateLabel();
+    }
+
+    toggleBtn.addEventListener("click", () => {
+      startTransition(mode === "shatter" ? "normal" : "shatter");
+    });
+    replayBtn.addEventListener("click", () => {
+      startTransition(mode === "normal" ? "shatter" : "normal");
+    });
+
+    window.addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    function frame() {
+      const dt = Math.min(clock.getDelta(), 0.05);
+      if (phase !== "idle") {
+        t += dt;
+        const duration = phase === "toShatter" ? DURATION_BLAST : DURATION_GATHER;
+        const done = t >= duration;
+        for (const u of units) applyPose(u);
+        if (done) {
+          mode = phase === "toShatter" ? "shatter" : "normal";
+          phase = "idle";
+          t = 0;
+          for (const u of units) applyPose(u);
+          setBusy(false);
+          updateLabel();
+        }
+      }
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    frame();
+  </script>
+</body>
+</html>

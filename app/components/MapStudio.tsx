@@ -39,6 +39,7 @@ export function MapStudio() {
   const [riderVisible, setRiderVisible] = useState(true);
   const [playMode, setPlayMode] = useState(false);
   const [audioMuted, setAudioMuted] = useState(false);
+  const [shatterMode, setShatterMode] = useState(DEFAULT_SETTINGS.shatterMode);
   const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
   const [status, setStatus] = useState(COPY[DEFAULT_LOCALE].statusWaking);
   const [driveHud, setDriveHud] = useState<DriveHud>({
@@ -157,12 +158,21 @@ export function MapStudio() {
     setStatus(t.statusLaying);
     setSettings(next);
     setDraft(next);
+    setShatterMode(next.shatterMode);
     requestAnimationFrame(() => sceneRef.current?.build(next));
   };
 
   const randomize = () => {
     const next = { ...draft, seed: Math.floor(10000 + Math.random() * 89999) };
     generate(next);
+  };
+
+  const toggleShatterMode = () => {
+    const next = !shatterMode;
+    setShatterMode(next);
+    setDraft((current) => ({ ...current, shatterMode: next }));
+    setSettings((current) => ({ ...current, shatterMode: next }));
+    sceneRef.current?.setShatterMode(next);
   };
 
   const exportMap = () => {
@@ -282,6 +292,14 @@ export function MapStudio() {
               </button>
               <button
                 type="button"
+                className={shatterMode ? "active" : ""}
+                aria-pressed={shatterMode}
+                onClick={toggleShatterMode}
+              >
+                {shatterMode ? t.shatterModeOff : t.shatterModeOn}
+              </button>
+              <button
+                type="button"
                 className={audioMuted ? "" : "active"}
                 aria-pressed={!audioMuted}
                 onClick={toggleAudio}
@@ -293,6 +311,14 @@ export function MapStudio() {
             <>
               <button type="button" className="play-cta" onClick={enterPlay}>
                 {t.play}
+              </button>
+              <button
+                type="button"
+                className={shatterMode ? "active" : ""}
+                aria-pressed={shatterMode}
+                onClick={toggleShatterMode}
+              >
+                {shatterMode ? t.shatterModeOff : t.shatterModeOn}
               </button>
               <button type="button" onClick={() => { const next = !riderVisible; setRiderVisible(next); sceneRef.current?.toggleRider(next); }}>
                 {riderVisible ? t.hideRider : t.showRider}
@@ -368,6 +394,22 @@ export function MapStudio() {
 
         <section className="control-group">
           <div className="section-label"><span>{t.treeTune}</span><b>03</b></div>
+          <div className="season-grid">
+            <button
+              type="button"
+              className={draft.shatterMode ? "active" : ""}
+              aria-pressed={draft.shatterMode}
+              onClick={() => {
+                const next = !draft.shatterMode;
+                update("shatterMode", next);
+                setShatterMode(next);
+                setSettings((current) => ({ ...current, shatterMode: next }));
+                sceneRef.current?.setShatterMode(next);
+              }}
+            >
+              {draft.shatterMode ? t.shatterModeOff : t.shatterModeOn}
+            </button>
+          </div>
           <Range label={t.leafDensity} value={draft.treeLeafDensity} min={0.5} max={1.35} step={0.01} display={`${Math.round(draft.treeLeafDensity * 100)}%`} onChange={(v) => update("treeLeafDensity", v)} />
           <Range label={t.canopyWidth} value={draft.treeCanopyWidth} min={0.75} max={1.3} step={0.01} display={`${draft.treeCanopyWidth.toFixed(2)}×`} onChange={(v) => update("treeCanopyWidth", v)} />
           <Range label={t.treeHeight} value={draft.treeHeightScale} min={0.8} max={2.8} step={0.05} display={`${draft.treeHeightScale.toFixed(2)}×`} onChange={(v) => update("treeHeightScale", v)} />

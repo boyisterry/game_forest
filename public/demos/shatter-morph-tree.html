@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>树木修复与炸裂 Demo</title>
+  <style>
+    :root {
+      --ink: #172116;
+      --muted: #63705f;
+      --panel: rgba(248, 251, 244, 0.92);
+      --green: #315f37;
+      --green-soft: #dbe8d7;
+      --amber: #9a6228;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #aebea8;
+      color: var(--ink);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .hud {
+      position: fixed;
+      left: 20px;
+      top: 18px;
+      z-index: 2;
+      width: min(430px, calc(100vw - 40px));
+      padding: 18px;
+      border: 1px solid rgba(41, 65, 39, 0.12);
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: 0 14px 45px rgba(20, 34, 20, 0.24);
+      backdrop-filter: blur(12px);
+    }
+    .eyebrow {
+      margin: 0 0 5px;
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+    }
+    h1 { margin: 0 0 7px; font-size: 19px; }
+    .description {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    code {
+      padding: 1px 5px;
+      border-radius: 5px;
+      background: rgba(49, 95, 55, 0.09);
+      font-size: 11px;
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 999px;
+      padding: 9px 16px;
+      background: var(--green);
+      color: #f8fff7;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary { background: var(--green-soft); color: var(--ink); }
+    button.ghost { background: transparent; box-shadow: inset 0 0 0 1px #b9cab5; color: var(--green); }
+    button:disabled { cursor: default; opacity: 0.42; }
+    .meter {
+      height: 4px;
+      margin-top: 14px;
+      overflow: hidden;
+      border-radius: 99px;
+      background: #dce5d8;
+    }
+    .meter i {
+      display: block;
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--green), var(--amber));
+      transition: width 80ms linear;
+    }
+    .state {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .state strong { color: var(--amber); }
+    .legend {
+      position: fixed;
+      right: 18px;
+      bottom: 16px;
+      z-index: 2;
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: rgba(20, 31, 19, 0.58);
+      color: rgba(247, 255, 244, 0.88);
+      font-size: 11px;
+      backdrop-filter: blur(8px);
+    }
+    @media (max-width: 640px) {
+      .hud { left: 12px; top: 12px; width: calc(100vw - 24px); padding: 15px; }
+      .description { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <section class="hud" aria-label="树木特效控制">
+    <p class="eyebrow">TREE RESTORATION / FX STUDY</p>
+    <h1>原型树 ↔ 真实模型碎片</h1>
+    <p class="description">
+      修复态直接使用新建的 <code>tree_normal_large_redwood_a.glb</code>；
+      炸裂态使用旧 <code>tree_large_redwood_a.glb</code> 的真实三角面碎片。
+      两个端态拥有独立、语义正确的模型。
+    </p>
+    <div class="row">
+      <button id="shatter" type="button" disabled>炸裂树木</button>
+      <button id="repair" class="secondary" type="button" disabled>修复树木</button>
+      <button id="cycle" class="ghost" type="button" disabled>自动往返</button>
+    </div>
+    <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+    <div class="state">
+      <span id="state">正在分析树模型…</span>
+      <span id="count"></span>
+    </div>
+  </section>
+  <div class="legend">拖拽旋转 · 滚轮缩放 · R 修复 · Space 炸裂</div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+    const NORMAL_TREE_URL = "/models/forest/tree_normal_large_redwood_a.glb";
+    const SHATTER_TREE_URL = "/models/forest/tree_large_redwood_a.glb";
+    const GRID = { nx: 4, ny: 9, nz: 4 };
+    const WOOD_KEEP_RATIO = 0.7;
+    const WOOD_FRAGMENT_SCALE = 1.2;
+    const BLAST_DURATION = 1.05;
+    const REPAIR_DURATION = 1.55;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.04;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xb9c9b2);
+    scene.fog = new THREE.Fog(0xb9c9b2, 45, 115);
+
+    const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 180);
+    camera.position.set(21, 13, 37);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 9, 0);
+    controls.enableDamping = true;
+    controls.maxPolarAngle = Math.PI * 0.49;
+    controls.minDistance = 10;
+    controls.maxDistance = 58;
+
+    scene.add(new THREE.HemisphereLight(0xf1fae9, 0x34432f, 1.65));
+    const sun = new THREE.DirectionalLight(0xffedc8, 3);
+    sun.position.set(-18, 34, 21);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -24;
+    sun.shadow.camera.right = 24;
+    sun.shadow.camera.top = 30;
+    sun.shadow.camera.bottom = -8;
+    scene.add(sun);
+    const rim = new THREE.DirectionalLight(0x8db38d, 0.8);
+    rim.position.set(22, 16, -20);
+    scene.add(rim);
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(48, 72),
+      new THREE.MeshStandardMaterial({ color: 0x718e5d, roughness: 0.98 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const shatterBtn = document.getElementById("shatter");
+    const repairBtn = document.getElementById("repair");
+    const cycleBtn = document.getElementById("cycle");
+    const stateEl = document.getElementById("state");
+    const countEl = document.getElementById("count");
+    const meterEl = document.getElementById("meter");
+
+    const repairedRoot = new THREE.Group();
+    const shardRoot = new THREE.Group();
+    scene.add(repairedRoot, shardRoot);
+
+    let repairedMaterials = [];
+    let chunks = [];
+    let amount = 0;
+    let fromAmount = 0;
+    let targetAmount = 0;
+    let elapsed = 0;
+    let duration = BLAST_DURATION;
+    let busy = false;
+    let autoCycle = false;
+    let autoPause = 0;
+
+    const clamp01 = (x) => Math.min(1, Math.max(0, x));
+    const smoothstep = (x) => {
+      const t = clamp01(x);
+      return t * t * (3 - 2 * t);
+    };
+    const easeOutExpo = (x) => x >= 1 ? 1 : 1 - Math.pow(2, -10 * x);
+    const easeInOutCubic = (x) => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+    function hash(n) {
+      const x = Math.sin(n * 127.1) * 43758.5453;
+      return x - Math.floor(x);
+    }
+
+    function setReady(ready) {
+      shatterBtn.disabled = !ready || busy || targetAmount === 1;
+      repairBtn.disabled = !ready || busy || targetAmount === 0;
+      cycleBtn.disabled = !ready;
+    }
+
+    function updateHud() {
+      const label = busy
+        ? targetAmount === 1 ? "炸裂中" : "修复中"
+        : amount > 0.999 ? "真实碎片态" : "修复后的原型树";
+      stateEl.innerHTML = `状态：<strong>${label}</strong>`;
+      meterEl.style.width = `${Math.round(amount * 100)}%`;
+      cycleBtn.textContent = autoCycle ? "停止往返" : "自动往返";
+      setReady(chunks.length > 0);
+    }
+
+    function averageColor(stream, fallback) {
+      if (!stream.col.length) return new THREE.Color(fallback);
+      let r = 0, g = 0, b = 0;
+      const count = stream.col.length / 3;
+      for (let i = 0; i < stream.col.length; i += 3) {
+        r += stream.col[i];
+        g += stream.col[i + 1];
+        b += stream.col[i + 2];
+      }
+      return new THREE.Color(r / count, g / count, b / count);
+    }
+
+    function extractStreams(root) {
+      root.updateMatrixWorld(true);
+      const streams = {
+        wood: { pos: [], col: [], idx: [] },
+        leaves: { pos: [], col: [], idx: [] },
+      };
+      const v = new THREE.Vector3();
+      root.traverse((obj) => {
+        if (!obj.isMesh) return;
+        const name = (obj.name || obj.parent?.name || "").toLowerCase();
+        const target = name.includes("leaf") ? streams.leaves : streams.wood;
+        const geometry = obj.geometry;
+        const pos = geometry.getAttribute("position");
+        const col = geometry.getAttribute("color");
+        const index = geometry.getIndex();
+        const base = target.pos.length / 3;
+        for (let i = 0; i < pos.count; i += 1) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(obj.matrixWorld);
+          target.pos.push(v.x, v.y, v.z);
+          if (col) target.col.push(col.getX(i), col.getY(i), col.getZ(i));
+          else target.col.push(name.includes("leaf") ? 0.3 : 0.38, name.includes("leaf") ? 0.5 : 0.25, 0.18);
+        }
+        if (index) {
+          for (let i = 0; i < index.count; i += 1) target.idx.push(index.getX(i) + base);
+        } else {
+          for (let i = 0; i < pos.count; i += 1) target.idx.push(base + i);
+        }
+      });
+      return streams;
+    }
+
+    function boundsOf(streams) {
+      const box = new THREE.Box3();
+      const point = new THREE.Vector3();
+      for (const stream of streams) {
+        for (let i = 0; i < stream.pos.length; i += 3) {
+          point.set(stream.pos[i], stream.pos[i + 1], stream.pos[i + 2]);
+          box.expandByPoint(point);
+        }
+      }
+      return box;
+    }
+
+    function cylinderBetween(a, b, radiusA, radiusB, material, radial = 7) {
+      const delta = b.clone().sub(a);
+      const geometry = new THREE.CylinderGeometry(radiusB, radiusA, delta.length(), radial, 1);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.copy(a).add(b).multiplyScalar(0.5);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      repairedRoot.add(mesh);
+      return mesh;
+    }
+
+    /** Install the actual normal-tree GLB as the repaired end state. */
+    function installNormalTree(root) {
+      root.updateMatrixWorld(true);
+      const bounds = new THREE.Box3().setFromObject(root);
+      const height = Math.max(bounds.max.y - bounds.min.y, 1);
+      repairedMaterials = [];
+      root.traverse((object) => {
+        if (!object.isMesh) return;
+        const leaf = (object.name || object.parent?.name || "").toLowerCase().includes("leaf");
+        const sourceMaterial = object.material;
+        const material = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          vertexColors: true,
+          emissive: leaf ? 0x102b0c : 0x000000,
+          emissiveIntensity: leaf ? 0.2 : 0,
+          roughness: leaf ? 0.9 : 0.94,
+          metalness: 0,
+          side: leaf ? THREE.DoubleSide : THREE.FrontSide,
+          transparent: true,
+        });
+        sourceMaterial?.dispose();
+        object.material = material;
+        object.castShadow = true;
+        object.receiveShadow = true;
+        repairedMaterials.push(material);
+      });
+      repairedRoot.add(root);
+      return { bounds, height };
+    }
+
+    function buildChunks(stream, material, bounds, kind, seedBase) {
+      const size = bounds.getSize(new THREE.Vector3());
+      const min = bounds.min;
+      const buckets = new Map();
+      const cellOf = (x, y, z) => {
+        const cx = Math.min(GRID.nx - 1, Math.max(0, Math.floor(((x - min.x) / size.x) * GRID.nx)));
+        const cy = Math.min(GRID.ny - 1, Math.max(0, Math.floor(((y - min.y) / size.y) * GRID.ny)));
+        const cz = Math.min(GRID.nz - 1, Math.max(0, Math.floor(((z - min.z) / size.z) * GRID.nz)));
+        return cx + cy * GRID.nx + cz * GRID.nx * GRID.ny;
+      };
+      for (let t = 0; t < stream.idx.length; t += 3) {
+        const ids = [stream.idx[t], stream.idx[t + 1], stream.idx[t + 2]];
+        const centroid = ids.reduce((acc, id) => {
+          acc.x += stream.pos[id * 3] / 3;
+          acc.y += stream.pos[id * 3 + 1] / 3;
+          acc.z += stream.pos[id * 3 + 2] / 3;
+          return acc;
+        }, { x: 0, y: 0, z: 0 });
+        const key = cellOf(centroid.x, centroid.y, centroid.z);
+        if (!buckets.has(key)) buckets.set(key, { pos: [], col: [], center: new THREE.Vector3(), count: 0 });
+        const bucket = buckets.get(key);
+        for (const id of ids) {
+          bucket.pos.push(stream.pos[id * 3], stream.pos[id * 3 + 1], stream.pos[id * 3 + 2]);
+          bucket.col.push(stream.col[id * 3], stream.col[id * 3 + 1], stream.col[id * 3 + 2]);
+        }
+        bucket.center.add(new THREE.Vector3(centroid.x, centroid.y, centroid.z));
+        bucket.count += 1;
+      }
+
+      const result = [];
+      const bucketEntries = [...buckets.entries()];
+      const selectedBuckets = kind === "wood"
+        ? bucketEntries
+          .sort(([keyA], [keyB]) => hash(keyA + seedBase) - hash(keyB + seedBase))
+          .slice(0, Math.round(bucketEntries.length * WOOD_KEEP_RATIO))
+        : bucketEntries;
+      let seed = seedBase;
+      for (const [, bucket] of selectedBuckets) {
+        const home = bucket.center.multiplyScalar(1 / bucket.count);
+        for (let i = 0; i < bucket.pos.length; i += 3) {
+          bucket.pos[i] -= home.x;
+          bucket.pos[i + 1] -= home.y;
+          bucket.pos[i + 2] -= home.z;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(bucket.pos, 3));
+        geometry.setAttribute("color", new THREE.Float32BufferAttribute(bucket.col, 3));
+        geometry.computeVertexNormals();
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
+
+        const yF = clamp01((home.y - min.y) / size.y);
+        const angle = Math.atan2(home.z, home.x);
+        const crown = Math.pow(Math.sin(Math.PI * clamp01((yF - 0.25) / 0.75)), 0.5);
+        const repairRadius = kind === "wood" && yF < 0.62
+          ? size.x * 0.018
+          : size.x * (0.05 + crown * 0.2);
+        const repairPos = new THREE.Vector3(
+          Math.cos(angle) * repairRadius,
+          home.y,
+          Math.sin(angle) * repairRadius,
+        );
+        let dx = home.x;
+        let dz = home.z;
+        const len = Math.hypot(dx, dz);
+        if (len < 0.01) {
+          const a = hash(seed) * Math.PI * 2;
+          dx = Math.cos(a);
+          dz = Math.sin(a);
+        } else {
+          dx /= len;
+          dz /= len;
+        }
+        const outward = 2.5 + hash(seed + 2) * 6 + yF * 3.5;
+        const blastPos = new THREE.Vector3(
+          home.x + dx * outward,
+          home.y + 1.2 + hash(seed + 3) * 5 + yF * 2.4,
+          home.z + dz * outward,
+        );
+        const blastRot = new THREE.Euler(
+          (hash(seed + 4) - 0.5) * 2.8,
+          hash(seed + 5) * Math.PI * 2,
+          (hash(seed + 6) - 0.5) * 2.8,
+        );
+        result.push({
+          mesh,
+          repairPos,
+          blastPos,
+          blastRot,
+          seed,
+          fragmentScale: kind === "wood" ? WOOD_FRAGMENT_SCALE : 1,
+          triangleCount: bucket.count,
+        });
+        shardRoot.add(mesh);
+        seed += 1;
+      }
+      return result;
+    }
+
+    function applyPose() {
+      const treeFade = 1 - smoothstep(amount / 0.24);
+      repairedRoot.visible = treeFade > 0.002;
+      repairedRoot.scale.setScalar(1 + amount * 0.035);
+      for (const material of repairedMaterials) {
+        material.opacity = treeFade;
+        material.depthWrite = treeFade > 0.55;
+      }
+
+      const shardReveal = smoothstep((amount - 0.035) / 0.24);
+      shardRoot.visible = shardReveal > 0.002;
+      for (let i = 0; i < chunks.length; i += 1) {
+        const chunk = chunks[i];
+        const stagger = (i % 11) * 0.006;
+        const local = clamp01(amount + stagger);
+        chunk.mesh.position.lerpVectors(chunk.repairPos, chunk.blastPos, local);
+        chunk.mesh.rotation.set(
+          chunk.blastRot.x * local,
+          chunk.blastRot.y * local,
+          chunk.blastRot.z * local,
+        );
+        chunk.mesh.scale.setScalar((0.48 + shardReveal * 0.52) * chunk.fragmentScale);
+      }
+      updateHud();
+    }
+
+    function animateTo(next) {
+      if (!chunks.length) return;
+      const target = next ? 1 : 0;
+      if (busy && Math.abs(targetAmount - target) < 0.001) return;
+      if (!busy && Math.abs(amount - target) < 0.001) return;
+      fromAmount = amount;
+      targetAmount = target;
+      elapsed = 0;
+      duration = target > amount ? BLAST_DURATION : REPAIR_DURATION;
+      busy = true;
+      updateHud();
+    }
+
+    shatterBtn.addEventListener("click", () => animateTo(1));
+    repairBtn.addEventListener("click", () => animateTo(0));
+    cycleBtn.addEventListener("click", () => {
+      autoCycle = !autoCycle;
+      autoPause = 0;
+      if (autoCycle && !busy) animateTo(amount < 0.5 ? 1 : 0);
+      updateHud();
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.code === "Space") {
+        event.preventDefault();
+        animateTo(1);
+      }
+      if (event.key.toLowerCase() === "r") animateTo(0);
+    });
+    window.addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    const loader = new GLTFLoader();
+    Promise.all([
+      loader.loadAsync(NORMAL_TREE_URL),
+      loader.loadAsync(SHATTER_TREE_URL),
+    ])
+      .then(([normalGltf, shatterGltf]) => {
+        const normalTree = installNormalTree(normalGltf.scene);
+        const streams = extractStreams(shatterGltf.scene);
+        const bounds = boundsOf([streams.wood, streams.leaves]);
+        const woodMaterial = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          vertexColors: true,
+          roughness: 0.96,
+          metalness: 0,
+          side: THREE.DoubleSide,
+        });
+        const leafMaterial = new THREE.MeshPhongMaterial({
+          color: 0xffffff,
+          vertexColors: true,
+          specular: 0x78955e,
+          shininess: 10,
+          emissive: 0x102806,
+          emissiveIntensity: 0.35,
+          side: THREE.DoubleSide,
+        });
+        const woodChunks = buildChunks(streams.wood, woodMaterial, bounds, "wood", 11);
+        const leafChunks = buildChunks(streams.leaves, leafMaterial, bounds, "leaves", 900);
+        chunks = [...woodChunks, ...leafChunks];
+        const triangleCount = chunks.reduce((total, chunk) => total + chunk.triangleCount, 0);
+        countEl.textContent = `${chunks.length} 组碎片 · ${triangleCount.toLocaleString()} 面`;
+        controls.target.set(0, normalTree.bounds.min.y + normalTree.height * 0.48, 0);
+        camera.position.set(21, normalTree.bounds.min.y + normalTree.height * 0.57, 37);
+        controls.update();
+        targetAmount = 0;
+        amount = 0;
+        applyPose();
+      })
+      .catch((error) => {
+        console.error(error);
+        stateEl.innerHTML = `<strong>加载失败</strong>：${NORMAL_TREE_URL}`;
+      });
+
+    const clock = new THREE.Clock();
+    function frame() {
+      const dt = Math.min(clock.getDelta(), 0.05);
+      if (busy) {
+        elapsed += dt;
+        const u = clamp01(elapsed / duration);
+        const eased = targetAmount > fromAmount ? easeOutExpo(u) : easeInOutCubic(u);
+        amount = THREE.MathUtils.lerp(fromAmount, targetAmount, eased);
+        if (u >= 1) {
+          amount = targetAmount;
+          busy = false;
+          autoPause = 0;
+        }
+        applyPose();
+      } else if (autoCycle) {
+        autoPause += dt;
+        if (autoPause > 0.9) animateTo(amount < 0.5 ? 1 : 0);
+      }
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    updateHud();
+    frame();
+  </script>
+</body>
+</html>

@@ -66,6 +66,9 @@ type Copy = {
   leafDensity: string;
   canopyWidth: string;
   treeHeight: string;
+  shatterMode: string;
+  shatterModeOn: string;
+  shatterModeOff: string;
   mapSeed: string;
   generate: string;
   randomMap: string;
@@ -131,9 +134,12 @@ export const COPY: Record<Locale, Copy> = {
     seasonSummer: "Summer",
     seasonAutumn: "Autumn",
     treeTune: "TREES",
-    leafDensity: "Shattered leaf density",
-    canopyWidth: "Shattered canopy width",
-    treeHeight: "Shattered tree height",
+    leafDensity: "Leaf density",
+    canopyWidth: "Canopy width",
+    treeHeight: "Tree height",
+    shatterMode: "Shatter mode",
+    shatterModeOn: "Shatter on",
+    shatterModeOff: "Shatter off",
     mapSeed: "Map seed",
     generate: "Generate forest",
     randomMap: "Random map",
@@ -197,9 +203,12 @@ export const COPY: Record<Locale, Copy> = {
     seasonSummer: "盛夏",
     seasonAutumn: "金秋",
     treeTune: "树木微调",
-    leafDensity: "破碎的叶片密度",
-    canopyWidth: "破碎的树冠宽度",
-    treeHeight: "破碎的树木高度",
+    leafDensity: "叶片密度",
+    canopyWidth: "树冠宽度",
+    treeHeight: "树木高度",
+    shatterMode: "破碎模式",
+    shatterModeOn: "破碎开",
+    shatterModeOff: "破碎关",
     mapSeed: "地图种子",
     generate: "生成这片森林",
     randomMap: "随机地图",

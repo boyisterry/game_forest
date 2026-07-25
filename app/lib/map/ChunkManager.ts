@@ -5,6 +5,7 @@ import {
   type ChunkBuildContext,
   type SharedForestAssets,
 } from "./forestAssets";
+import { applyShatterAmount, type ShatterMorphData } from "./shatterMorph";
 import type { ChunkColliders } from "./collision";
 import {
   CHUNK_SIZE,
@@ -34,6 +35,8 @@ export class ChunkManager {
   private context: ChunkBuildContext | null = null;
   private focus: ChunkCoord = { cx: 0, cz: 0 };
   private pending: ChunkCoord[] = [];
+  private shatterAmount = 0;
+  private shatterBlasting = true;
 
   constructor(parent: THREE.Group) {
     this.parent = parent;
@@ -43,6 +46,18 @@ export class ChunkManager {
     this.clear();
     this.context = context;
     this.pending = [];
+    this.shatterAmount = context.shatterMode ? 1 : 0;
+    this.shatterBlasting = Boolean(context.shatterMode);
+  }
+
+  /** Live morph pose for all loaded chunks (and future loads). */
+  setShatterVisual(amount: number, blasting: boolean) {
+    this.shatterAmount = amount;
+    this.shatterBlasting = blasting;
+    for (const chunk of this.loaded.values()) {
+      const morph = chunk.group.userData.shatterMorph as ShatterMorphData | undefined;
+      if (morph) applyShatterAmount(morph, amount, blasting);
+    }
   }
 
   get assets(): SharedForestAssets | null {
@@ -82,7 +97,6 @@ export class ChunkManager {
       const centerZ = (coord.cz + 0.5) * CHUNK_SIZE;
       return this.context!.insideWorld(centerX, centerZ, -CHUNK_SIZE);
     });
-    // Near-first so the camera neighborhood fills before the ring edge.
     neededList.sort((a, b) => {
       const da = (a.cx - nextFocus.cx) ** 2 + (a.cz - nextFocus.cz) ** 2;
       const db = (b.cx - nextFocus.cx) ** 2 + (b.cz - nextFocus.cz) ** 2;
@@ -118,6 +132,8 @@ export class ChunkManager {
   private load(coord: ChunkCoord) {
     if (!this.context) return;
     const built = buildChunk(coord, this.context);
+    const morph = built.group.userData.shatterMorph as ShatterMorphData | undefined;
+    if (morph) applyShatterAmount(morph, this.shatterAmount, this.shatterBlasting);
     this.parent.add(built.group);
     this.loaded.set(chunkKey(coord.cx, coord.cz), {
       coord,
@@ -130,7 +146,6 @@ export class ChunkManager {
     });
   }
 
-  /** Snapshot of loaded chunks' collision data for the ride-mode collision world. */
   loadedEntries(): Array<{ key: string; colliders: ChunkColliders }> {
     const out: Array<{ key: string; colliders: ChunkColliders }> = [];
     for (const [key, chunk] of this.loaded) out.push({ key, colliders: chunk.colliders });

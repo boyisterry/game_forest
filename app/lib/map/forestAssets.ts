@@ -18,6 +18,26 @@ import {
   type ForestModelTemplate,
 } from "./treeModels";
 import type { ChunkColliders, StoneCollider, TreeCollider } from "./collision";
+import { applyShatterAmount, type ShatterMorphData } from "./shatterMorph";
+
+export type TreePose = {
+  x: number;
+  z: number;
+  canopyY: number;
+  scale: number;
+};
+
+const SHARDS_PER_TREE = 5;
+
+function captureInstanceBases(mesh: THREE.InstancedMesh) {
+  const bases = new Float32Array(mesh.count * 16);
+  const matrix = new THREE.Matrix4();
+  for (let i = 0; i < mesh.count; i += 1) {
+    mesh.getMatrixAt(i, matrix);
+    matrix.toArray(bases, i * 16);
+  }
+  return bases;
+}
 
 export type SharedForestAssets = {
   trunkGeometry: THREE.CylinderGeometry;
@@ -544,6 +564,8 @@ export type ChunkBuildContext = {
   worldSeed: number;
   forestDensity: number;
   treeHeightScale: number;
+  /** Scatter floating shattered land shards when true. */
+  shatterMode: boolean;
   roadWidth: number;
   roadDistance: (point: THREE.Vector3) => number;
   insideWorld: (x: number, z: number, inset?: number) => boolean;
@@ -559,7 +581,16 @@ export type BuiltChunk = {
 };
 
 export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): BuiltChunk {
-  const { assets, worldSeed, forestDensity, treeHeightScale, roadWidth, roadDistance, insideWorld } = context;
+  const {
+    assets,
+    worldSeed,
+    forestDensity,
+    treeHeightScale,
+    shatterMode,
+    roadWidth,
+    roadDistance,
+    insideWorld,
+  } = context;
   const group = new THREE.Group();
   group.name = `chunk:${coord.cx},${coord.cz}`;
   const origin = chunkOrigin(coord.cx, coord.cz);
@@ -578,6 +609,8 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
   let treeDrawCalls = 0;
   let treeCount = 0;
   let treeColliders: TreeCollider[] = [];
+  let treePoses: TreePose[] = [];
+  let treeMeshes: THREE.InstancedMesh[] = [];
 
   if (assets.models) {
     const trees = addModelTrees(group, {
@@ -594,6 +627,8 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     });
     treeCount = trees.count;
     treeColliders = trees.colliders;
+    treePoses = trees.poses;
+    treeMeshes = trees.meshes;
     treeDrawCalls = addForestProps(group, {
       assets,
       origin,
@@ -621,6 +656,8 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     });
     treeCount = trees.count;
     treeColliders = trees.colliders;
+    treePoses = trees.poses;
+    treeMeshes = trees.meshes;
     treeDrawCalls = 7;
   }
 
@@ -686,142 +723,105 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     group.add(stoneMesh);
   }
 
-  // Sparse shattered void fragments — mostly debris, wide air gaps, tall volume.
-  const platformTarget = Math.max(1, Math.round(0.7 + forestDensity * 0.45));
+  // Per-tree shatter shards (always built). Morph amount shows trees or shards.
   type PlatformSpot = {
+    homeX: number;
+    homeY: number;
+    homeZ: number;
     x: number;
     y: number;
     z: number;
     yaw: number;
     pitch: number;
     roll: number;
+    homeYaw: number;
     sx: number;
     sy: number;
     sz: number;
-    radius: number;
+    homeScale: number;
     variant: number;
   };
   const accepted: PlatformSpot[] = [];
-  const platformPoint = new THREE.Vector3();
   const landCount = Math.floor(assets.platformGeometries.length / 2);
-  // Geometry unit radius ~1.18; keep collision at least that large + fixed void gap.
-  const VOID_GAP = 48;
 
-  const overlaps = (spot: PlatformSpot) => {
-    for (const other of accepted) {
-      const dx = spot.x - other.x;
-      const dy = spot.y - other.y;
-      const dz = spot.z - other.z;
-      const horiz = Math.hypot(dx, dz);
-      // Always keep a clear horizontal void between shards — never graze.
-      const minHoriz = spot.radius + other.radius + VOID_GAP;
-      if (horiz < minHoriz) return true;
-      // Even when offset in plan, refuse near-vertical nesting.
-      const min3 = spot.radius + other.radius + VOID_GAP * 0.55;
-      if (Math.hypot(dx, dy, dz) < min3) return true;
-    }
-    return false;
-  };
+  for (let ti = 0; ti < treePoses.length; ti += 1) {
+    const tree = treePoses[ti];
+    for (let s = 0; s < SHARDS_PER_TREE; s += 1) {
+      const sizeRoll = random();
+      const span =
+        sizeRoll < 0.55
+          ? range(random, 2.2, 6.5)
+          : sizeRoll < 0.88
+            ? range(random, 7, 14)
+            : range(random, 15, 28);
+      const stretch = range(random, 0.45, 1.65);
+      const sx = span;
+      const sz = span * stretch;
+      const isLargeDeck = sizeRoll >= 0.88 || Math.max(sx, sz) >= 18;
 
-  for (let attempt = 0; attempt < platformTarget * 70 && accepted.length < platformTarget; attempt += 1) {
-    platformPoint.set(origin.x + random() * CHUNK_SIZE, 0, origin.z + random() * CHUNK_SIZE);
-    if (!insideWorld(platformPoint.x, platformPoint.z, 42)) continue;
-    if (roadDistance(platformPoint) < roadWidth * 3.2) continue;
-
-    // 碎小 50% / 小 30% / 中等 18% / 大岛 2%
-    const sizeRoll = random();
-    const span =
-      sizeRoll < 0.5
-        ? range(random, 2.5, 8)
-        : sizeRoll < 0.8
-          ? range(random, 9, 18)
-          : sizeRoll < 0.98
-            ? range(random, 22, 38)
-            : range(random, 48, 72);
-    // Shards often elongate into torn strips.
-    const stretch = range(random, 0.45, 1.65);
-    const sx = span;
-    const sz = span * stretch;
-    // 按最终体量判定：中等/大岛（或拉长后等同体量）倾角严格 ≤10°。
-    const isLargeDeck = sizeRoll >= 0.8 || Math.max(sx, sz) >= 22;
-
-    // Tall void column — low drift to high broken sky.
-    const heightRoll = random();
-    const y =
-      heightRoll < 0.22
-        ? range(random, 16, 38)
-        : heightRoll < 0.55
-          ? range(random, 42, 78)
-          : heightRoll < 0.82
-            ? range(random, 86, 130)
-            : range(random, 138, 190);
-
-    // 中等/大岛：合成倾角 ≤10°（避免 pitch+roll 叠成近竖）。碎小/小可大幅倾斜。
-    let pitch = 0;
-    let roll = 0;
-    if (isLargeDeck) {
-      const maxTilt = (10 * Math.PI) / 180;
-      const mag = THREE.MathUtils.clamp(Math.abs(gaussian(random, 0, (3.5 * Math.PI) / 180)), 0, maxTilt);
-      const axis = random() * Math.PI * 2;
-      pitch = Math.cos(axis) * mag;
-      roll = Math.sin(axis) * mag;
-    } else if (random() < 0.42) {
-      const walkStd = (12 * Math.PI) / 180;
-      pitch = THREE.MathUtils.clamp(gaussian(random, 0, walkStd), (-28 * Math.PI) / 180, (28 * Math.PI) / 180);
-      roll = THREE.MathUtils.clamp(gaussian(random, 0, walkStd), (-28 * Math.PI) / 180, (28 * Math.PI) / 180);
-    } else {
-      const steep = range(random, (45 * Math.PI) / 180, (88 * Math.PI) / 180);
-      const sign = random() < 0.5 ? 1 : -1;
-      if (random() < 0.5) {
-        pitch = steep * sign;
-        roll = gaussian(random, 0, (10 * Math.PI) / 180);
+      let pitch = 0;
+      let roll = 0;
+      if (isLargeDeck) {
+        const maxTilt = (10 * Math.PI) / 180;
+        const mag = THREE.MathUtils.clamp(Math.abs(gaussian(random, 0, (3.5 * Math.PI) / 180)), 0, maxTilt);
+        const axis = random() * Math.PI * 2;
+        pitch = Math.cos(axis) * mag;
+        roll = Math.sin(axis) * mag;
+      } else if (random() < 0.42) {
+        const walkStd = (12 * Math.PI) / 180;
+        pitch = THREE.MathUtils.clamp(gaussian(random, 0, walkStd), (-28 * Math.PI) / 180, (28 * Math.PI) / 180);
+        roll = THREE.MathUtils.clamp(gaussian(random, 0, walkStd), (-28 * Math.PI) / 180, (28 * Math.PI) / 180);
       } else {
-        roll = steep * sign;
-        pitch = gaussian(random, 0, (10 * Math.PI) / 180);
+        const steep = range(random, (45 * Math.PI) / 180, (88 * Math.PI) / 180);
+        const sign = random() < 0.5 ? 1 : -1;
+        if (random() < 0.5) {
+          pitch = steep * sign;
+          roll = gaussian(random, 0, (10 * Math.PI) / 180);
+        } else {
+          roll = steep * sign;
+          pitch = gaussian(random, 0, (10 * Math.PI) / 180);
+        }
       }
+
+      const useSheet = random() < 0.62;
+      const variant = useSheet
+        ? landCount + Math.floor(random() * Math.max(1, assets.platformGeometries.length - landCount))
+        : Math.floor(random() * Math.max(1, landCount));
+
+      const homeX = tree.x + range(random, -0.7, 0.7) * tree.scale;
+      const homeY = Math.max(0.8, tree.canopyY * range(random, 0.35, 0.95));
+      const homeZ = tree.z + range(random, -0.7, 0.7) * tree.scale;
+      const homeScale = range(random, 0.55, 1.1) * Math.max(0.8, tree.scale * 0.45);
+
+      const outward = range(random, 6, 16);
+      const up = range(random, 8, 42);
+      const ang = random() * Math.PI * 2;
+      accepted.push({
+        homeX,
+        homeY,
+        homeZ,
+        homeYaw: random() * Math.PI * 2,
+        homeScale,
+        x: tree.x + Math.cos(ang) * outward,
+        y: homeY + up,
+        z: tree.z + Math.sin(ang) * outward,
+        yaw: random() * Math.PI * 2,
+        pitch,
+        roll,
+        sx,
+        sy: useSheet ? 1 : range(random, 0.65, 1.05),
+        sz,
+        variant: Math.min(variant, assets.platformGeometries.length - 1),
+      });
     }
-
-    // Prefer thin sheet shards for "broken space" read.
-    const useSheet = random() < 0.62;
-    const variant = useSheet
-      ? landCount + Math.floor(random() * Math.max(1, assets.platformGeometries.length - landCount))
-      : Math.floor(random() * Math.max(1, landCount));
-
-    // Match real outline extent (~1.18) so scaled shards cannot visually kiss.
-    const radius = Math.max(sx, sz) * 1.2;
-    // Soft edge inset — large shards stay near chunk center; avoid hard-rejecting them.
-    const edgePad = Math.min(12 + radius * 0.28, CHUNK_SIZE * 0.34);
-    const x = THREE.MathUtils.clamp(
-      platformPoint.x + range(random, -6, 6),
-      origin.x + edgePad,
-      origin.x + CHUNK_SIZE - edgePad,
-    );
-    const z = THREE.MathUtils.clamp(
-      platformPoint.z + range(random, -6, 6),
-      origin.z + edgePad,
-      origin.z + CHUNK_SIZE - edgePad,
-    );
-
-    const spot: PlatformSpot = {
-      x,
-      y,
-      z,
-      yaw: random() * Math.PI * 2,
-      pitch,
-      roll,
-      sx,
-      sy: useSheet ? 1 : range(random, 0.65, 1.05),
-      sz,
-      radius,
-      variant: Math.min(variant, assets.platformGeometries.length - 1),
-    };
-    if (overlaps(spot)) continue;
-    accepted.push(spot);
   }
 
   const platformBuckets: PlatformSpot[][] = assets.platformGeometries.map(() => []);
   for (const spot of accepted) platformBuckets[spot.variant].push(spot);
 
+  const shardMeshes: THREE.InstancedMesh[] = [];
+  const shardHomes: Float32Array[] = [];
+  const shardShatters: Float32Array[] = [];
   let platformDrawCalls = 0;
   for (let v = 0; v < platformBuckets.length; v += 1) {
     const spots = platformBuckets[v];
@@ -830,18 +830,41 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
     platforms.castShadow = true;
     platforms.receiveShadow = true;
     platforms.frustumCulled = true;
+    const homes = new Float32Array(spots.length * 16);
+    const shatters = new Float32Array(spots.length * 16);
     for (let i = 0; i < spots.length; i += 1) {
       const spot = spots[i];
+      dummy.position.set(spot.homeX, spot.homeY, spot.homeZ);
+      dummy.rotation.set(0.05, spot.homeYaw, -0.05);
+      dummy.scale.setScalar(spot.homeScale);
+      dummy.updateMatrix();
+      dummy.matrix.toArray(homes, i * 16);
+
       dummy.position.set(spot.x, spot.y, spot.z);
       dummy.rotation.set(spot.pitch, spot.yaw, spot.roll);
       dummy.scale.set(spot.sx, spot.sy, spot.sz);
       dummy.updateMatrix();
+      dummy.matrix.toArray(shatters, i * 16);
       platforms.setMatrixAt(i, dummy.matrix);
     }
     platforms.instanceMatrix.needsUpdate = true;
     group.add(platforms);
+    shardMeshes.push(platforms);
+    shardHomes.push(homes);
+    shardShatters.push(shatters);
     platformDrawCalls += 1;
   }
+
+  const morph: ShatterMorphData = {
+    treeMeshes,
+    treeBases: treeMeshes.map(captureInstanceBases),
+    shardMeshes,
+    shardHomes,
+    shardShatters,
+  };
+  group.userData.shatterMorph = morph;
+  // Pose to the requested end state immediately (streaming chunks mid-toggle).
+  applyShatterAmount(morph, shatterMode ? 1 : 0, Boolean(shatterMode));
 
   const drawCalls = 1 + treeDrawCalls + (stonePlacements.length ? 1 : 0) + platformDrawCalls;
   return {
@@ -869,7 +892,10 @@ type ScatterCtx = {
   forestDensity?: number;
 };
 
-function addModelTrees(group: THREE.Group, ctx: ScatterCtx): { count: number; colliders: TreeCollider[] } {
+function addModelTrees(
+  group: THREE.Group,
+  ctx: ScatterCtx,
+): { count: number; colliders: TreeCollider[]; poses: TreePose[]; meshes: THREE.InstancedMesh[] } {
   const {
     assets,
     origin,
@@ -900,9 +926,18 @@ function addModelTrees(group: THREE.Group, ctx: ScatterCtx): { count: number; co
   }
 
   const colliders: TreeCollider[] = spots.map((spot) => {
-    // Instance horizontal scale equals worldHeight / template.height.
     const s = (0.42 + spot.scale * 0.38) * spot.heightScale;
     return { x: spot.p.x, z: spot.p.z, r: spot.template.trunkRadius * s };
+  });
+
+  const poses: TreePose[] = spots.map((spot) => {
+    const worldHeight = spot.template.height * (0.42 + spot.scale * 0.38) * spot.heightScale;
+    return {
+      x: spot.p.x,
+      z: spot.p.z,
+      canopyY: worldHeight * 0.55,
+      scale: worldHeight / Math.max(spot.template.height, 0.1),
+    };
   });
 
   const buckets = new Map<string, Spot[]>();
@@ -912,6 +947,7 @@ function addModelTrees(group: THREE.Group, ctx: ScatterCtx): { count: number; co
     buckets.set(spot.template.id, list);
   }
 
+  const meshes: THREE.InstancedMesh[] = [];
   for (const [, bucket] of buckets) {
     const template = bucket[0].template;
     const wood = new THREE.InstancedMesh(template.wood, assets.modelWoodMaterial, bucket.length);
@@ -922,7 +958,6 @@ function addModelTrees(group: THREE.Group, ctx: ScatterCtx): { count: number; co
     leaves.receiveShadow = true;
     for (let i = 0; i < bucket.length; i += 1) {
       const spot = bucket[i];
-      // Map procedural scale bands onto the authored template height.
       const worldHeight = template.height * (0.42 + spot.scale * 0.38) * spot.heightScale;
       const s = worldHeight / Math.max(template.height, 0.1);
       dummy.position.set(spot.p.x, 0, spot.p.z);
@@ -935,8 +970,9 @@ function addModelTrees(group: THREE.Group, ctx: ScatterCtx): { count: number; co
     wood.instanceMatrix.needsUpdate = true;
     leaves.instanceMatrix.needsUpdate = true;
     group.add(wood, leaves);
+    meshes.push(wood, leaves);
   }
-  return { count: spots.length, colliders };
+  return { count: spots.length, colliders, poses, meshes };
 }
 
 function addForestProps(group: THREE.Group, ctx: ScatterCtx) {
@@ -1008,7 +1044,10 @@ function addForestProps(group: THREE.Group, ctx: ScatterCtx) {
   return drawCalls + Math.max(1, pack.large.length + pack.medium.length + pack.small.length) * 2;
 }
 
-function addProceduralTrees(group: THREE.Group, ctx: ScatterCtx): { count: number; colliders: TreeCollider[] } {
+function addProceduralTrees(
+  group: THREE.Group,
+  ctx: ScatterCtx,
+): { count: number; colliders: TreeCollider[]; poses: TreePose[]; meshes: THREE.InstancedMesh[] } {
   const {
     assets,
     origin,
@@ -1194,7 +1233,14 @@ function addProceduralTrees(group: THREE.Group, ctx: ScatterCtx): { count: numbe
     z: tree.p.z,
     r: TRUNK_BASE_RADIUS * tree.scale * 1.15,
   }));
-  return { count: placed.length, colliders };
+  const poses: TreePose[] = placed.map((tree) => ({
+    x: tree.p.x,
+    z: tree.p.z,
+    canopyY: assets.trunkHeight * tree.scale * tree.heightScale * 0.85,
+    scale: tree.scale,
+  }));
+  const meshes = [trunks, buttresses, branches, roots, rootRunners, leaves, tipLeaves];
+  return { count: placed.length, colliders, poses, meshes };
 }
 
 /** Mostly pebbles, some large rocks, rare boulders. */
