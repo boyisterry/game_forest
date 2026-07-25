@@ -74,6 +74,7 @@ export type MotoInput = {
 export type MotoPose = {
   x: number;
   z: number;
+  y: number;
   heading: number;
   /** Direction of travel (lags heading while drifting). */
   velHeading: number;
@@ -96,9 +97,12 @@ export type BoundarySampler = (x: number, z: number) => {
   az: number;
   steep: boolean;
   height: number;
+  gx: number;
+  gz: number;
+  speedCap: number;
 };
 
-const noBoundary: BoundarySampler = () => ({ ax: 0, az: 0, steep: false, height: 0 });
+const noBoundary: BoundarySampler = () => ({ ax: 0, az: 0, steep: false, height: 0, gx: 0, gz: 0, speedCap: Infinity });
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -111,6 +115,7 @@ function wrapAngle(a: number) {
 export class MotorcycleController {
   x = 0;
   z = 0;
+  y = 0;
   heading = 0;
   /** Direction of travel (may lag heading while drifting). */
   velHeading = 0;
@@ -132,6 +137,7 @@ export class MotorcycleController {
   reset(x: number, z: number, heading: number) {
     this.x = x;
     this.z = z;
+    this.y = 0;
     this.heading = heading;
     this.velHeading = heading;
     this.speed = 0;
@@ -150,6 +156,7 @@ export class MotorcycleController {
     return {
       x: this.x,
       z: this.z,
+      y: this.y,
       heading: this.heading,
       velHeading: this.velHeading,
       lean: this.lean,
@@ -264,6 +271,22 @@ export class MotorcycleController {
 
     this.speed = speed;
 
+    // Beach crawl cap: pull speed down toward the sampler's ceiling, then hard-clamp
+    // so continuous throttle can't push past it (sand resistance = a real ceiling).
+    const cap = band.speedCap ?? Infinity;
+    if (cap !== Infinity && speed > cap) {
+      speed += (cap - speed) * Math.min(1, 12 * dt);
+      if (speed > cap) speed = cap;
+      this.speed = speed;
+    }
+
+    // Steep band hard-stop: a steep ridge or waterline kills forward speed fast so
+    // the bike can't grind through under throttle; gentle slopes (steep=false) climb.
+    if (band.steep && Math.abs(speed) > 0.05) {
+      speed *= Math.max(0.1, 1 - 6 * dt);
+      this.speed = speed;
+    }
+
     // 2–3. Yaw + travel direction. Drifting: nose yaws hard while velocity lags.
     let yawRate = (-speed * Math.tan(this.steer)) / WHEELBASE;
     if (this.drifting) {
@@ -358,6 +381,11 @@ export class MotorcycleController {
     this.x = clamped.x;
     this.z = clamped.z;
 
+    // Terrain-follow (boundary band only): y tracks the heightfield; pitch follows
+    // the grade along travel. Playable interior keeps y=0, slope pitch 0.
+    this.y = band.height ?? 0;
+    const slopePitch = -((band.gx ?? 0) * Math.sin(this.heading) + (band.gz ?? 0) * Math.cos(this.heading));
+
     // 8. Lean: bank from yaw, plus extra slip lean while drifting.
     const aLat = yawRate * speed;
     let leanTarget = Math.atan(aLat / G) + slip * (this.drifting ? 0.9 : 0.25);
@@ -375,7 +403,8 @@ export class MotorcycleController {
     this.lean = clamp(this.lean, -LEAN_MAX, LEAN_MAX);
 
     // 9. Pitch: nod pulse on hard-brake onset, slight sustained dive while held.
-    const pitchTarget = (this.nodTimer > 0 ? PITCH_MAX : 0) + (hardBraking ? PITCH_MAX * 0.35 : 0);
+    const nodPitch = (this.nodTimer > 0 ? PITCH_MAX : 0) + (hardBraking ? PITCH_MAX * 0.35 : 0);
+    const pitchTarget = slopePitch + nodPitch;
     this.pitch += (pitchTarget - this.pitch) * Math.min(1, 10 * dt);
 
     // 10. Engine power for the speedometer / HP dial.

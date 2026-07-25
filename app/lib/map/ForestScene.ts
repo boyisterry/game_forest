@@ -79,6 +79,7 @@ export class ForestScene {
   private deliveryStopCount = 0;
   private driveMode = false;
   private pendingDrive = false;
+  private roadDistanceFn: ((point: THREE.Vector3) => number) | null = null;
   private input: InputController | null = null;
   private readonly moto = new MotorcycleController();
   private readonly chase = new ChaseCamera();
@@ -207,6 +208,7 @@ export class ForestScene {
     );
 
     const roadDistance = (point: THREE.Vector3) => roadIndex.minDistance(point, settings.roadWidth);
+    this.roadDistanceFn = roadDistance;
 
     // Grass plate + procedural geometry LOD outside the streamed ring.
     const groundMap = this.shared.groundMaterial.map;
@@ -232,6 +234,7 @@ export class ForestScene {
       worldSeed: settings.seed,
       forestDensity: settings.forestDensity,
       treeHeightScale: settings.treeHeightScale,
+      shatterMode: settings.shatterMode,
       roadWidth: settings.roadWidth,
       roadDistance,
       insideWorld: (x, z, inset = 0) => isInsideWorld(x, z, settings.seed, inset),
@@ -392,6 +395,45 @@ export class ForestScene {
     this.audio.setMuted(muted);
   }
 
+  getShatterMode() {
+    return this.settings.shatterMode;
+  }
+
+  /**
+   * Toggle floating shattered land shards without leaving play / rebuilding the
+   * whole world. Re-streams the neighborhood around the current focus.
+   */
+  setShatterMode(on: boolean) {
+    if (this.settings.shatterMode === on) return;
+    if (!this.shared || !this.roadDistanceFn) {
+      this.settings = { ...this.settings, shatterMode: on };
+      return;
+    }
+    this.settings = { ...this.settings, shatterMode: on };
+    const settings = this.settings;
+    const roadDistance = this.roadDistanceFn;
+    this.chunks.configure({
+      assets: this.shared,
+      worldSeed: settings.seed,
+      forestDensity: settings.forestDensity,
+      treeHeightScale: settings.treeHeightScale,
+      shatterMode: settings.shatterMode,
+      roadWidth: settings.roadWidth,
+      roadDistance,
+      insideWorld: (x, z, inset = 0) => isInsideWorld(x, z, settings.seed, inset),
+    });
+    const focusX = this.driveMode ? this.moto.x : this.controls.target.x;
+    const focusZ = this.driveMode ? this.moto.z : this.controls.target.z;
+    this.chunks.update(focusX, focusZ);
+    // Warm a few chunks immediately so the toggle doesn't leave an empty ring.
+    for (let i = 0; i < 6; i += 1) {
+      if (!this.chunks.pump()) break;
+    }
+    this.collision.syncChunks(this.chunks.loadedEntries());
+    this.lastChunkFocus = "";
+    this.publishStats();
+  }
+
   isAudioMuted() {
     return this.audio.isMuted();
   }
@@ -501,6 +543,7 @@ export class ForestScene {
         seed: this.settings.seed,
         forestDensity: this.settings.forestDensity,
         treeHeightScale: this.settings.treeHeightScale,
+        shatterMode: this.settings.shatterMode,
         season: this.settings.season,
       },
     };
@@ -523,7 +566,7 @@ export class ForestScene {
         this.collision.writeMatrices(this.dummy);
         const pose = this.moto.getPose();
         if (this.rider) {
-          this.rider.position.set(pose.x, 0.012, pose.z);
+          this.rider.position.set(pose.x, 0.012 + pose.y, pose.z);
           this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
         }
         this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
@@ -568,7 +611,7 @@ export class ForestScene {
       this.collision.writeMatrices(this.dummy);
       const pose = this.moto.getPose();
       if (this.rider) {
-        this.rider.position.set(pose.x, 0.012, pose.z);
+        this.rider.position.set(pose.x, 0.012 + pose.y, pose.z);
         this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
       }
       this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
@@ -633,6 +676,7 @@ export class ForestScene {
   private disposeWorld() {
     this.chunks.clear();
     this.collision.clear();
+    this.roadDistanceFn = null;
     if (this.farField) {
       this.staticLayer.remove(this.farField.group);
       this.farField.dispose();

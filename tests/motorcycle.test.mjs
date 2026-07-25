@@ -255,7 +255,7 @@ test("boundary force scrubs speed when driving against it", () => {
   moto.speed = 15;
   moto.heading = Math.PI / 2;
   moto.velHeading = Math.PI / 2;
-  const wall = () => ({ ax: -14, az: 0, steep: true, height: 10 });
+  const wall = () => ({ ax: -14, az: 0, steep: true, height: 10, gx: 0, gz: 0, speedCap: Infinity });
   const before = moto.speed;
   for (let t = 0; t < 0.6; t += DT) {
     moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, wall);
@@ -271,9 +271,64 @@ test("steep boundary kills active drift", () => {
   moto.heading = Math.PI / 2;
   moto.velHeading = Math.PI / 2;
   moto.drifting = true;
-  const steep = () => ({ ax: -12, az: 0, steep: true, height: 20 });
+  const steep = () => ({ ax: -12, az: 0, steep: true, height: 20, gx: 0, gz: 0, speedCap: Infinity });
   for (let t = 0; t < 0.2; t += DT) {
     moto.update(DT, input({ hardBrake: true, steer: 1 }), noCollision, noClamp, steep);
   }
   assert.equal(moto.drifting, false);
+});
+
+test("beach speed cap crawls the bike down to the ceiling", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, 0);
+  moto.speed = 15;
+  moto.heading = 0;
+  moto.velHeading = 0;
+  const beach = () => ({ ax: 0, az: 0, steep: false, height: 0, gx: 0, gz: 0, speedCap: 1.0 });
+  for (let t = 0; t < 3; t += DT) {
+    moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, beach);
+  }
+  assert.ok(moto.speed <= 1.15, `crawls down to cap ~1.0, got ${moto.speed}`);
+  assert.ok(moto.speed > 0.5, `still moving (not dead-stopped), got ${moto.speed}`);
+});
+
+test("gentle mountain slope lifts the bike y (terrain-follow)", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, 0);
+  moto.speed = 10;
+  moto.heading = Math.PI / 2; // travel +x
+  moto.velHeading = Math.PI / 2;
+  const slope = () => ({ ax: -1.5, az: 0, steep: false, height: 12, gx: 0.8, gz: 0, speedCap: Infinity });
+  for (let t = 0; t < 1; t += DT) {
+    moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, slope);
+  }
+  assert.ok(moto.y > 5, `bike climbed onto the slope, y=${moto.y}`);
+});
+
+test("steep mountain blocks and keeps the bike from pushing through", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, 0);
+  moto.speed = 20;
+  moto.heading = Math.PI / 2;
+  moto.velHeading = Math.PI / 2;
+  const wall = () => ({ ax: -14, az: 0, steep: true, height: 30, gx: 0, gz: 0, speedCap: Infinity });
+  const x0 = moto.x;
+  for (let t = 0; t < 1; t += DT) {
+    moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, wall);
+  }
+  assert.ok(moto.speed < 4, `steep scrubs speed, got ${moto.speed}`);
+  assert.ok(moto.x - x0 < 6, `steep stops forward progress, dx=${moto.x - x0}`);
+});
+
+test("climbing tilts the nose up (pitch negative)", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, 0);
+  moto.speed = 10;
+  moto.heading = Math.PI / 2; // travel +x, uphill (gx > 0)
+  moto.velHeading = Math.PI / 2;
+  const uphill = () => ({ ax: 0, az: 0, steep: false, height: 0, gx: 0.8, gz: 0, speedCap: Infinity });
+  for (let t = 0; t < 0.5; t += DT) {
+    moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, uphill);
+  }
+  assert.ok(moto.pitch < -0.05, `nose up (negative pitch) while climbing, got ${moto.pitch}`);
 });
