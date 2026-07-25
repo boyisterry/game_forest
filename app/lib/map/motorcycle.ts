@@ -41,7 +41,7 @@ const V_REF = 9; // steer authority softens above this speed
 const STEER_RATE = 6; // steer smoothing (1/s)
 
 // --- handbrake drift ---
-const DRIFT_MIN = 4.2; // m/s needed to start a slide
+const DRIFT_MIN = 6.9; // m/s needed to start a slide (~25 km/h)
 const DRIFT_YAW_MUL = 2.35; // bicycle yaw boost while drifting
 const DRIFT_SPIN = 2.1; // extra yaw from stick (rad/s at full steer)
 const DRIFT_ALIGN = 1.35; // velocity→heading catch-up while sliding (low = more slip)
@@ -60,6 +60,7 @@ const NOD_TIME = 0.3; // s hard-brake nod pulse
 const RECENTRE_SPEED = 0.3; // below this m/s, lean snaps back faster
 
 const BIKE_R = 0.55; // collision radius of rider + scooter
+const BOUNDARY_SCRUB = 0.75; // fraction of the opposing velocity component cancelled per tick on a steep band
 
 export type MotoInput = {
   throttle: number;
@@ -88,6 +89,16 @@ export type MotoPose = {
 };
 
 export type ClampFn = (x: number, z: number) => { x: number; z: number };
+
+/** Samples the boundary heightfield under (x, z): xz-plane interior-pointing accel + steepness. */
+export type BoundarySampler = (x: number, z: number) => {
+  ax: number;
+  az: number;
+  steep: boolean;
+  height: number;
+};
+
+const noBoundary: BoundarySampler = () => ({ ax: 0, az: 0, steep: false, height: 0 });
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -150,13 +161,23 @@ export class MotorcycleController {
     };
   }
 
-  update(dt: number, input: MotoInput, collision: CollisionWorld, clampToWorld: ClampFn): MotoPose {
+  update(
+    dt: number,
+    input: MotoInput,
+    collision: CollisionWorld,
+    clampToWorld: ClampFn,
+    sampleBoundary: BoundarySampler = noBoundary,
+  ): MotoPose {
     // Hard brake: edge starts a nod pulse; held applies handbrake / hard stop.
     if (input.hardBrakeEdge) this.nodTimer = NOD_TIME;
     if (this.nodTimer > 0) this.nodTimer = Math.max(0, this.nodTimer - dt);
     const hardBraking = input.hardBrake;
     const brakeHeld = input.brake > 0;
     const throttling = input.throttle > 0;
+
+    // Sample early: a steep boundary band forbids/kills a drift outright.
+    const band = sampleBoundary(this.x, this.z);
+    if (band.steep) this.drifting = false;
 
     let speed = this.speed;
     const absSpeed = Math.abs(speed);
@@ -167,6 +188,7 @@ export class MotorcycleController {
     const steerTarget = input.steer * STEER_MAX * steerFactor;
     this.steer += (steerTarget - this.steer) * Math.min(1, STEER_RATE * dt);
     const wantDrift =
+      !band.steep &&
       hardBraking &&
       speed > DRIFT_MIN &&
       (Math.abs(input.steer) > 0.12 || Math.abs(this.steer) > 0.06 || this.drifting);
@@ -264,14 +286,51 @@ export class MotorcycleController {
     slip = wrapAngle(this.heading - this.velHeading);
     this.slip = slip;
 
+    // 4. Boundary slope/river force (Path A: xz-plane only, bike y stays 0).
+    // Build the velocity vector along the slide path, add the interior-pointing
+    // boundary accel, then scrub the fraction of velocity still pushing outward
+    // (climbing the slope / paddling into the water) — same shape as a tree hit.
+    // Reverse creep (slow, sign-flipped travel) skips the fold-in below: at
+    // ~3 m/s max it never meaningfully meets a boundary band, and folding a
+    // reversed vector back through atan2 would flip the nose heading.
+    const forwardTravel = speed >= 0 || this.drifting;
+    const travelHeading = forwardTravel ? this.velHeading : this.heading;
+    let fx = Math.sin(travelHeading);
+    let fz = Math.cos(travelHeading);
+    if (forwardTravel) {
+      let vx = fx * speed;
+      let vz = fz * speed;
+      vx += band.ax * dt;
+      vz += band.az * dt;
+      const bandForceMag = Math.hypot(band.ax, band.az);
+      if (bandForceMag > 1e-6) {
+        const fxu = band.ax / bandForceMag;
+        const fzu = band.az / bandForceMag;
+        const oppose = -(vx * fxu + vz * fzu); // positive when still driving into the band
+        if (oppose > 0) {
+          const scrub = oppose * BOUNDARY_SCRUB;
+          vx += fxu * scrub;
+          vz += fzu * scrub;
+        }
+      }
+      speed = Math.hypot(vx, vz);
+      if (speed > 1e-6) {
+        this.velHeading = Math.atan2(vx, vz);
+        fx = Math.sin(this.velHeading);
+        fz = Math.cos(this.velHeading);
+      } else {
+        speed = 0;
+      }
+      // Gripping keeps the nose glued to the direction of travel; a drift lets it lag.
+      if (!this.drifting) this.heading = this.velHeading;
+    }
+    this.speed = speed;
+
     // Move along velocity (slide path), not necessarily the nose.
-    const travelHeading = speed >= 0 || this.drifting ? this.velHeading : this.heading;
-    const fx = Math.sin(travelHeading);
-    const fz = Math.cos(travelHeading);
     let x = this.x + fx * speed * dt;
     let z = this.z + fz * speed * dt;
 
-    // 4. Collisions correct position/speed/heading and kick stones.
+    // 5. Collisions correct position/speed/heading and kick stones.
     const resolved = collision.resolveBike(
       { x, z, r: BIKE_R },
       // Travel direction drives impact response while the nose may be sideways.
@@ -291,12 +350,15 @@ export class MotorcycleController {
       this.velHeading = this.heading;
     }
 
-    // 5. World bounds (small inset so the rider can hug the visible edge).
+    // 6. Re-sample after the move: a slide that carries into a steep band exits immediately.
+    if (sampleBoundary(x, z).steep) this.drifting = false;
+
+    // 7. World bounds failsafe (small inset so the rider can hug the visible edge).
     const clamped = clampToWorld(x, z);
     this.x = clamped.x;
     this.z = clamped.z;
 
-    // 6. Lean: bank from yaw, plus extra slip lean while drifting.
+    // 8. Lean: bank from yaw, plus extra slip lean while drifting.
     const aLat = yawRate * speed;
     let leanTarget = Math.atan(aLat / G) + slip * (this.drifting ? 0.9 : 0.25);
     if (hardBraking && !this.drifting) leanTarget *= 1 - HARD_LEAN_KILL;
@@ -312,11 +374,11 @@ export class MotorcycleController {
     }
     this.lean = clamp(this.lean, -LEAN_MAX, LEAN_MAX);
 
-    // 7. Pitch: nod pulse on hard-brake onset, slight sustained dive while held.
+    // 9. Pitch: nod pulse on hard-brake onset, slight sustained dive while held.
     const pitchTarget = (this.nodTimer > 0 ? PITCH_MAX : 0) + (hardBraking ? PITCH_MAX * 0.35 : 0);
     this.pitch += (pitchTarget - this.pitch) * Math.min(1, 10 * dt);
 
-    // 8. Engine power for the speedometer / HP dial.
+    // 10. Engine power for the speedometer / HP dial.
     let powerTarget = 0.05;
     if (throttling) powerTarget = input.boost ? 1 : 0.72;
     else if (hardBraking) powerTarget = 0.02;

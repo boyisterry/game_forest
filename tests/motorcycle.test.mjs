@@ -236,3 +236,44 @@ test("world clamp keeps the rider inside bounds", () => {
   run(moto, input({ throttle: 1 }), 5, noCollision, clamp);
   assert.ok(Math.abs(moto.x) <= 10 && Math.abs(moto.z) <= 10, `inside bounds at ${moto.x},${moto.z}`);
 });
+
+test("below 25 km/h Space+steer hard-brakes without drifting", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, 0);
+  moto.speed = 5.5;
+  moto.heading = 0;
+  moto.velHeading = 0;
+  for (let t = 0; t < 0.4; t += DT) {
+    moto.update(DT, input({ hardBrake: true, steer: 1 }), noCollision, noClamp);
+  }
+  assert.equal(moto.drifting, false);
+});
+
+test("boundary force scrubs speed when driving against it", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, 0);
+  moto.speed = 15;
+  moto.heading = Math.PI / 2;
+  moto.velHeading = Math.PI / 2;
+  const wall = () => ({ ax: -14, az: 0, steep: true, height: 10 });
+  const before = moto.speed;
+  for (let t = 0; t < 0.6; t += DT) {
+    moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, wall);
+  }
+  assert.equal(moto.drifting, false);
+  assert.ok(moto.speed < before * 0.85, `scrubs against wall, ${before} -> ${moto.speed}`);
+});
+
+test("steep boundary kills active drift", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, 0);
+  moto.speed = 20;
+  moto.heading = Math.PI / 2;
+  moto.velHeading = Math.PI / 2;
+  moto.drifting = true;
+  const steep = () => ({ ax: -12, az: 0, steep: true, height: 20 });
+  for (let t = 0; t < 0.2; t += DT) {
+    moto.update(DT, input({ hardBrake: true, steer: 1 }), noCollision, noClamp, steep);
+  }
+  assert.equal(moto.drifting, false);
+});
