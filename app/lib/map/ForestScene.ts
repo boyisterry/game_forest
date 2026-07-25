@@ -16,12 +16,14 @@ import {
   clampToWorld,
   createWorldRoad,
   eastBoundaryX,
+  FAILSAFE_INSET,
   isInsideWorld,
   makeRibbon,
   northBoundaryZ,
   southBoundaryZ,
   westBoundaryX,
 } from "./world";
+import { sampleBoundary } from "./boundaryTerrain";
 import { createWorldBoundaries } from "./boundaries";
 import { FarFieldLayer } from "./farField";
 import { ProceduralSky } from "./sky";
@@ -513,8 +515,11 @@ export class ForestScene {
         const input = this.input
           ? this.input.poll()
           : { throttle: 0, brake: 0, steer: 0, boost: false, hardBrake: false, hardBrakeEdge: false };
-        this.moto.update(dt, input, this.collision, (x, z) => clampToWorld(x, z, this.settings.seed, 5));
-        this.collision.stepStones(dt, (x, z) => clampToWorld(x, z, this.settings.seed, 4));
+        const seed = this.settings.seed;
+        const clampFn = (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
+        const boundaryFn = (x: number, z: number) => sampleBoundary(x, z, seed);
+        this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
+        this.collision.stepStones(dt, clampFn);
         this.collision.writeMatrices(this.dummy);
         const pose = this.moto.getPose();
         if (this.rider) {
@@ -555,8 +560,11 @@ export class ForestScene {
 
     if (this.driveMode) {
       const input = this.input!.poll();
-      this.moto.update(dt, input, this.collision, (x, z) => clampToWorld(x, z, this.settings.seed, 5));
-      this.collision.stepStones(dt, (x, z) => clampToWorld(x, z, this.settings.seed, 4));
+      const seed = this.settings.seed;
+      const clampFn = (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
+      const boundaryFn = (x: number, z: number) => sampleBoundary(x, z, seed);
+      this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
+      this.collision.stepStones(dt, clampFn);
       this.collision.writeMatrices(this.dummy);
       const pose = this.moto.getPose();
       if (this.rider) {
