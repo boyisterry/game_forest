@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createRandom, range } from "./random";
+import { createRandom, range } from "./random.ts";
 
 /** Irregular square world: broad enough for a long courier route, never a disc. */
 export const WORLD_HALF_WIDTH = 1600;
