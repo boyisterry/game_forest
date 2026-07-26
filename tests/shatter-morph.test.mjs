@@ -93,13 +93,46 @@ describe("tree restoration demo", () => {
     }
   });
 
-  it("keeps shattered GLBs out of the default map boot payload", async () => {
-    const loader = await readFile(
-      new URL("../app/lib/map/treeModels.ts", import.meta.url),
-      "utf8",
-    );
-    assert.match(loader, /const activeGroupNames = \["tree_large", "tree_medium", "tree_small", "branch", "stump", "shrub"\]/);
+  it("pairs normal map trees with the matching real shattered GLBs", async () => {
+    const [loader, assets, morph, world] = await Promise.all([
+      readFile(new URL("../app/lib/map/treeModels.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/lib/map/forestAssets.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/lib/map/shatterMorph.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/lib/map/world.ts", import.meta.url), "utf8"),
+    ]);
+    assert.match(loader, /const activeGroupNames = \["tree_large", "tree_medium", "tree_small"\]/);
+    assert.match(loader, /const shatterGroupNames = \["tree_shattered_large", "tree_shattered_medium", "tree_shattered_small"\]/);
     assert.match(loader, /manifest\.assets\.filter\(\(entry\) => activeIds\.has\(entry\.id\)\)/);
+    assert.match(loader, /normal\.shatterWood = buildShatterGeometry\(shattered\.wood/);
+    assert.match(loader, /normal\.shatterLeaves = buildShatterGeometry\(shattered\.leaves/);
+    assert.match(loader, /const WOOD_KEEP_RATIO = 0\.7/);
+    assert.match(loader, /const WOOD_FRAGMENT_SCALE = 1\.2/);
+    assert.match(loader, /const LEAF_KEEP_RATIO = 0\.58/);
+    assert.match(loader, /const LEAF_FRAGMENT_SCALE = 0\.82/);
+    assert.match(loader, /const SHATTER_SPREAD = 1\.5/);
+    assert.match(loader, /geometry\.setAttribute\("shardBlast"/);
+    assert.match(loader, /const directionMode = hash\(seed \+ 8\)/);
+    assert.match(loader, /const falls = directionMode >= 0\.24 && directionMode < 0\.48/);
+    assert.match(loader, /Math\.max\(0\.12, clusteredHome\.y \+ verticalTravel \* SHATTER_SPREAD\)/);
+    assert.match(loader, /const clusteredHome = new THREE\.Vector3/);
+    assert.match(assets, /new THREE\.InstancedMesh\(\s*template\.shatterWood/);
+    assert.match(assets, /modelShardWoodMaterial: enableShatterMaterial/);
+    assert.doesNotMatch(assets, /placePool\(pack\.small/);
+    assert.doesNotMatch(assets, /placePool\(pack\.shrub/);
+    assert.doesNotMatch(assets, /placePool\(pack\.stump/);
+    assert.doesNotMatch(assets, /placePool\(pack\.branch/);
+    assert.doesNotMatch(assets, /function addForestProps/);
+    assert.match(loader, /const pool = scale >= 1\.8 \? pack\.large : pack\.medium/);
+    assert.doesNotMatch(loader, /pack\.medium : pack\.small/);
+    assert.match(world, /return range\(random, 0\.98, 1\.3\)/);
+    assert.doesNotMatch(world, /range\(random, 0\.68, 0\.96\)/);
+    assert.doesNotMatch(assets, /SHARDS_PER_TREE/);
+    assert.match(morph, /attribute vec3 shardCenter/);
+    assert.match(morph, /rotateShard\(shardLocalPosition/);
+    assert.match(morph, /forestShardHash\(shardTreeOrigin/);
+    assert.match(morph, /instanceMatrix\[3\]\.xz/);
+    assert.match(morph, /shardVerticalBias = mix\(-0\.58, 0\.52/);
+    assert.match(morph, /uniform\.value = amount/);
   });
 
   it("keeps repaired tree and real GLB shards as separate end states", async () => {
@@ -120,5 +153,31 @@ describe("tree restoration demo", () => {
     assert.match(demo, /chunk\.mesh\.position\.lerpVectors\(chunk\.repairPos, chunk\.blastPos, local\)/);
     assert.match(demo, /\(0\.48 \+ shardReveal \* 0\.52\) \* chunk\.fragmentScale/);
     assert.match(demo, /两个端态拥有独立、语义正确的模型/);
+  });
+
+  it("provides a reversible normal-mapped stone grinding demo", async () => {
+    const demo = await readFile(
+      new URL("../public/demos/stone-grind.html", import.meta.url),
+      "utf8",
+    );
+    assert.match(demo, /<title>石头磨碎与重组 Demo<\/title>/);
+    assert.match(demo, /const FRAGMENT_COUNT = 92/);
+    assert.match(demo, /const DUST_COUNT = 360/);
+    assert.match(demo, /function makeStoneTextures\(size = 256\)/);
+    assert.match(demo, /normalMap: textures\.normalMap/);
+    assert.match(demo, /roughnessMap: textures\.roughnessMap/);
+    assert.match(demo, /distortGeometry\(new THREE\.TetrahedronGeometry\(1, 0\), 0\.18, 9\.3\)/);
+    assert.doesNotMatch(demo, /DodecahedronGeometry\(1, 0\)/);
+    assert.doesNotMatch(demo, /TetrahedronGeometry\(1, 1\)/);
+    assert.doesNotMatch(demo, /OctahedronGeometry\(1, 1\)/);
+    assert.match(demo, /const easeOutCubic = \(value\) => 1 - Math\.pow\(1 - clamp01\(value\), 3\)/);
+    assert.match(demo, /const floatClusters = \[/);
+    assert.match(demo, /fragment\.mesh\.position\.lerpVectors\(fragment\.start, fragment\.end, local\)/);
+    assert.doesNotMatch(demo, /Math\.max\(0\.12, size/);
+    assert.match(demo, /end\.y = Math\.max\(1\.05 \+ size, end\.y\)/);
+    assert.match(demo, /amount > 0\.999 \? "悬浮碎石" : "完整岩石"/);
+    assert.match(demo, /状态：<strong>\$\{label\}<\/strong>/);
+    assert.match(demo, /磨碎石头/);
+    assert.match(demo, /重组石头/);
   });
 });

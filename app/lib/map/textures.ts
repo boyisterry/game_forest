@@ -152,6 +152,96 @@ export type SurfaceTextures = {
 };
 
 /**
+ * Seeded rock surface shared by the instanced stones. Broad mottling keeps the
+ * low-poly faces from reading as a single flat color, while pits, mineral
+ * grains and short cracks feed a matching tangent-space normal map.
+ */
+export function createStoneTextures(anisotropy = 4, seed = 1): SurfaceTextures {
+  const size = 256;
+  const random = createRandom(seed ^ 0x51a7);
+  const { canvas: colorCanvas, ctx: color } = makeCanvas(size);
+  const { canvas: heightCanvas, ctx: height } = makeCanvas(size);
+
+  color.fillStyle = "#899184";
+  color.fillRect(0, 0, size, size);
+  height.fillStyle = "rgb(128,128,128)";
+  height.fillRect(0, 0, size, size);
+
+  // Soft mineral clouds establish large-scale variation without looking tiled.
+  for (let i = 0; i < 54; i += 1) {
+    const x = random() * size;
+    const y = random() * size;
+    const radius = 10 + random() * 34;
+    const light = random() > 0.48;
+    const colorCloud = color.createRadialGradient(x, y, 0, x, y, radius);
+    colorCloud.addColorStop(0, light ? "rgba(190,199,182,.16)" : "rgba(48,55,47,.18)");
+    colorCloud.addColorStop(1, light ? "rgba(190,199,182,0)" : "rgba(48,55,47,0)");
+    color.fillStyle = colorCloud;
+    color.beginPath();
+    color.ellipse(x, y, radius, radius * range(random, 0.55, 1), random() * Math.PI, 0, Math.PI * 2);
+    color.fill();
+  }
+
+  // Shallow pits catch grazing light and make even the small pebbles feel worn.
+  for (let i = 0; i < 210; i += 1) {
+    const x = random() * size;
+    const y = random() * size;
+    const radius = 1.2 + random() * 4.4;
+    color.fillStyle = `rgba(39,44,38,${0.08 + random() * 0.15})`;
+    color.beginPath();
+    color.ellipse(x, y, radius, radius * range(random, 0.55, 0.95), random() * Math.PI, 0, Math.PI * 2);
+    color.fill();
+    height.fillStyle = `rgba(42,42,42,${0.22 + random() * 0.34})`;
+    height.beginPath();
+    height.ellipse(x, y, radius, radius * range(random, 0.55, 0.95), random() * Math.PI, 0, Math.PI * 2);
+    height.fill();
+  }
+
+  // Mineral grains provide the high-frequency relief visible near the rider.
+  for (let i = 0; i < 1900; i += 1) {
+    const x = random() * size;
+    const y = random() * size;
+    const radius = 0.25 + random() * 1.05;
+    const raised = random() > 0.44;
+    color.fillStyle = raised ? "rgba(218,224,207,.2)" : "rgba(42,48,41,.2)";
+    color.fillRect(x, y, radius, radius);
+    height.fillStyle = raised ? "rgba(224,224,224,.48)" : "rgba(45,45,45,.38)";
+    height.fillRect(x, y, radius, radius);
+  }
+
+  // Restrained hairline fractures add recognizable stone structure.
+  for (let i = 0; i < 44; i += 1) {
+    const x = random() * size;
+    const y = random() * size;
+    const length = 5 + random() * 20;
+    const angle = random() * Math.PI * 2;
+    const bend = range(random, -4, 4);
+    const dx = Math.cos(angle) * length;
+    const dy = Math.sin(angle) * length;
+    color.strokeStyle = `rgba(28,32,27,${0.18 + random() * 0.22})`;
+    color.lineWidth = 0.55 + random() * 1.1;
+    color.beginPath();
+    color.moveTo(x, y);
+    color.quadraticCurveTo(x + dx * 0.5 + bend, y + dy * 0.5 - bend, x + dx, y + dy);
+    color.stroke();
+    height.strokeStyle = "rgba(28,28,28,.58)";
+    height.lineWidth = color.lineWidth * 1.2;
+    height.beginPath();
+    height.moveTo(x, y);
+    height.quadraticCurveTo(x + dx * 0.5 + bend, y + dy * 0.5 - bend, x + dx, y + dy);
+    height.stroke();
+  }
+
+  const normalCanvas = buildNormalCanvas(heightCanvas, size, 1.45);
+  const roughnessCanvas = buildRoughnessCanvas(heightCanvas, size, 156, 0.42);
+  return {
+    map: makeSurfaceTexture(colorCanvas, 1.35, 1.35, anisotropy, true),
+    normalMap: makeSurfaceTexture(normalCanvas, 1.35, 1.35, anisotropy),
+    roughnessMap: makeSurfaceTexture(roughnessCanvas, 1.35, 1.35, anisotropy),
+  };
+}
+
+/**
  * Dense lawn carpet baked into the ground tile. This is the far/mid-field read;
  * 3D tufts only add near-camera volume. Stroke list also drives the height field
  * so color and normal relief stay aligned. Seeded for map reproducibility.

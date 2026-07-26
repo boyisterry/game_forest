@@ -207,4 +207,11 @@ test("east ridge mesh height varies along the ridge (ruggedness relief)", () => 
   const min = Math.min(...ridgeHeights);
   assert.ok(ridgeHeights.length > 20, `ridge sampled at many x stations: ${ridgeHeights.length}`);
   assert.ok(max - min > 4, `ridge height varies along the ridge (ruggedness): spread ${min.toFixed(1)}..${max.toFixed(1)}`);
+  assert.ok(east.geometry.getAttribute("color"), "ridge carries layered rock vertex colors");
+  assert.ok(east.material.map, "ridge uses a procedural rock color map");
+  assert.ok(east.material.normalMap, "ridge uses rock surface normals");
+  assert.ok(east.material.roughnessMap, "ridge uses a rock roughness map");
+  const outcrops = group.children.filter((child) => child.isInstancedMesh);
+  assert.equal(outcrops.length, 2, "east and north ridges include embedded rock outcrops");
+  assert.ok(outcrops.every((mesh) => mesh.count === 56), "each ridge has a sparse field of large rock faces");
 });

@@ -19,6 +19,8 @@ export type MinimapFrame = {
   focusZ: number;
   cameraX: number;
   cameraZ: number;
+  /** Actual direction of travel in world radians; null while editing the map. */
+  travelHeading: number | null;
   loadedKeys: string[];
 };
 
@@ -200,15 +202,46 @@ export class Minimap {
     ctx.arc(focus.x, focus.y, Math.abs(ringPx), 0, Math.PI * 2);
     ctx.stroke();
 
-    ctx.strokeStyle = "#294a2a";
-    ctx.fillStyle = "#476f28";
-    ctx.beginPath();
-    ctx.moveTo(cam.x, cam.y);
-    ctx.lineTo(focus.x, focus.y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(focus.x, focus.y, 3.2, 0, Math.PI * 2);
-    ctx.fill();
+    if (frame.travelHeading === null) {
+      ctx.strokeStyle = "#294a2a";
+      ctx.fillStyle = "#476f28";
+      ctx.beginPath();
+      ctx.moveTo(cam.x, cam.y);
+      ctx.lineTo(focus.x, focus.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(focus.x, focus.y, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // World heading 0 points toward +Z, which is downward on the minimap.
+      const dx = Math.sin(frame.travelHeading);
+      const dy = Math.cos(frame.travelHeading);
+      const sideX = -dy;
+      const sideY = dx;
+      const tipX = focus.x + dx * 10;
+      const tipY = focus.y + dy * 10;
+      const tailX = focus.x - dx * 5;
+      const tailY = focus.y - dy * 5;
+      ctx.save();
+      ctx.shadowColor = "rgba(36, 45, 30, 0.34)";
+      ctx.shadowBlur = 4;
+      ctx.fillStyle = "#e58c2f";
+      ctx.strokeStyle = "#fff8e9";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tailX + sideX * 4.6, tailY + sideY * 4.6);
+      ctx.lineTo(focus.x - dx * 1.5, focus.y - dy * 1.5);
+      ctx.lineTo(tailX - sideX * 4.6, tailY - sideY * 4.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = "#294a2a";
+      ctx.beginPath();
+      ctx.arc(focus.x, focus.y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.fillStyle = "rgba(24, 48, 33, 0.72)";
     ctx.font = "600 9px 'Avenir Next', 'PingFang SC', sans-serif";

@@ -27,6 +27,8 @@ export type ChunkColliders = {
   trees: TreeCollider[];
   stones: StoneCollider[];
   stoneMesh: InstancedMesh | null;
+  /** Visual counterpart that follows the same live rolling transform. */
+  stoneShardMesh?: InstancedMesh | null;
 };
 
 const BIKE_MASS = 140;
@@ -52,7 +54,12 @@ type StoneBody = {
   dirty: boolean;
 };
 
-type ChunkEntry = { trees: TreeCollider[]; stones: StoneCollider[]; mesh: InstancedMesh | null };
+type ChunkEntry = {
+  trees: TreeCollider[];
+  stones: StoneCollider[];
+  mesh: InstancedMesh | null;
+  shardMesh: InstancedMesh | null;
+};
 
 const bodyKey = (chunkKey: string, index: number) => `${chunkKey}#${index}`;
 
@@ -95,7 +102,12 @@ export class CollisionWorld {
 
   private registerChunk(key: string, c: ChunkColliders) {
     this.registered.add(key);
-    this.chunks.set(key, { trees: c.trees, stones: c.stones, mesh: c.stoneMesh });
+    this.chunks.set(key, {
+      trees: c.trees,
+      stones: c.stones,
+      mesh: c.stoneMesh,
+      shardMesh: c.stoneShardMesh ?? null,
+    });
     for (const s of c.stones) {
       const bk = bodyKey(key, s.index);
       let body = this.bodies.get(bk);
@@ -373,10 +385,13 @@ export class CollisionWorld {
       dummy.scale.set(c.s.x, c.s.y, c.s.z);
       dummy.updateMatrix();
       mesh.setMatrixAt(c.index, dummy.matrix);
+      const shardMesh = this.chunks.get(body.chunkKey)?.shardMesh;
+      shardMesh?.setMatrixAt(c.index, dummy.matrix);
       body.dirty = false;
     }
     for (const chunk of this.chunks.values()) {
       if (chunk.mesh) chunk.mesh.instanceMatrix.needsUpdate = true;
+      if (chunk.shardMesh) chunk.shardMesh.instanceMatrix.needsUpdate = true;
     }
   }
 

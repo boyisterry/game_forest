@@ -585,6 +585,7 @@ export class ForestScene {
     }
     let focusX: number;
     let focusZ: number;
+    let travelHeading: number | null = null;
 
     if (this.driveMode) {
       const input = this.input!.poll();
@@ -612,6 +613,7 @@ export class ForestScene {
       });
       focusX = pose.x;
       focusZ = pose.z;
+      travelHeading = pose.speed < -0.05 ? pose.heading + Math.PI : pose.velHeading;
     } else {
       this.controls.update();
       const boundedFocus = clampToWorld(this.controls.target.x, this.controls.target.z, this.settings.seed, 28);
@@ -653,6 +655,7 @@ export class ForestScene {
         focusZ,
         cameraX: this.camera.position.x,
         cameraZ: this.camera.position.z,
+        travelHeading,
         loadedKeys: stats.loadedKeys,
       });
     }

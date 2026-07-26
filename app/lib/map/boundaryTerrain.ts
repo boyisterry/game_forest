@@ -168,6 +168,73 @@ const RIDGE_INNER_OVERLAP = 8;
 const RIDGE_OUTER_PAD = 30;
 const RIDGE_DEPTH_SPAN = RIDGE_INNER_OVERLAP + FOOTHILL_WIDTH + STEEP_WIDTH + RIDGE_OUTER_PAD;
 
+function rockNoise(x: number, y: number, seed: number) {
+  const phase = ((Math.imul(seed >>> 0, 0x45d9f3b) >>> 0) / 4294967296) * Math.PI * 2;
+  return (
+    Math.sin(x * 0.037 + y * 0.081 + phase) * 0.5 +
+    Math.sin(x * 0.091 - y * 0.043 - phase * 1.7) * 0.3 +
+    Math.cos(x * 0.019 + y * 0.137 + phase * 0.6) * 0.2
+  );
+}
+
+/** Small procedural PBR atlas: layered gray-brown rock with cracks and coarse relief. */
+function createMountainRockTextures(seed: number) {
+  const size = 128;
+  const height = new Float32Array(size * size);
+  const colorData = new Uint8Array(size * size * 4);
+  const roughnessData = new Uint8Array(size * size * 4);
+  const normalData = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const nx = x / size;
+      const ny = y / size;
+      const strata = Math.sin(ny * Math.PI * 26 + Math.sin(nx * 17) * 1.8);
+      const grain = rockNoise(x, y, seed);
+      const crack = Math.abs(Math.sin(nx * 31 + ny * 19 + grain * 2.4)) > 0.965 ? -0.9 : 0;
+      const value = strata * 0.22 + grain * 0.46 + crack;
+      height[y * size + x] = value;
+      const shade = THREE.MathUtils.clamp(0.72 + value * 0.14, 0.42, 0.88);
+      const offset = (y * size + x) * 4;
+      colorData[offset] = Math.round(190 * shade);
+      colorData[offset + 1] = Math.round(181 * shade);
+      colorData[offset + 2] = Math.round(163 * shade);
+      colorData[offset + 3] = 255;
+      const rough = Math.round(THREE.MathUtils.clamp(238 - Math.abs(grain) * 22, 205, 250));
+      roughnessData[offset] = roughnessData[offset + 1] = roughnessData[offset + 2] = rough;
+      roughnessData[offset + 3] = 255;
+    }
+  }
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const left = height[y * size + ((x - 1 + size) % size)];
+      const right = height[y * size + ((x + 1) % size)];
+      const up = height[((y - 1 + size) % size) * size + x];
+      const down = height[((y + 1) % size) * size + x];
+      const normal = new THREE.Vector3((left - right) * 1.6, (up - down) * 1.6, 1).normalize();
+      const offset = (y * size + x) * 4;
+      normalData[offset] = Math.round((normal.x * 0.5 + 0.5) * 255);
+      normalData[offset + 1] = Math.round((normal.y * 0.5 + 0.5) * 255);
+      normalData[offset + 2] = Math.round((normal.z * 0.5 + 0.5) * 255);
+      normalData[offset + 3] = 255;
+    }
+  }
+  const makeTexture = (data: Uint8Array) => {
+    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.needsUpdate = true;
+    return texture;
+  };
+  const map = makeTexture(colorData);
+  map.colorSpace = THREE.SRGBColorSpace;
+  return {
+    map,
+    normalMap: makeTexture(normalData),
+    roughnessMap: makeTexture(roughnessData),
+  };
+}
+
 /**
  * Builds one continuous heightfield strip that follows the wavy foot line for
  * "east" or "north". Grid axes are (along the edge, across the depth band);
@@ -184,7 +251,11 @@ function buildEdgeRidgeGeometry(
 
   const positions: number[] = [];
   const uvs: number[] = [];
+  const colors: number[] = [];
   const indices: number[] = [];
+  const highRock = new THREE.Color(0xf0eadc);
+  const lowRock = new THREE.Color(0xb2ada3);
+  const vertexColor = new THREE.Color();
 
   for (let a = 0; a < alongSamples; a += 1) {
     const alongT = a / (alongSamples - 1);
@@ -200,9 +271,22 @@ function buildEdgeRidgeGeometry(
         worldX = alongCoord;
         worldZ = northBoundaryZ(worldX, seed) + RIDGE_INNER_OVERLAP - depthT * RIDGE_DEPTH_SPAN;
       }
-      const worldY = boundaryHeight(worldX, worldZ, seed);
+      const baseY = boundaryHeight(worldX, worldZ, seed);
+      let worldY = baseY;
+      if (baseY > 0.02) {
+        const footBlend = smooth(THREE.MathUtils.clamp((depthT - 0.05) / 0.34, 0, 1));
+        const terraceStep = 2.6 + (0.5 + 0.5 * Math.sin(alongCoord * 0.023)) * 1.8;
+        const terraced = Math.round(baseY / terraceStep) * terraceStep;
+        const fracture = rockNoise(alongCoord, depthT * 170, seed ^ (side === "east" ? 0x811 : 0x377));
+        worldY = THREE.MathUtils.lerp(baseY, terraced, 0.34 * footBlend)
+          + fracture * (0.45 + depthT * 1.35) * footBlend;
+        worldY = Math.max(0, worldY);
+      }
       positions.push(worldX, worldY, worldZ);
-      uvs.push(depthT, alongT * 24);
+      uvs.push(depthT * 3.2, alongT * 30);
+      const layerShade = 0.5 + 0.5 * Math.sin(worldY * 0.72 + alongCoord * 0.035);
+      vertexColor.copy(lowRock).lerp(highRock, THREE.MathUtils.clamp(0.2 + depthT * 0.36 + layerShade * 0.34, 0, 1));
+      colors.push(vertexColor.r, vertexColor.g, vertexColor.b);
     }
   }
 
@@ -219,38 +303,83 @@ function buildEdgeRidgeGeometry(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
 }
 
-/** Continuous near-ridge heightfield replacing the old cone InstancedMesh walls. */
+function buildRockOutcrops(
+  seed: number,
+  side: "east" | "north",
+  material: THREE.MeshStandardMaterial,
+) {
+  let state = (seed ^ (side === "east" ? 0x5a17 : 0x8c31)) >>> 0;
+  const random = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+  const count = 56;
+  const geometry = new THREE.DodecahedronGeometry(1, 0);
+  const mesh = new THREE.InstancedMesh(geometry, material, count);
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < count; i += 1) {
+    const alongMin = side === "east" ? -WORLD_HALF_DEPTH - RIDGE_MARGIN : -WORLD_HALF_WIDTH - RIDGE_MARGIN;
+    const alongMax = side === "east" ? WORLD_HALF_DEPTH + RIDGE_MARGIN : WORLD_HALF_WIDTH + RIDGE_MARGIN;
+    const along = alongMin + random() * (alongMax - alongMin);
+    const outward = FOOTHILL_WIDTH * 0.3 + random() * STEEP_WIDTH * 0.62;
+    const sx = 2.8 + random() * 5.2;
+    const sy = 3.5 + random() * 8.5;
+    const sz = 2.8 + random() * 5.2;
+    if (side === "east") {
+      const x = eastBoundaryX(along, seed) + outward;
+      dummy.position.set(x, boundaryHeight(x, along, seed) - sy * 0.32, along);
+    } else {
+      const z = northBoundaryZ(along, seed) - outward;
+      dummy.position.set(along, boundaryHeight(along, z, seed) - sy * 0.32, z);
+    }
+    dummy.rotation.set(random() * Math.PI, random() * Math.PI * 2, random() * Math.PI);
+    dummy.scale.set(sx, sy, sz);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/** Terraced rock heightfields plus embedded low-poly outcrops. */
 export function buildNearMountainMeshes(seed: number): THREE.Group {
   const group = new THREE.Group();
   group.name = "near-ridge";
 
+  const textures = createMountainRockTextures(seed);
   const material = new THREE.MeshStandardMaterial({
-    color: 0x7d877b,
-    roughness: 1,
+    color: 0xffffff,
+    map: textures.map,
+    normalMap: textures.normalMap,
+    normalScale: new THREE.Vector2(1.35, 1.35),
+    roughnessMap: textures.roughnessMap,
+    roughness: 0.98,
     metalness: 0,
     flatShading: true,
+    vertexColors: true,
   });
-  const northMaterial = new THREE.MeshStandardMaterial({
-    color: 0x6f7c70,
-    roughness: 1,
-    metalness: 0,
-    flatShading: true,
-  });
+  const northMaterial = material.clone();
+  northMaterial.color.set(0xd9ded8);
 
-  const east = new THREE.Mesh(buildEdgeRidgeGeometry(seed, "east", 128, 18), material);
+  const east = new THREE.Mesh(buildEdgeRidgeGeometry(seed, "east", 144, 24), material);
   east.castShadow = true;
   east.receiveShadow = true;
 
-  const north = new THREE.Mesh(buildEdgeRidgeGeometry(seed, "north", 128, 18), northMaterial);
+  const north = new THREE.Mesh(buildEdgeRidgeGeometry(seed, "north", 144, 24), northMaterial);
   north.castShadow = true;
   north.receiveShadow = true;
 
-  group.add(east, north);
+  const eastOutcrops = buildRockOutcrops(seed, "east", material);
+  const northOutcrops = buildRockOutcrops(seed, "north", northMaterial);
+  group.add(east, north, eastOutcrops, northOutcrops);
   return group;
 }
 

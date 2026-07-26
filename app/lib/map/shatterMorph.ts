@@ -35,20 +35,87 @@ export type ShatterMorphData = {
   /** Row-major 16 floats per instance, parallel to each tree mesh. */
   treeBases: Float32Array[];
   shardMeshes: THREE.InstancedMesh[];
-  shardHomes: Float32Array[];
-  shardShatters: Float32Array[];
+  /** Intact boulders retain their live collision matrices and only toggle visibility. */
+  stoneMeshes?: THREE.InstancedMesh[];
+  /** Shared 92-piece, 828-triangle floating burst geometry. */
+  stoneShardMeshes?: THREE.InstancedMesh[];
 };
 
 const _dummy = new THREE.Object3D();
 const _base = new THREE.Matrix4();
-const _home = new THREE.Matrix4();
-const _shatter = new THREE.Matrix4();
 const _pos = new THREE.Vector3();
-const _posB = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
-const _quatB = new THREE.Quaternion();
 const _scale = new THREE.Vector3();
-const _scaleB = new THREE.Vector3();
+
+type ShatterMaterial = THREE.Material & {
+  userData: {
+    shatterAmount?: { value: number };
+  };
+};
+
+/**
+ * Add the demo's fragment transform to a lit Three.js material. The attributes
+ * are baked into the shattered GLB geometry, so every map tree can remain an
+ * instance and the whole effect stays GPU driven.
+ */
+export function enableShatterMaterial<T extends THREE.Material>(material: T): T {
+  const shatterMaterial = material as ShatterMaterial;
+  const amount = { value: 0 };
+  shatterMaterial.userData.shatterAmount = amount;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uShatterAmount = amount;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+attribute vec3 shardCenter;
+attribute vec3 shardRepair;
+attribute vec3 shardBlast;
+attribute vec4 shardAxisAngle;
+attribute vec2 shardScaleStagger;
+uniform float uShatterAmount;
+
+vec3 rotateShard(vec3 point, vec3 axis, float angle) {
+  float s = sin(angle);
+  float c = cos(angle);
+  return point * c + cross(axis, point) * s + axis * dot(axis, point) * (1.0 - c);
+}
+
+float forestShardHash(vec2 point) {
+  return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453);
+}`,
+      )
+      .replace(
+        "#include <begin_vertex>",
+        `float shardLocalAmount = clamp(uShatterAmount + shardScaleStagger.y, 0.0, 1.0);
+float shardReveal = smoothstep(0.035, 0.275, uShatterAmount);
+vec3 shardLocalPosition = position - shardCenter;
+vec3 shardAxis = normalize(shardAxisAngle.xyz);
+vec3 shardRotated = rotateShard(shardLocalPosition, shardAxis, shardAxisAngle.w * shardLocalAmount);
+float shardPieceScale = (0.48 + shardReveal * 0.52) * shardScaleStagger.x;
+vec3 shardTreeTarget = shardBlast;
+#ifdef USE_INSTANCING
+  vec2 shardTreeOrigin = instanceMatrix[3].xz;
+  float shardTreeSeed = forestShardHash(shardTreeOrigin * 0.071);
+  float shardTreeAngle = shardTreeSeed * 6.28318530718;
+  mat2 shardTreeRotation = mat2(
+    cos(shardTreeAngle), -sin(shardTreeAngle),
+    sin(shardTreeAngle), cos(shardTreeAngle)
+  );
+  shardTreeTarget.xz = shardTreeRotation * shardTreeTarget.xz;
+  float shardBiasAngle = forestShardHash(shardTreeOrigin * 0.113 + 19.7) * 6.28318530718;
+  float shardBiasStrength = mix(0.2, 0.72, forestShardHash(shardTreeOrigin * 0.137 + 41.3));
+  shardTreeTarget.xz += vec2(cos(shardBiasAngle), sin(shardBiasAngle)) * shardBiasStrength;
+  float shardVerticalBias = mix(-0.58, 0.52, forestShardHash(shardTreeOrigin * 0.173 + 73.1));
+  shardTreeTarget.y = max(0.12, shardTreeTarget.y + shardVerticalBias);
+#endif
+vec3 transformed = shardRotated * shardPieceScale + mix(shardRepair, shardTreeTarget, shardLocalAmount);`,
+      );
+  };
+  material.customProgramCacheKey = () => "forest-real-tree-shatter-v2";
+  material.needsUpdate = true;
+  return material;
+}
 
 function writeScaledBase(mesh: THREE.InstancedMesh, bases: Float32Array, scaleMul: number) {
   const count = mesh.count;
@@ -70,39 +137,13 @@ function writeScaledBase(mesh: THREE.InstancedMesh, bases: Float32Array, scaleMu
   mesh.visible = scaleMul > 0.001;
 }
 
-function writeLerpedShards(
-  mesh: THREE.InstancedMesh,
-  homes: Float32Array,
-  shatters: Float32Array,
-  amount: number,
-) {
-  const count = mesh.count;
-  const visible = amount > 0.001;
-  mesh.visible = visible;
-  if (!visible) {
-    mesh.instanceMatrix.needsUpdate = true;
-    return;
+function writeShatterAmount(mesh: THREE.InstancedMesh, amount: number) {
+  mesh.visible = amount > 0.001;
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  for (const material of materials) {
+    const uniform = (material as ShatterMaterial).userData.shatterAmount;
+    if (uniform) uniform.value = amount;
   }
-  for (let i = 0; i < count; i += 1) {
-    const stagger = (i % 7) * 0.012;
-    const local = THREE.MathUtils.clamp(amount + stagger, 0, 1);
-    _home.fromArray(homes, i * 16);
-    _shatter.fromArray(shatters, i * 16);
-    _home.decompose(_pos, _quat, _scale);
-    _shatter.decompose(_posB, _quatB, _scaleB);
-    _pos.lerp(_posB, local);
-    _quat.slerp(_quatB, local);
-    _scale.lerp(_scaleB, local);
-    // Full-size shards from the first blast frames (no grow-from-dot).
-    const sizeBoost = 0.85 + local * 0.15;
-    _scale.multiplyScalar(sizeBoost);
-    _dummy.position.copy(_pos);
-    _dummy.quaternion.copy(_quat);
-    _dummy.scale.copy(_scale);
-    _dummy.updateMatrix();
-    mesh.setMatrixAt(i, _dummy.matrix);
-  }
-  mesh.instanceMatrix.needsUpdate = true;
 }
 
 /** Pose a chunk's tree/shard layers for the current morph amount. */
@@ -112,9 +153,9 @@ export function applyShatterAmount(data: ShatterMorphData, amount: number, blast
   for (let m = 0; m < data.treeMeshes.length; m += 1) {
     writeScaledBase(data.treeMeshes[m], data.treeBases[m], treeScale);
   }
-  for (let m = 0; m < data.shardMeshes.length; m += 1) {
-    writeLerpedShards(data.shardMeshes[m], data.shardHomes[m], data.shardShatters[m], a);
-  }
+  for (const mesh of data.shardMeshes) writeShatterAmount(mesh, a);
+  for (const mesh of data.stoneMeshes ?? []) mesh.visible = treeScale > 0.001;
+  for (const mesh of data.stoneShardMeshes ?? []) writeShatterAmount(mesh, a);
 }
 
 /**
