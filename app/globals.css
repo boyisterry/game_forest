@@ -65,23 +65,23 @@ button { color: inherit; }
 .status-pill i { width: 5px; height: 5px; border-radius: 50%; background: #78a846; box-shadow: 0 0 0 4px rgba(120,168,70,.12); }
 .studio-shell.play-mode .status-pill { right: auto; left: 50%; bottom: 28px; transform: translateX(-50%); }
 
-.drive-gauge { position: absolute; z-index: 5; right: 22px; bottom: 18px; width: 176px; padding: 8px 8px 10px; border: 1px solid rgba(29,54,36,.18); background: linear-gradient(165deg, rgba(28,44,32,.88), rgba(18,30,22,.92)); backdrop-filter: blur(14px); box-shadow: 0 16px 40px rgba(16,28,20,.35); color: #edf0e8; pointer-events: none; }
-.drive-gauge-svg { display: block; width: 100%; height: auto; }
-.gauge-track { fill: none; stroke: rgba(237,240,232,.18); stroke-width: 7; stroke-linecap: round; }
-.gauge-track-inner { fill: none; stroke: rgba(237,240,232,.1); stroke-width: 4; stroke-linecap: round; }
-.gauge-power { fill: none; stroke: #d4a24a; stroke-width: 5; stroke-linecap: round; }
-.gauge-tick { stroke: rgba(237,240,232,.45); stroke-width: 1.5; }
-.gauge-tick-label { fill: rgba(237,240,232,.55); font-size: 7px; font-family: "SFMono-Regular", Consolas, monospace; }
-.gauge-needle.speed { stroke: #f2f5ee; stroke-width: 2.4; stroke-linecap: round; }
-.gauge-needle.hp { stroke: #d4a24a; stroke-width: 1.8; stroke-linecap: round; opacity: .9; }
-.gauge-hub { fill: #edf0e8; stroke: #294a2a; stroke-width: 1.5; }
+.drive-gauge { position: absolute; z-index: 5; right: 22px; bottom: 18px; width: 176px; padding: 8px 8px 10px; border: 0; background: transparent; box-shadow: none; color: #fff; pointer-events: none; }
+.drive-gauge-svg { display: block; width: 100%; height: auto; filter: drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+.gauge-track { fill: none; stroke: rgba(255,255,255,.35); stroke-width: 7; stroke-linecap: round; }
+.gauge-track-inner { fill: none; stroke: rgba(255,255,255,.22); stroke-width: 4; stroke-linecap: round; }
+.gauge-power { fill: none; stroke: #ffd56a; stroke-width: 5; stroke-linecap: round; }
+.gauge-tick { stroke: rgba(255,255,255,.85); stroke-width: 1.5; }
+.gauge-tick-label { fill: #fff; font-size: 8px; font-weight: 700; font-family: "SFMono-Regular", Consolas, monospace; }
+.gauge-needle.speed { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
+.gauge-needle.hp { stroke: #ffd56a; stroke-width: 1.8; stroke-linecap: round; opacity: 1; }
+.gauge-hub { fill: #fff; stroke: #1a2e1c; stroke-width: 1.5; }
 .drive-gauge-readout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 6px; margin-top: -6px; padding: 0 6px; }
 .gauge-speed, .gauge-hp { display: flex; flex-direction: column; align-items: center; line-height: 1.05; }
-.gauge-speed strong, .gauge-hp strong { font-family: "SFMono-Regular", Consolas, monospace; font-size: 22px; font-weight: 650; letter-spacing: .02em; }
-.gauge-hp strong { color: #e2b45a; font-size: 18px; }
-.gauge-speed span, .gauge-hp span { margin-top: 3px; color: rgba(237,240,232,.55); font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
-.gauge-reverse { margin-top: 4px; text-align: center; color: #f0c36a; font-size: 10px; font-weight: 700; letter-spacing: .28em; }
-.drive-gauge.reverse { border-color: rgba(212,162,74,.45); }
+.gauge-speed strong, .gauge-hp strong { font-family: "SFMono-Regular", Consolas, monospace; font-size: 24px; font-weight: 700; letter-spacing: .02em; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.75), 0 0 12px rgba(0,0,0,.35); }
+.gauge-hp strong { color: #ffe08a; font-size: 20px; }
+.gauge-speed span, .gauge-hp span { margin-top: 3px; color: rgba(255,255,255,.92); font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 1px 2px rgba(0,0,0,.7); }
+.gauge-reverse { margin-top: 4px; text-align: center; color: #ffe08a; font-size: 11px; font-weight: 800; letter-spacing: .28em; text-shadow: 0 1px 3px rgba(0,0,0,.75); }
+.drive-gauge.reverse { border: 0; }
 
 .drive-hint { position: absolute; z-index: 5; top: 132px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 999px; background: rgba(24,48,33,.84); color: #edf0e8; font-size: 11px; letter-spacing: .06em; white-space: nowrap; backdrop-filter: blur(10px); box-shadow: 0 12px 34px rgba(20,38,26,.28); pointer-events: none; }
 .route-note { position: absolute; z-index: 3; top: 50%; left: 34px; transform: translateY(-50%); writing-mode: vertical-rl; pointer-events: none; }
