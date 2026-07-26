@@ -66,6 +66,9 @@ type Copy = {
   leafDensity: string;
   canopyWidth: string;
   treeHeight: string;
+  shatterMode: string;
+  shatterModeOn: string;
+  shatterModeOff: string;
   mapSeed: string;
   generate: string;
   randomMap: string;
@@ -109,7 +112,7 @@ export const COPY: Record<Locale, Copy> = {
     grass: "tufts",
     stones: "stones",
     chunks: "chunks",
-    minimapPlay: "Riding · minimap reference only",
+    minimapPlay: "Riding · arrow shows travel direction",
     minimapWorkshop: "Click to jump · rivers SW / ridges NE",
     driveHint: "W accelerate · Shift boost · S brake/reverse · Space brake/drift · A/D steer · hold mouse to look · Esc workshop",
     mute: "Mute",
@@ -131,9 +134,12 @@ export const COPY: Record<Locale, Copy> = {
     seasonSummer: "Summer",
     seasonAutumn: "Autumn",
     treeTune: "TREES",
-    leafDensity: "Shattered leaf density",
-    canopyWidth: "Shattered canopy width",
-    treeHeight: "Shattered tree height",
+    leafDensity: "Leaf density",
+    canopyWidth: "Canopy width",
+    treeHeight: "Tree height",
+    shatterMode: "Shatter mode",
+    shatterModeOn: "Shatter on",
+    shatterModeOff: "Shatter off",
     mapSeed: "Map seed",
     generate: "Generate forest",
     randomMap: "Random map",
@@ -175,7 +181,7 @@ export const COPY: Record<Locale, Copy> = {
     grass: "簇草",
     stones: "块石",
     chunks: "区块",
-    minimapPlay: "骑行中 · 小地图仅供参考",
+    minimapPlay: "骑行中 · 箭头显示行驶方向",
     minimapWorkshop: "点击跳跃 · 西南河流 / 东北山脉",
     driveHint: "W 加速 · Shift 加力 · S 刹车/倒车 · Space 急刹/漂移 · A/D 转向 · 按住鼠标环视 · Esc 返回工坊",
     mute: "静音",
@@ -197,9 +203,12 @@ export const COPY: Record<Locale, Copy> = {
     seasonSummer: "盛夏",
     seasonAutumn: "金秋",
     treeTune: "树木微调",
-    leafDensity: "破碎的叶片密度",
-    canopyWidth: "破碎的树冠宽度",
-    treeHeight: "破碎的树木高度",
+    leafDensity: "叶片密度",
+    canopyWidth: "树冠宽度",
+    treeHeight: "树木高度",
+    shatterMode: "破碎模式",
+    shatterModeOn: "破碎开",
+    shatterModeOff: "破碎关",
     mapSeed: "地图种子",
     generate: "生成这片森林",
     randomMap: "随机地图",

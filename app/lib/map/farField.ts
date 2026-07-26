@@ -222,7 +222,7 @@ export class FarFieldLayer {
       for (let x = -halfW; x <= halfW; x += spacing) {
         const px = x + range(random, -spacing * 0.38, spacing * 0.38);
         const pz = z + range(random, -spacing * 0.38, spacing * 0.38);
-        if (!isInsideWorld(px, pz, options.seed, 48)) continue;
+        if (!isInsideWorld(px, pz, options.seed, 64)) continue;
         probe.set(px, 0, pz);
         if (options.roadDistance(probe) < options.roadWidth * 2.6 + range(random, 0.8, 5)) continue;
         if (random() < 0.06) continue;
@@ -304,7 +304,7 @@ export class FarFieldLayer {
       for (let x = -halfW; x <= halfW; x += spacing) {
         const px = x + range(random, -spacing * 0.4, spacing * 0.4);
         const pz = z + range(random, -spacing * 0.4, spacing * 0.4);
-        if (!isInsideWorld(px, pz, options.seed, 36)) continue;
+        if (!isInsideWorld(px, pz, options.seed, 52)) continue;
         probe.set(px, 0, pz);
         if (options.roadDistance(probe) < options.roadWidth * 2.2 + range(random, 0.5, 4)) continue;
         if (random() < 0.1) continue;

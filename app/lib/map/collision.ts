@@ -27,6 +27,8 @@ export type ChunkColliders = {
   trees: TreeCollider[];
   stones: StoneCollider[];
   stoneMesh: InstancedMesh | null;
+  /** Visual counterpart that follows the same live rolling transform. */
+  stoneShardMesh?: InstancedMesh | null;
 };
 
 const BIKE_MASS = 140;
@@ -52,7 +54,12 @@ type StoneBody = {
   dirty: boolean;
 };
 
-type ChunkEntry = { trees: TreeCollider[]; stones: StoneCollider[]; mesh: InstancedMesh | null };
+type ChunkEntry = {
+  trees: TreeCollider[];
+  stones: StoneCollider[];
+  mesh: InstancedMesh | null;
+  shardMesh: InstancedMesh | null;
+};
 
 const bodyKey = (chunkKey: string, index: number) => `${chunkKey}#${index}`;
 
@@ -65,6 +72,7 @@ export class CollisionWorld {
   private readonly qInitial = new Quaternion();
   private readonly qTotal = new Quaternion();
   private readonly axis = new Vector3();
+  private lastSampler: ((x: number, z: number) => { height: number }) | null = null;
 
   /** Fired with a 0..1 intensity when a stone is kicked (drives the impact SFX). */
   onKick?: (intensity: number) => void;
@@ -94,7 +102,12 @@ export class CollisionWorld {
 
   private registerChunk(key: string, c: ChunkColliders) {
     this.registered.add(key);
-    this.chunks.set(key, { trees: c.trees, stones: c.stones, mesh: c.stoneMesh });
+    this.chunks.set(key, {
+      trees: c.trees,
+      stones: c.stones,
+      mesh: c.stoneMesh,
+      shardMesh: c.stoneShardMesh ?? null,
+    });
     for (const s of c.stones) {
       const bk = bodyKey(key, s.index);
       let body = this.bodies.get(bk);
@@ -278,7 +291,17 @@ export class CollisionWorld {
   }
 
   /** Advance rolling stones and stop them on trees or world bounds. */
-  stepStones(dt: number, clampToWorld: (x: number, z: number) => { x: number; z: number }) {
+  stepStones(
+    dt: number,
+    clampToWorld: (x: number, z: number) => { x: number; z: number },
+    sampleBoundary: (x: number, z: number) => { ax: number; az: number; steep: boolean; height: number } = () => ({
+      ax: 0,
+      az: 0,
+      steep: false,
+      height: 0,
+    }),
+  ) {
+    this.lastSampler = sampleBoundary;
     for (const body of this.bodies.values()) {
       if (!body.active) continue;
       const v = Math.hypot(body.vx, body.vz);
@@ -296,6 +319,13 @@ export class CollisionWorld {
       body.vz *= scale;
       body.x += body.vx * dt;
       body.z += body.vz * dt;
+      const b = sampleBoundary(body.x, body.z);
+      body.vx += b.ax * dt;
+      body.vz += b.az * dt;
+      if (b.steep) {
+        body.vx *= 0.85;
+        body.vz *= 0.85;
+      }
       body.roll += (v * dt) / body.collider.r;
       // World edge -> stop in place.
       const clamped = clampToWorld(body.x, body.z);
@@ -338,7 +368,7 @@ export class CollisionWorld {
         continue;
       }
       const c = body.collider;
-      dummy.position.set(body.x, c.y, body.z);
+      dummy.position.set(body.x, this.stoneY(body, c), body.z);
       // Roll about the horizontal axis perpendicular to travel (pure rolling, no slip).
       const axisX = body.dirZ;
       const axisZ = -body.dirX;
@@ -355,16 +385,24 @@ export class CollisionWorld {
       dummy.scale.set(c.s.x, c.s.y, c.s.z);
       dummy.updateMatrix();
       mesh.setMatrixAt(c.index, dummy.matrix);
+      const shardMesh = this.chunks.get(body.chunkKey)?.shardMesh;
+      shardMesh?.setMatrixAt(c.index, dummy.matrix);
       body.dirty = false;
     }
     for (const chunk of this.chunks.values()) {
       if (chunk.mesh) chunk.mesh.instanceMatrix.needsUpdate = true;
+      if (chunk.shardMesh) chunk.shardMesh.instanceMatrix.needsUpdate = true;
     }
   }
 
   private hasDirty() {
     for (const body of this.bodies.values()) if (body.dirty) return true;
     return false;
+  }
+
+  private stoneY(body: StoneBody, c: StoneCollider): number {
+    const h = this.lastSampler ? this.lastSampler(body.x, body.z).height : 0;
+    return (h || 0) + c.y; // rest the stone's local offset on top of the terrain
   }
 
   /** Count currently rolling stones (for diagnostics / tests). */

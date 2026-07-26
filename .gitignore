@@ -54,3 +54,7 @@ next-env.d.ts
 /assets/
 /tmp/
 /.superpowers/
+/.worktrees/
+
+# macOS AppleDouble resource forks (exFAT/T7)
+._*

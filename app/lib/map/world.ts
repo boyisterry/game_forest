@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createRandom, range } from "./random";
+import { createRandom, range } from "./random.ts";
 
 /** Irregular square world: broad enough for a long courier route, never a disc. */
 export const WORLD_HALF_WIDTH = 1600;
@@ -55,7 +55,10 @@ export function isInsideWorld(x: number, z: number, seed: number, inset = 0) {
   );
 }
 
-export function clampToWorld(x: number, z: number, seed: number, inset = 90) {
+export const FAILSAFE_INSET = -100;
+
+export function clampToWorld(x: number, z: number, seed: number, inset = FAILSAFE_INSET) {
+  // Negative inset places the failsafe outside the foot line (mid-upper slope).
   let nextX = THREE.MathUtils.clamp(x, westBoundaryX(z, seed) + inset, eastBoundaryX(z, seed) - inset);
   let nextZ = THREE.MathUtils.clamp(z, northBoundaryZ(nextX, seed) + inset, southBoundaryZ(nextX, seed) - inset);
   // A second pass resolves the small dependency between the wavy horizontal and vertical edges.
@@ -174,10 +177,9 @@ export function buildRoadIndex(points: THREE.Vector3[], cellSize = CHUNK_SIZE) {
 
 export function pickTreeScale(random: () => number) {
   const roll = random();
-  // A deep forest needs dominant trunks, not a field of bonsai. Vertical scale
-  // is applied separately, so these values mainly control trunk girth/crown mass.
+  // Keep the playable forest at believable mature-tree scale. Decorative
+  // saplings and the former tiny-tree tail are intentionally excluded.
   if (roll < 0.12) return range(random, 1.8, 2.65);
   if (roll < 0.43) return range(random, 1.25, 1.78);
-  if (roll < 0.82) return range(random, 0.94, 1.3);
-  return range(random, 0.68, 0.96);
+  return range(random, 0.98, 1.3);
 }

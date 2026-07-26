@@ -23,6 +23,7 @@ test("server-renders the forest map studio", async () => {
   assert.match(html, /Forest density<\/b><em>86%<\/em>/);
   assert.match(html, /Forest density 86%[^>]*value="0\.86"|max="2\.3"/);
   assert.match(html, /Tree height/);
+  assert.match(html, /Shatter on|Shatter off/);
   assert.match(html, /tufts/);
   assert.match(html, /stones/);
   assert.match(html, /Tune the forest, then hit Play/);
@@ -46,6 +47,20 @@ test("keeps rocks inside every streamed forest chunk", async () => {
   assert.match(manager, /stoneCount: built\.stoneCount/);
   assert.match(settings, /forestDensity: 0\.86/);
   assert.match(settings, /treeHeightScale: 1\.55/);
+  assert.match(settings, /shatterMode: false/);
+});
+
+test("draws the rider travel direction on the minimap", async () => {
+  const [minimap, scene] = await Promise.all([
+    readFile(new URL("../app/lib/map/Minimap.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/ForestScene.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(minimap, /travelHeading: number \| null/);
+  assert.match(minimap, /const dx = Math\.sin\(frame\.travelHeading\)/);
+  assert.match(minimap, /const dy = Math\.cos\(frame\.travelHeading\)/);
+  assert.match(minimap, /ctx\.fillStyle = "#e58c2f"/);
+  assert.match(scene, /pose\.speed < -0\.05 \? pose\.heading \+ Math\.PI : pose\.velHeading/);
+  assert.match(scene, /travelHeading,/);
 });
 
 test("layers distant geometry and horizon cards while hiding both during refresh", async () => {
@@ -111,9 +126,29 @@ test("uses seeded normal and roughness detail on instanced stones", async () => 
   assert.match(textures, /Mineral grains provide the high-frequency relief/);
   assert.match(textures, /buildNormalCanvas\(heightCanvas, size, 1\.45\)/);
   assert.match(assets, /const stone = createStoneTextures\(anisotropy, seed\)/);
-  assert.match(assets, /stoneMaterial: new THREE\.MeshStandardMaterial\(\{[\s\S]*normalMap: stone\.normalMap/);
+  assert.match(assets, /const stoneMaterial = new THREE\.MeshStandardMaterial\(\{[\s\S]*normalMap: stone\.normalMap/);
   assert.match(assets, /normalScale: new THREE\.Vector2\(0\.72, 0\.72\)/);
   assert.match(assets, /roughnessMap: stone\.roughnessMap/);
+});
+
+test("keeps only large and giant stones and gives them a low-poly floating shatter state", async () => {
+  const [assets, morph, collision] = await Promise.all([
+    readFile(new URL("../app/lib/map/forestAssets.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/shatterMorph.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/collision.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(assets, /tier: "small"/);
+  assert.doesNotMatch(assets, /range\(random, 0\.18, 0\.42\)/);
+  assert.match(assets, /range\(random, 1\.7, 2\.7\)/);
+  assert.match(assets, /range\(random, 3\.5, 5\.2\)/);
+  assert.match(assets, /for \(let shard = 0; shard < 92; shard \+= 1\)/);
+  assert.match(assets, /stoneShardGeometry: createStoneShardGeometry\(seed\)/);
+  assert.match(assets, /stoneShardMesh = new THREE\.InstancedMesh/);
+  assert.match(assets, /group\.add\(stoneMesh, stoneShardMesh\)/);
+  assert.match(morph, /stoneShardMeshes\?: THREE\.InstancedMesh\[\]/);
+  assert.match(morph, /for \(const mesh of data\.stoneShardMeshes \?\? \[\]\) writeShatterAmount\(mesh, a\)/);
+  assert.match(collision, /shardMesh\?\.setMatrixAt\(c\.index, dummy\.matrix\)/);
 });
 
 test("keeps tree structure while reducing trunk and branch triangle budgets", async () => {

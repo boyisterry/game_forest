@@ -16,12 +16,14 @@ import {
   clampToWorld,
   createWorldRoad,
   eastBoundaryX,
+  FAILSAFE_INSET,
   isInsideWorld,
   makeRibbon,
   northBoundaryZ,
   southBoundaryZ,
   westBoundaryX,
 } from "./world";
+import { sampleBoundary } from "./boundaryTerrain";
 import { createWorldBoundaries } from "./boundaries";
 import { FarFieldLayer } from "./farField";
 import { ProceduralSky } from "./sky";
@@ -32,6 +34,7 @@ import { ChaseCamera } from "./chaseCamera";
 import { CollisionWorld } from "./collision";
 import { SkidMarks } from "./skidMarks";
 import { AudioEngine } from "./audioEngine";
+import { ShatterMorphController } from "./shatterMorph";
 
 export type SceneStats = {
   trees: number;
@@ -77,6 +80,8 @@ export class ForestScene {
   private deliveryStopCount = 0;
   private driveMode = false;
   private pendingDrive = false;
+  private roadDistanceFn: ((point: THREE.Vector3) => number) | null = null;
+  private readonly shatterMorph = new ShatterMorphController(0);
   private input: InputController | null = null;
   private readonly moto = new MotorcycleController();
   private readonly chase = new ChaseCamera();
@@ -160,6 +165,7 @@ export class ForestScene {
   build(settings: MapSettings) {
     if (this.driveMode) this.setDriveMode(false);
     this.settings = settings;
+    this.shatterMorph.snap(settings.shatterMode);
     this.disposeWorld();
     this.skids.clear();
     const random = createRandom(settings.seed);
@@ -169,7 +175,7 @@ export class ForestScene {
     // Larger world needs thinner fog so distant canopy still reads.
     this.scene.fog = new THREE.FogExp2(palette.fog, Math.min(settings.fogDensity, 0.0035));
 
-    this.staticLayer.add(createWorldBoundaries(settings.seed));
+    this.staticLayer.add(createWorldBoundaries(settings.seed, palette.ground));
 
     this.roadPoints = createWorldRoad(settings.seed, settings.roadCurves);
     const roadIndex = buildRoadIndex(this.roadPoints);
@@ -205,6 +211,7 @@ export class ForestScene {
     );
 
     const roadDistance = (point: THREE.Vector3) => roadIndex.minDistance(point, settings.roadWidth);
+    this.roadDistanceFn = roadDistance;
 
     // Grass plate + procedural geometry LOD outside the streamed ring.
     const groundMap = this.shared.groundMaterial.map;
@@ -230,6 +237,7 @@ export class ForestScene {
       worldSeed: settings.seed,
       forestDensity: settings.forestDensity,
       treeHeightScale: settings.treeHeightScale,
+      shatterMode: settings.shatterMode,
       roadWidth: settings.roadWidth,
       roadDistance,
       insideWorld: (x, z, inset = 0) => isInsideWorld(x, z, settings.seed, inset),
@@ -390,6 +398,21 @@ export class ForestScene {
     this.audio.setMuted(muted);
   }
 
+  getShatterMode() {
+    return this.settings.shatterMode;
+  }
+
+  /**
+   * Toggle shattered forest with the approved blast / gather morph.
+   * Does not rebuild chunks — dual-pose matrix lerp in place.
+   */
+  setShatterMode(on: boolean) {
+    this.settings = { ...this.settings, shatterMode: on };
+    this.shatterMorph.animateTo(on);
+    // Apply first frame immediately so the click feels responsive.
+    this.chunks.setShatterVisual(this.shatterMorph.getAmount(), this.shatterMorph.isBlasting());
+  }
+
   isAudioMuted() {
     return this.audio.isMuted();
   }
@@ -499,6 +522,7 @@ export class ForestScene {
         seed: this.settings.seed,
         forestDensity: this.settings.forestDensity,
         treeHeightScale: this.settings.treeHeightScale,
+        shatterMode: this.settings.shatterMode,
         season: this.settings.season,
       },
     };
@@ -509,16 +533,22 @@ export class ForestScene {
     const dt = 1 / 60;
     let changed = false;
     for (let i = 0; i < frames; i += 1) {
+      if (this.shatterMorph.update(dt)) {
+        this.chunks.setShatterVisual(this.shatterMorph.getAmount(), this.shatterMorph.isBlasting());
+      }
       if (this.driveMode) {
         const input = this.input
           ? this.input.poll()
           : { throttle: 0, brake: 0, steer: 0, boost: false, hardBrake: false, hardBrakeEdge: false };
-        this.moto.update(dt, input, this.collision, (x, z) => clampToWorld(x, z, this.settings.seed, 5));
-        this.collision.stepStones(dt, (x, z) => clampToWorld(x, z, this.settings.seed, 4));
+        const seed = this.settings.seed;
+        const clampFn = (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
+        const boundaryFn = (x: number, z: number) => sampleBoundary(x, z, seed);
+        this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
+        this.collision.stepStones(dt, clampFn, boundaryFn);
         this.collision.writeMatrices(this.dummy);
         const pose = this.moto.getPose();
         if (this.rider) {
-          this.rider.position.set(pose.x, 0.012, pose.z);
+          this.rider.position.set(pose.x, 0.012 + pose.y, pose.z);
           this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
         }
         this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
@@ -550,17 +580,24 @@ export class ForestScene {
   private animate = () => {
     this.animationFrame = requestAnimationFrame(this.animate);
     const dt = Math.min(this.clock.getDelta(), 1 / 20);
+    if (this.shatterMorph.update(dt)) {
+      this.chunks.setShatterVisual(this.shatterMorph.getAmount(), this.shatterMorph.isBlasting());
+    }
     let focusX: number;
     let focusZ: number;
+    let travelHeading: number | null = null;
 
     if (this.driveMode) {
       const input = this.input!.poll();
-      this.moto.update(dt, input, this.collision, (x, z) => clampToWorld(x, z, this.settings.seed, 5));
-      this.collision.stepStones(dt, (x, z) => clampToWorld(x, z, this.settings.seed, 4));
+      const seed = this.settings.seed;
+      const clampFn = (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
+      const boundaryFn = (x: number, z: number) => sampleBoundary(x, z, seed);
+      this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
+      this.collision.stepStones(dt, clampFn, boundaryFn);
       this.collision.writeMatrices(this.dummy);
       const pose = this.moto.getPose();
       if (this.rider) {
-        this.rider.position.set(pose.x, 0.012, pose.z);
+        this.rider.position.set(pose.x, 0.012 + pose.y, pose.z);
         this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
       }
       this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
@@ -576,6 +613,7 @@ export class ForestScene {
       });
       focusX = pose.x;
       focusZ = pose.z;
+      travelHeading = pose.speed < -0.05 ? pose.heading + Math.PI : pose.velHeading;
     } else {
       this.controls.update();
       const boundedFocus = clampToWorld(this.controls.target.x, this.controls.target.z, this.settings.seed, 28);
@@ -617,6 +655,7 @@ export class ForestScene {
         focusZ,
         cameraX: this.camera.position.x,
         cameraZ: this.camera.position.z,
+        travelHeading,
         loadedKeys: stats.loadedKeys,
       });
     }
@@ -625,6 +664,7 @@ export class ForestScene {
   private disposeWorld() {
     this.chunks.clear();
     this.collision.clear();
+    this.roadDistanceFn = null;
     if (this.farField) {
       this.staticLayer.remove(this.farField.group);
       this.farField.dispose();
