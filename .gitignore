@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/.playwright-mcp/
 
 # next.js
 /.next/
@@ -20,6 +21,8 @@
 
 # misc
 .DS_Store
+._*
+.AppleDouble
 *.pem
 
 # debug
@@ -43,6 +46,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/.worktrees/
 /.openai/
 
 # Local source assets and generated work files
