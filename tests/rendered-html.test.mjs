@@ -100,6 +100,22 @@ test("uses relief and roughness maps for grass and dirt road surfaces", async ()
   assert.match(textures, /makeSurfaceTexture\(colorCanvas, 1, 16/);
 });
 
+test("uses seeded normal and roughness detail on instanced stones", async () => {
+  const [textures, assets] = await Promise.all([
+    readFile(new URL("../app/lib/map/textures.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/forestAssets.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(textures, /createStoneTextures\(anisotropy = 4, seed = 1\)/);
+  assert.match(textures, /Shallow pits catch grazing light/);
+  assert.match(textures, /Mineral grains provide the high-frequency relief/);
+  assert.match(textures, /buildNormalCanvas\(heightCanvas, size, 1\.45\)/);
+  assert.match(assets, /const stone = createStoneTextures\(anisotropy, seed\)/);
+  assert.match(assets, /stoneMaterial: new THREE\.MeshStandardMaterial\(\{[\s\S]*normalMap: stone\.normalMap/);
+  assert.match(assets, /normalScale: new THREE\.Vector2\(0\.72, 0\.72\)/);
+  assert.match(assets, /roughnessMap: stone\.roughnessMap/);
+});
+
 test("keeps tree structure while reducing trunk and branch triangle budgets", async () => {
   const [tree, assets, farField] = await Promise.all([
     readFile(new URL("../app/lib/map/tree.ts", import.meta.url), "utf8"),

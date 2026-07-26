@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createBarkTextures, createGroundTextures } from "./textures";
+import { createBarkTextures, createGroundTextures, createStoneTextures } from "./textures";
 import {
   colorLeaf,
   createLeafGeometry,
@@ -352,6 +352,7 @@ export function createSharedForestAssets(
   const resolved = resolvedTreeParams(treeParams);
   const anisotropy = renderer.capabilities.getMaxAnisotropy();
   const bark = createBarkTextures(anisotropy, seed);
+  const stone = createStoneTextures(anisotropy, seed);
   const { map: groundMap, normalMap: groundNormalMap, roughnessMap: groundRoughnessMap } = createGroundTextures(
     groundColor,
     leafPalette,
@@ -454,7 +455,16 @@ export function createSharedForestAssets(
       emissiveIntensity: 0.55,
       side: THREE.DoubleSide,
     }),
-    stoneMaterial: new THREE.MeshStandardMaterial({ color: 0x879083, roughness: 1 }),
+    stoneMaterial: new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: stone.map,
+      normalMap: stone.normalMap,
+      normalScale: new THREE.Vector2(0.72, 0.72),
+      roughnessMap: stone.roughnessMap,
+      roughness: 0.93,
+      metalness: 0,
+      flatShading: true,
+    }),
     platformMaterial: new THREE.MeshStandardMaterial({
       color: 0xffffff,
       vertexColors: true,
