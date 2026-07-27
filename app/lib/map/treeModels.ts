@@ -330,6 +330,42 @@ function computeTrunkRadius(wood: THREE.BufferGeometry, height: number): number 
   return THREE.MathUtils.clamp(maxR, 0.2, 2.5);
 }
 
+/**
+ * Remove the disconnected low-poly central column from a normal-tree GLB.
+ * A continuous procedural bole is rendered in its place; roots, outward
+ * branches and the upper fork structure remain from the authored model.
+ */
+function stripCentralBole(wood: THREE.BufferGeometry, height: number) {
+  const position = wood.getAttribute("position");
+  const sourceIndex = wood.getIndex();
+  if (!position) return;
+  wood.computeBoundingBox();
+  const minY = wood.boundingBox?.min.y ?? 0;
+  const triangleCount = sourceIndex ? sourceIndex.count / 3 : position.count / 3;
+  const kept: number[] = [];
+  const vertexId = (triangle: number, corner: number) =>
+    sourceIndex ? sourceIndex.getX(triangle * 3 + corner) : triangle * 3 + corner;
+
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    const a = vertexId(triangle, 0);
+    const b = vertexId(triangle, 1);
+    const c = vertexId(triangle, 2);
+    const cx = (position.getX(a) + position.getX(b) + position.getX(c)) / 3;
+    const cy = (position.getY(a) + position.getY(b) + position.getY(c)) / 3;
+    const cz = (position.getZ(a) + position.getZ(b) + position.getZ(c)) / 3;
+    const heightT = THREE.MathUtils.clamp((cy - minY) / Math.max(height, 0.1), 0, 1);
+    const boleRadius = height * 0.045 * THREE.MathUtils.lerp(1, 0.58, heightT / 0.82);
+    const isReplacedCentralSurface =
+      heightT > 0.045 &&
+      heightT < 0.82 &&
+      Math.hypot(cx, cz) < boleRadius * 1.22;
+    if (!isReplacedCentralSurface) kept.push(a, b, c);
+  }
+  wood.setIndex(kept);
+  wood.computeVertexNormals();
+  wood.computeBoundingSphere();
+}
+
 export async function loadForestModelPack(): Promise<ForestModelPack> {
   const loader = new GLTFLoader();
   const manifest = (await fetch(`${BASE}/manifest.json`).then((r) => r.json())) as Manifest;
@@ -366,6 +402,7 @@ export async function loadForestModelPack(): Promise<ForestModelPack> {
     normal.shatterLeaves = buildShatterGeometry(shattered.leaves, bounds, "leaves", 900 + i * 37);
     shattered.wood.dispose();
     shattered.leaves.dispose();
+    stripCentralBole(normal.wood, normal.height);
   }
   const activeTemplates = activeGroupNames.flatMap((name) => pick(manifest.groups[name] ?? []));
   return {

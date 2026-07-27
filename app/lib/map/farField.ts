@@ -16,10 +16,12 @@ import {
   isInsideWorld,
   pickTreeScale,
 } from "./world";
+import { enableGroundAntiTiling } from "./textures";
 
 export type FarFieldOptions = {
   groundMap: THREE.Texture;
   normalMap: THREE.Texture | null;
+  roughnessMap: THREE.Texture | null;
   barkMap?: THREE.Texture | null;
   barkNormalMap?: THREE.Texture | null;
   barkRoughnessMap?: THREE.Texture | null;
@@ -40,6 +42,8 @@ type TreeSpot = {
   twist: number;
   /** Stable per-tree threshold for a density cross-fade. */
   reveal: number;
+  /** Latched density state prevents rapid LOD toggling near a threshold. */
+  active?: boolean;
 };
 
 type FarTreeBatch = {
@@ -54,6 +58,7 @@ type CardSpot = {
   width: number;
   height: number;
   reveal: number;
+  active?: boolean;
 };
 
 type CardBatch = {
@@ -93,6 +98,7 @@ export class FarFieldLayer {
   private readonly white = new THREE.Color(0xffffff);
   private lastFocusX = Number.POSITIVE_INFINITY;
   private lastFocusZ = Number.POSITIVE_INFINITY;
+  private hasPresentedNearField = false;
 
   constructor(options: FarFieldOptions) {
     this.group.name = "far-field";
@@ -102,7 +108,7 @@ export class FarFieldLayer {
     this.treeLayer.visible = false;
     this.cardLayer.visible = false;
     this.group.add(
-      createFarFieldBase(options.groundMap, options.normalMap),
+      createFarFieldBase(options.groundMap, options.normalMap, options.roughnessMap),
       this.treeLayer,
       this.cardLayer,
     );
@@ -111,11 +117,15 @@ export class FarFieldLayer {
   }
 
   update(focusX: number, focusZ: number, camera: THREE.Camera, nearFieldReady: boolean) {
-    if (!nearFieldReady) {
+    if (nearFieldReady) this.hasPresentedNearField = true;
+    if (!this.hasPresentedNearField) {
       this.treeLayer.visible = false;
       this.cardLayer.visible = false;
       return;
     }
+    // Once the first streamed ring is ready, keep the far layer resident while
+    // later chunks stream. Hiding it again exposed the far base and produced a
+    // conspicuous pulse on every neighborhood refresh.
     if (!this.treeLayer.visible) {
       this.treeLayer.visible = true;
       this.cardLayer.visible = true;
@@ -128,9 +138,9 @@ export class FarFieldLayer {
       this.lastFocusX = focusX;
       this.lastFocusZ = focusZ;
       this.updateGeometryLod(focusX, focusZ);
+      this.updateHorizonCards(focusX, focusZ);
     }
-    // Cards always re-yaw toward the camera so orbiting stays correct.
-    this.updateHorizonCards(focusX, focusZ, camera);
+    void camera;
   }
 
   dispose() {
@@ -167,10 +177,15 @@ export class FarFieldLayer {
         fade *= 1 - THREE.MathUtils.smoothstep(dist, geoOutStart, geoOutStart + geoOutBand);
         this.dummy.position.set(spot.x, 0, spot.z);
         this.dummy.rotation.set(0, spot.twist, 0);
-        if (fade < spot.reveal * 0.85) this.dummy.scale.setScalar(0);
+        const threshold = spot.reveal * 0.85;
+        spot.active = spot.active
+          ? fade >= threshold - 0.08
+          : fade >= threshold + 0.08;
+        if (!spot.active) this.dummy.scale.setScalar(0);
         else {
-          const s = THREE.MathUtils.clamp(fade, 0, 1);
-          this.dummy.scale.set(spot.scale * s, spot.scale * spot.heightScale * s, spot.scale * s);
+          // Density-dither whole mature trees; scaling them with every rider
+          // movement made the distant forest look like a changing texture.
+          this.dummy.scale.set(spot.scale, spot.scale * spot.heightScale, spot.scale);
         }
         this.dummy.updateMatrix();
         batch.wood.setMatrixAt(i, this.dummy.matrix);
@@ -181,25 +196,27 @@ export class FarFieldLayer {
     }
   }
 
-  private updateHorizonCards(focusX: number, focusZ: number, camera: THREE.Camera) {
+  private updateHorizonCards(focusX: number, focusZ: number) {
     const { cardInStart, cardInBand } = farBands();
-    const camX = camera.position.x;
-    const camZ = camera.position.z;
     for (const batch of this.cardBatches) {
       for (let i = 0; i < batch.spots.length; i += 1) {
         const spot = batch.spots[i];
         const dist = Math.hypot(focusX - spot.x, focusZ - spot.z);
-        let fade = THREE.MathUtils.smoothstep(dist, cardInStart, cardInStart + cardInBand);
-        if (fade < spot.reveal * 0.55) {
+        const fade = THREE.MathUtils.smoothstep(dist, cardInStart, cardInStart + cardInBand);
+        const threshold = spot.reveal * 0.55;
+        spot.active = spot.active
+          ? fade >= threshold - 0.08
+          : fade >= threshold + 0.08;
+        if (!spot.active) {
           this.dummy.position.set(spot.x, 0, spot.z);
           this.dummy.scale.setScalar(0);
           this.dummy.rotation.set(0, 0, 0);
         } else {
-          const height = spot.height * fade;
-          const width = spot.width * fade;
+          const height = spot.height;
+          const width = spot.width;
           this.dummy.position.set(spot.x, height * 0.5, spot.z);
           this.dummy.scale.set(width, height, 1);
-          this.dummy.rotation.set(0, Math.atan2(camX - spot.x, camZ - spot.z), 0);
+          this.dummy.rotation.set(0, 0, 0);
         }
         this.dummy.updateMatrix();
         batch.mesh.setMatrixAt(i, this.dummy.matrix);
@@ -337,7 +354,7 @@ export class FarFieldLayer {
         fog: true,
         side: THREE.DoubleSide,
       });
-      const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, spots.length);
+      const mesh = new THREE.InstancedMesh(createCrossCardGeometry(), material, spots.length);
       mesh.name = `far-field-horizon-card-${variant}`;
       mesh.castShadow = false;
       mesh.receiveShadow = false;
@@ -394,7 +411,7 @@ function branchGeometry(segment: BranchSegment) {
   const length = delta.length();
   if (length < 1e-4) return null;
   const radius = Math.max(0.04, segment.radius * 0.95);
-  const geometry = new THREE.CylinderGeometry(radius * 0.72, radius, length, 3, 1, false);
+  const geometry = new THREE.CylinderGeometry(radius * 0.72, radius, length * 1.04, 3, 1, true);
   const matrix = new THREE.Matrix4().compose(
     a.clone().add(b).multiplyScalar(0.5),
     new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize()),
@@ -490,37 +507,72 @@ function createFarTreeGeometry(seed: number, canopyWidth: number, leafColor: num
   return { wood, leaves };
 }
 
+/**
+ * Two fixed crossed planes replace continuously camera-yawed billboards.
+ * Their silhouette remains full from every heading and their texels no longer
+ * swim or flip while the motorcycle moves.
+ */
+function createCrossCardGeometry() {
+  const a = new THREE.PlaneGeometry(1, 1);
+  const b = new THREE.PlaneGeometry(1, 1);
+  a.rotateY(Math.PI * 0.25);
+  b.rotateY(-Math.PI * 0.25);
+  const merged = mergeGeometries([a, b], false);
+  a.dispose();
+  b.dispose();
+  if (!merged) throw new Error("Unable to build crossed far-field card");
+  return merged;
+}
+
 function createFarFieldBase(
   groundMap: THREE.Texture,
   normalMap: THREE.Texture | null,
+  roughnessMap: THREE.Texture | null,
   groundTint = 0xffffff,
 ): THREE.Mesh {
   const map = groundMap.clone();
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
-  map.repeat.set(96, 96);
+  const plateWidth = WORLD_HALF_WIDTH * 2.15;
+  const plateDepth = WORLD_HALF_DEPTH * 2.15;
+  // Preserve the exact world-space texel scale used by every 96m chunk. The
+  // previous hard-coded 96× repeat was ~8× larger, so newly loaded chunks
+  // visibly replaced the distant lawn with a different texture scale.
+  map.repeat.set(
+    groundMap.repeat.x * (plateWidth / CHUNK_SIZE),
+    groundMap.repeat.y * (plateDepth / CHUNK_SIZE),
+  );
   map.needsUpdate = true;
 
   let farNormal: THREE.Texture | null = null;
   if (normalMap) {
     farNormal = normalMap.clone();
     farNormal.wrapS = farNormal.wrapT = THREE.RepeatWrapping;
-    farNormal.repeat.set(96, 96);
+    farNormal.repeat.copy(map.repeat);
     farNormal.needsUpdate = true;
   }
 
-  const material = new THREE.MeshStandardMaterial({
+  let farRoughness: THREE.Texture | null = null;
+  if (roughnessMap) {
+    farRoughness = roughnessMap.clone();
+    farRoughness.wrapS = farRoughness.wrapT = THREE.RepeatWrapping;
+    farRoughness.repeat.copy(map.repeat);
+    farRoughness.needsUpdate = true;
+  }
+
+  const material = enableGroundAntiTiling(new THREE.MeshStandardMaterial({
     color: groundTint,
     map,
     normalMap: farNormal ?? undefined,
-    normalScale: farNormal ? new THREE.Vector2(0.55, 0.55) : undefined,
+    normalScale: farNormal ? new THREE.Vector2(0.72, 0.72) : undefined,
+    roughnessMap: farRoughness ?? undefined,
     roughness: 1,
     // Keep far plate behind streamed chunk ground in the depth buffer.
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
-  });
+  }));
   const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD_HALF_WIDTH * 2.15, WORLD_HALF_DEPTH * 2.15, 1, 1),
+    new THREE.PlaneGeometry(plateWidth, plateDepth, 1, 1),
     material,
   );
   mesh.rotation.x = -Math.PI / 2;

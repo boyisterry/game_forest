@@ -60,7 +60,7 @@ export const FAILSAFE_INSET = -100;
 export function clampToWorld(x: number, z: number, seed: number, inset = FAILSAFE_INSET) {
   // Negative inset places the failsafe outside the foot line (mid-upper slope).
   let nextX = THREE.MathUtils.clamp(x, westBoundaryX(z, seed) + inset, eastBoundaryX(z, seed) - inset);
-  let nextZ = THREE.MathUtils.clamp(z, northBoundaryZ(nextX, seed) + inset, southBoundaryZ(nextX, seed) - inset);
+  const nextZ = THREE.MathUtils.clamp(z, northBoundaryZ(nextX, seed) + inset, southBoundaryZ(nextX, seed) - inset);
   // A second pass resolves the small dependency between the wavy horizontal and vertical edges.
   nextX = THREE.MathUtils.clamp(nextX, westBoundaryX(nextZ, seed) + inset, eastBoundaryX(nextZ, seed) - inset);
   return { x: nextX, z: nextZ };
@@ -97,6 +97,33 @@ export function chunksInRadius(focus: ChunkCoord, radius: number): ChunkCoord[] 
     }
   }
   return list;
+}
+
+/**
+ * Base streaming disc plus the same disc shifted one chunk toward the camera.
+ * The union adds only the forward cap (rather than growing every direction),
+ * giving the view one extra completed map region before it enters the frame.
+ */
+export function chunksInDirectionalRadius(
+  focus: ChunkCoord,
+  radius: number,
+  forwardX: number,
+  forwardZ: number,
+): ChunkCoord[] {
+  const base = chunksInRadius(focus, radius);
+  const length = Math.hypot(forwardX, forwardZ);
+  if (length < 0.05) return base;
+
+  const nx = forwardX / length;
+  const nz = forwardZ / length;
+  const stepX = Math.abs(nx) < 0.38 ? 0 : Math.sign(nx);
+  const stepZ = Math.abs(nz) < 0.38 ? 0 : Math.sign(nz);
+  const ahead = { cx: focus.cx + stepX, cz: focus.cz + stepZ };
+  const unique = new Map<string, ChunkCoord>();
+  for (const coord of [...base, ...chunksInRadius(ahead, radius)]) {
+    unique.set(chunkKey(coord.cx, coord.cz), coord);
+  }
+  return [...unique.values()];
 }
 
 /** Long winding delivery route spanning most of the world. */

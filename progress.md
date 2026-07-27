@@ -246,3 +246,73 @@ Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可�
 - In-browser QA of the feel: motor whine tracking speed, wind whoosh near top speed, drift screech, and kick/impact weight. Tune the constants at the top of `audioEngine.ts` if needed.
 - Optional one-shot "startup whirr" sample layered on drive enter, and a volume slider next to the mute toggle.
 - Resolve the MapStudio locale-sync lint errors (refs → effects; mount locale read via a hydration-safe pattern) as a separate change.
+
+## Current iteration: seamless trunks, grounded rocks, and 25-degree mountain access
+
+- User requested three ordered fixes: remove segmented-looking tree wood, stop ground-contact rock flicker, and rebuild the east/north mountain boundary so only sparse ≤25° approaches are rideable while the remaining ridge is steep or cliff-like.
+- Tree pass: increased the still-low-poly trunk from six to eight height rings, changed height-dependent ripples to one slow normalized twist, removed dark branch-link caps, overlapped links by 4–4.5%, and matched the buttress/root-neck material to the main bole.
+- Browser QA exposed a second source of apparent trunk sections: the non-seamless bark atlas repeated 4.6 times vertically. Main boles now use dedicated single-height color/normal/roughness maps, while branches and roots keep the denser repeat for fine detail.
+- Rock pass: every rotated and non-uniformly scaled dodecahedron is seated from its actual lowest transformed vertex and embedded 4.5–14 cm. Mountain heightfield overlap is also lowered to −0.14 m, eliminating both object/ground and ridge/ground coplanar flicker.
+- Mountain pass: east/north ridges now use a physical grade profile. The majority starts as a 55–65° cliff; deterministic 20° access cores occupy about 10% of each edge and transition into the mountain after the short approach. `steep` is derived from the measured grade with an exported 25° threshold, so rendering, terrain pitch, force, and motorcycle blocking agree.
+- Replaced broad terraces with continuous fractured heightfields and increased embedded vertical cliff faces from 56 to 72 per ridge. Outcrops are accepted only on >25° samples, keeping the sparse rideable approaches clear.
+
+### Validation
+
+- Production build succeeds; full test suite passes 63/63.
+- New boundary regression samples both 3 km ridge spans: rideable foot sections remain nonzero but limited to 5–18%, and every sample's block flag matches `slopeDegrees > 25`.
+- Browser checks confirm the trunk now reads as one continuous bole, large stones sit visibly into the turf, and no console warnings/errors occur during initial streaming, camera preset changes, or distant minimap jumps.
+- The bundled web-game Playwright client remains unavailable because its own `playwright` package is not installed; equivalent live-page screenshots, DOM state, and console checks were completed through the in-app browser.
+
+## Follow-up: real GLB boles and chase-camera cliff failure
+
+- The user's ride-mode screenshot proved the previous pass missed the active GLB tree path: several normal-tree GLBs have disconnected/missing central height bands. Each model tree now receives a single continuous tapered PBR bole that covers the broken central column while preserving its original roots, branches, leaves, and shatter behavior.
+- The screenshot's mountain-sized flat polygon came from 5.5–16 m dodecahedron outcrops. Outcrops are now compact 1.25–4.8 m accents, buried 78% into the heightfield, and use a material that does not request absent vertex colors.
+- Increased each near-ridge heightfield from 144×24 to 288×56 vertices and switched to smooth normals, removing camera-scale triangular shelves without changing the 25° gameplay profile.
+- A >25° face is now a positional collision: crossing from a rideable sample rolls the rider back and zeroes speed. A rider already on a legacy steep sample may only descend toward lower terrain. Terrain height/pitch are re-sampled after final collision/clamp resolution.
+- Targeted tree, boundary, renderer, and motorcycle regressions pass 50/50, including new tests that prohibit steep-face position creep and verify post-move terrain alignment.
+- Follow-up visual pass removed the replaced central-column triangles from normal GLB wood, widened the continuous bole to 4.5% of tree height, softened its PBR normal contrast, and lifted deep fissures so the remaining surface reads as one trunk rather than overlapping strips. The replacement remains one instanced draw call per chunk, independent of GLB template count.
+- Final production build passes 65/65 tests. Ridge tests also assert 288×56 tessellation, smooth normals, maximum outcrop scale below 4.81 m, and exact steep-face rollback. Live workshop/understory/play screenshots show continuous loaded GLB boles and no browser console errors.
+
+## Current iteration: faceted ridges, seamless terrain, stable forward streaming
+
+- Rebuilt the north/east blocking ridges around a taller 34–76m shared physical profile, a 256×48 faceted heightfield, quantized forest-toned vertex colors, and compact embedded dodecahedral crags.
+- Repainted the mountain PBR set at 256px using exactly tileable angular plates, layered strata, cracks, and matching height-derived normals/roughness; the material now uses deliberate low-poly flat shading.
+- Raised the default dirt-road width from 3.2m to 6.4m and expanded the editor range from 2.2–5.4m to 3–14m.
+- Added opposite-edge blending to both grass color and height atlases before normal generation, reduced the cadence from 22×22 to 12×12 per chunk, and softened the ground normal strength to remove the visible square grid.
+- Matched the always-resident far-ground texture to the exact world-space scale of streamed chunk textures, eliminating the texture-scale swap when a chunk arrives.
+- Latched the far-tree layer after its first complete near-field load, replaced rotating single billboards with fixed crossed cards, and switched both geometry/card transitions to full-size density dithering with hysteresis.
+- Added a directional chunk-neighborhood union: the base radius remains unchanged, while one complete extra cap is queued in the camera's quantized heading. Camera rotation is part of the streaming key.
+- Browser QA shows 18 loaded chunks from the initial camera heading versus the 13-chunk base disc, a visibly wider road, no grass checkerboard, and clean workshop/ride console logs.
+- Production build and all 67 regression tests pass. The bundled game client still cannot launch because its own Playwright dependency is absent; equivalent screenshots, DOM checks, interactions, and console checks were completed in the in-app browser.
+
+## Current iteration: continuous mountain chains and clipping-safe toes
+
+- Replaced the camera-sized east/north boundary height strips and vertical far silhouette fins with three staggered rows of closed, faceted low-poly peaks: compact front peaks, taller back peaks, and broad horizon peaks. The overlapping footprints form a continuous mountain chain while varied seeded height, width, rotation, and nine-sided rings create visible peaks, saddles, and angular faces.
+- Kept only a narrow seven-column rock apron at the physical foot. It uses the exact shared boundary-height sampler and no render-only fracture displacement, so the visible contact surface and motorcycle terrain physics no longer disagree.
+- Constrained every front peak's innermost footprint to the mountain side of its wavy boundary. The former fixed centre offset could put a wide peak roughly 30 m into playable ground, which was the remaining cause of the rider entering the render shell.
+- Added a 1.8 m collision inset for the motorcycle body while leaving the playable terrain height flat. Existing saves or teleports already inside a blocked mountain/water sample are marched along the sampler's interior force until they reach rideable ground, with momentum cleared.
+- Repainted the mountain color/normal/roughness set toward desaturated mossy slate and reduced normal strength. Flat-shaded 90-triangle closed peaks now share the deliberate low-poly visual language of the tree crowns instead of reading as one smooth brown wall.
+- Added regressions for the pre-toe body guard, exact apron budget, closed 47-vertex/90-triangle peaks, all front/back rows, substantial skyline height variation, and legacy-position ejection.
+
+### Validation
+
+- Production build and all 69 tests pass.
+- Targeted ESLint passes for the mountain, motorcycle, and updated regression files.
+- Live browser QA at the northeast edge shows layered angular peaks with a broken high/low skyline instead of the former continuous wall; no browser warnings or errors were emitted.
+- The bundled web-game client still cannot start because its own `playwright` dependency is absent. Visual screenshots, minimap jumps, camera inspection, DOM state, and console checks were completed with the in-app browser.
+
+## Current iteration: grass anti-tiling and continuous chunk shading
+
+- Traced the remaining square imprint to the grass atlas itself: a 256px texture containing broad circular clouds and hummocks was stamped twelve times per 96m chunk, creating an obvious eight-meter cadence even though its outer edges were technically seamless.
+- Rebuilt the grass base at 512px. Broad radial color stamps were replaced with integer-frequency interlocking variation that is naturally periodic at the texture edge; the grass blades, hummocks, earth flecks, height relief, and roughness remain aligned.
+- Added a world-space stochastic sampler to the ground `MeshStandardMaterial`. Each roughly 21m cell samples four deterministic atlas offsets and smoothly blends them across cell edges. The same coordinates and blends drive base color, tangent-space normals, and roughness, preventing the old case where color looked seamless but grazing light exposed a square normal-map grid.
+- Applied the identical sampler and roughness channel to the always-resident far-field ground, so streamed chunks and the distant base retain one continuous material phase and scale.
+- Reduced fallback UV repetition from 12×12 to 4×4, narrowed the atlas edge blend band, and softened near-ground normal strength so close grass reads as thick surface detail rather than repeated embossed tiles.
+
+### Validation
+
+- Production build and all 69 regressions pass.
+- Browser QA covers overview, low understory, and a distant northeast minimap jump. The fixed square cadence and chunk seams are absent at all three views; distant chunk replacement does not change the grass scale.
+- Browser console contains no shader compilation errors, warnings, or runtime errors.
+- Targeted ESLint reports no errors; one unrelated pre-existing unused-function warning remains in `forestAssets.ts`.
+- The required bundled web-game client still cannot import its own missing `playwright` package, so equivalent visual, interaction, streaming, and console checks were completed through the in-app browser.

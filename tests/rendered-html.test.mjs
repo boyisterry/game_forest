@@ -63,7 +63,7 @@ test("draws the rider travel direction on the minimap", async () => {
   assert.match(scene, /travelHeading,/);
 });
 
-test("layers distant geometry and horizon cards while hiding both during refresh", async () => {
+test("keeps the far field stable after first load and uses fixed crossed cards", async () => {
   const [farField, scene] = await Promise.all([
     readFile(new URL("../app/lib/map/farField.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/map/ForestScene.ts", import.meta.url), "utf8"),
@@ -76,9 +76,12 @@ test("layers distant geometry and horizon cards while hiding both during refresh
   assert.match(farField, /mergeGeometries\(leafParts/);
   assert.match(farField, /cluster\.radius \* radiusScale \* range\(random, 1\.15, 1\.55\)/);
   assert.match(farField, /createTreeCardAtlas/);
-  assert.match(farField, /updateHorizonCards\(focusX, focusZ, camera\)/);
-  // Ride mode uses a pending threshold so the far layer doesn't flicker at speed.
-  assert.match(scene, /const farReady = this\.driveMode \? pending < 6 : pending === 0/);
+  assert.match(farField, /hasPresentedNearField/);
+  assert.match(farField, /createCrossCardGeometry/);
+  assert.match(farField, /groundMap\.repeat\.x \* \(plateWidth \/ CHUNK_SIZE\)/);
+  assert.doesNotMatch(farField, /Math\.atan2\(camX - spot\.x/);
+  assert.match(farField, /updateHorizonCards\(focusX, focusZ\)/);
+  assert.match(scene, /const farReady = pending === 0/);
   assert.match(scene, /this\.farField\?\.update\(focusX, focusZ, this\.camera, farReady\)/);
 });
 
@@ -109,10 +112,34 @@ test("uses relief and roughness maps for grass and dirt road surfaces", async ()
   assert.match(textures, /Long irregular wheel channels/);
   assert.match(textures, /buildNormalCanvas\(heightCanvas, size, 1\.7\)/);
   assert.match(textures, /buildRoughnessCanvas/);
+  assert.match(textures, /makeCanvasTileable\(colorCanvas, 24\)/);
+  assert.match(textures, /const repeat = 4/);
+  assert.match(textures, /enableGroundAntiTiling/);
+  assert.match(textures, /sampleGroundStochastic/);
+  assert.match(textures, /vGroundWorldPosition\.xz/);
+  assert.match(textures, /sampleGroundStochastic\( normalMap \)/);
+  assert.match(textures, /sampleGroundStochastic\( roughnessMap \)/);
   assert.match(assets, /roughnessMap: groundRoughnessMap/);
+  assert.match(assets, /enableGroundAntiTiling\(new THREE\.MeshStandardMaterial/);
   assert.match(scene, /normalMap: roadTextures\.normalMap/);
   assert.match(scene, /roughnessMap: roadTextures\.roughnessMap/);
   assert.match(textures, /makeSurfaceTexture\(colorCanvas, 1, 16/);
+});
+
+test("widens road tuning and streams a camera-facing forward cap", async () => {
+  const [studio, settings, manager, world, scene] = await Promise.all([
+    readFile(new URL("../app/components/MapStudio.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/types.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/ChunkManager.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/world.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/ForestScene.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(settings, /roadWidth: 6\.4/);
+  assert.match(studio, /value=\{draft\.roadWidth\} min=\{3\} max=\{14\} step=\{0\.2\}/);
+  assert.match(world, /function chunksInDirectionalRadius/);
+  assert.match(manager, /chunksInDirectionalRadius\(/);
+  assert.match(scene, /queueCameraFacingChunks/);
+  assert.match(scene, /getWorldDirection\(this\.streamForward\)/);
 });
 
 test("uses seeded normal and roughness detail on instanced stones", async () => {
@@ -145,6 +172,8 @@ test("keeps only large and giant stones and gives them a low-poly floating shatt
   assert.match(assets, /for \(let shard = 0; shard < 92; shard \+= 1\)/);
   assert.match(assets, /stoneShardGeometry: createStoneShardGeometry\(seed\)/);
   assert.match(assets, /stoneShardMesh = new THREE\.InstancedMesh/);
+  assert.match(assets, /lowestY = Math\.min\(lowestY, stoneVertex\.y\)/);
+  assert.match(assets, /stone\.y = -lowestY - groundEmbed/);
   assert.match(assets, /group\.add\(stoneMesh, stoneShardMesh\)/);
   assert.match(morph, /stoneShardMeshes\?: THREE\.InstancedMesh\[\]/);
   assert.match(morph, /for \(const mesh of data\.stoneShardMeshes \?\? \[\]\) writeShatterAmount\(mesh, a\)/);
@@ -152,16 +181,24 @@ test("keeps only large and giant stones and gives them a low-poly floating shatt
 });
 
 test("keeps tree structure while reducing trunk and branch triangle budgets", async () => {
-  const [tree, assets, farField] = await Promise.all([
+  const [tree, assets, farField, treeModels] = await Promise.all([
     readFile(new URL("../app/lib/map/tree.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/map/forestAssets.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/map/farField.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/map/treeModels.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(tree, /createRippledTrunkGeometry\(height: number, radial = 7, heightSegments = 6\)/);
-  assert.match(assets, /createRippledTrunkGeometry\(templates\[0\]\.trunkHeight, 7, 6\)/);
-  assert.match(assets, /new THREE\.CylinderGeometry\(1, 1, 1, 3, 1\)/);
-  assert.match(farField, /CylinderGeometry\(radius \* 0\.72, radius, length, 3, 1, false\)/);
+  assert.match(tree, /createRippledTrunkGeometry\(height: number, radial = 7, heightSegments = 8\)/);
+  assert.match(assets, /createRippledTrunkGeometry\(templates\[0\]\.trunkHeight, 7, 8\)/);
+  assert.match(assets, /new THREE\.CylinderGeometry\(1, 1, 1, 3, 1, true\)/);
+  assert.match(assets, /const continuousBoles = new THREE\.InstancedMesh/);
+  assert.match(assets, /group\.add\(continuousBoles\)/);
+  assert.match(assets, /meshes\.push\(continuousBoles\)/);
+  assert.match(assets, /const boleHeight = worldHeight \* 0\.8/);
+  assert.match(assets, /const boleBaseRadius = worldHeight \* 0\.045/);
+  assert.match(treeModels, /function stripCentralBole/);
+  assert.match(treeModels, /stripCentralBole\(normal\.wood, normal\.height\)/);
+  assert.match(farField, /CylinderGeometry\(radius \* 0\.72, radius, length \* 1\.04, 3, 1, true\)/);
   assert.match(farField, /CylinderGeometry\(0\.34, 0\.58, description\.trunkHeight, 4, 1, false\)/);
   assert.match(tree, /primaryLimbs: 30/);
   assert.match(tree, /segmentsPerLimb: 5/);
@@ -178,6 +215,8 @@ test("uses detailed shared PBR bark on trunks, branches, roots, and far wood", a
   assert.match(textures, /createBarkTextures\(anisotropy = 4, seed = 1\)/);
   assert.match(textures, /Long split channels/);
   assert.match(textures, /buildNormalCanvas\(heightCanvas, size, 0\.014\)/);
+  assert.match(assets, /const trunkBarkMap = bark\.map\.clone\(\)/);
+  assert.match(assets, /texture\.repeat\.set\(texture\.repeat\.x, 1\)/);
   assert.match(assets, /branchMaterial: new THREE\.MeshStandardMaterial\(\{[\s\S]*normalMap: bark\.normalMap/);
   assert.match(assets, /rootMaterial: new THREE\.MeshStandardMaterial\(\{[\s\S]*roughnessMap: bark\.roughnessMap/);
   assert.match(farField, /woodMaterial\.userData\.sharedTextures = true/);

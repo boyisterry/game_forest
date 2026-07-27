@@ -320,6 +320,52 @@ test("steep mountain blocks and keeps the bike from pushing through", () => {
   assert.ok(moto.x - x0 < 6, `steep stops forward progress, dx=${moto.x - x0}`);
 });
 
+test("a rider already inside a steep mountain is ejected to the rideable side", () => {
+  const moto = new MotorcycleController();
+  moto.reset(2, 0, Math.PI / 2);
+  const sample = (x) => ({
+    ax: x >= 0.5 ? -14 : 0,
+    az: 0,
+    steep: x >= 0.5,
+    height: 0,
+    gx: 0,
+    gz: 0,
+    slopeDegrees: x >= 0.5 ? 55 : 0,
+    speedCap: Infinity,
+  });
+
+  moto.update(DT, input(), noCollision, noClamp, sample);
+
+  assert.ok(moto.x < 0.5, `legacy steep position is moved inside, x=${moto.x}`);
+  assert.equal(moto.speed, 0, "ejection cannot preserve momentum into the mountain");
+});
+
+test("crossing onto a steep face rolls position back instead of creeping into the mesh", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, Math.PI / 2);
+  moto.speed = 12;
+  moto.velHeading = Math.PI / 2;
+  const cliff = (x) =>
+    x >= 0.5
+      ? { ax: -14, az: 0, steep: true, height: 12, gx: 1.4, gz: 0, speedCap: Infinity }
+      : { ax: 0, az: 0, steep: false, height: 0, gx: 0, gz: 0, speedCap: Infinity };
+  for (let t = 0; t < 1; t += DT) {
+    moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, cliff);
+  }
+  assert.ok(moto.x < 0.5, `rider remains on the rideable side, x=${moto.x}`);
+  assert.equal(moto.y, 0, "rider never adopts the blocked cliff height");
+});
+
+test("terrain height is sampled after movement so rider and surface stay aligned", () => {
+  const moto = new MotorcycleController();
+  moto.reset(0, 0, Math.PI / 2);
+  moto.speed = 6;
+  moto.velHeading = Math.PI / 2;
+  const slope = (x) => ({ ax: 0, az: 0, steep: false, height: x * 0.3, gx: 0.3, gz: 0, speedCap: Infinity });
+  moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, slope);
+  assert.ok(Math.abs(moto.y - moto.x * 0.3) < 1e-6, `height follows final x: y=${moto.y}, x=${moto.x}`);
+});
+
 test("climbing tilts the nose up (pitch negative)", () => {
   const moto = new MotorcycleController();
   moto.reset(0, 0, 0);

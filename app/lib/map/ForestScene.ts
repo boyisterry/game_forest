@@ -89,6 +89,7 @@ export class ForestScene {
   private readonly skids = new SkidMarks();
   private readonly audio = new AudioEngine();
   private readonly dummy = new THREE.Object3D();
+  private readonly streamForward = new THREE.Vector3();
   private driveModeListener: ((on: boolean) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, settings: MapSettings, onStats: StatsListener) {
@@ -248,7 +249,7 @@ export class ForestScene {
     this.controls.target.set(start.x, 0, start.z);
     this.camera.position.set(start.x + 48, 36, start.z + 62);
     this.controls.update();
-    this.chunks.update(start.x, start.z);
+    this.queueCameraFacingChunks(start.x, start.z);
     // Warm the nearest chunk immediately so the first frame isn't empty.
     this.chunks.pump();
     this.lastChunkFocus = "";
@@ -447,9 +448,15 @@ export class ForestScene {
     else if (nearest.value < 260 && nearest.side === "south") this.camera.position.set(clamped.x + 12, 46, clamped.z - 88);
     else this.camera.position.set(clamped.x + 52, 40, clamped.z + 68);
     this.controls.update();
-    this.chunks.update(clamped.x, clamped.z);
+    this.queueCameraFacingChunks(clamped.x, clamped.z);
     this.chunks.pump();
     this.publishStats();
+  }
+
+  /** Queue the focus disc plus one camera-facing forward cap. */
+  private queueCameraFacingChunks(focusX: number, focusZ: number) {
+    this.camera.getWorldDirection(this.streamForward);
+    this.chunks.update(focusX, focusZ, this.streamForward.x, this.streamForward.z);
   }
 
   resetCamera() {
@@ -629,18 +636,20 @@ export class ForestScene {
       focusZ = boundedFocus.z;
     }
 
-    const focusKey = `${Math.round(focusX / 24)},${Math.round(focusZ / 24)}`;
+    this.camera.getWorldDirection(this.streamForward);
+    const stepX = Math.abs(this.streamForward.x) < 0.38 ? 0 : Math.sign(this.streamForward.x);
+    const stepZ = Math.abs(this.streamForward.z) < 0.38 ? 0 : Math.sign(this.streamForward.z);
+    const focusKey = `${Math.round(focusX / 24)},${Math.round(focusZ / 24)},${stepX},${stepZ}`;
     if (focusKey !== this.lastChunkFocus) {
       this.lastChunkFocus = focusKey;
-      this.chunks.update(focusX, focusZ);
+      this.queueCameraFacingChunks(focusX, focusZ);
     }
     this.collision.syncChunks(this.chunks.loadedEntries());
     if (this.chunks.pump()) this.publishStats();
-    // Far field hides during refresh to avoid LOD leaks; in ride mode the near
-    // ring only ever has a couple of pending chunks, so a threshold keeps the
-    // distant forest from flickering on/off at speed.
+    // Far field latches after the first complete near-field load; keep the
+    // readiness gate strict so horizon cards do not appear over empty ground.
     const pending = this.chunks.getStats().pending;
-    const farReady = this.driveMode ? pending < 6 : pending === 0;
+    const farReady = pending === 0;
     this.farField?.update(focusX, focusZ, this.camera, farReady);
     this.syncShadowRig(focusX, focusZ);
     this.sky.follow(this.camera);

@@ -183,7 +183,27 @@ export class MotorcycleController {
     const throttling = input.throttle > 0;
 
     // Sample early: a steep boundary band forbids/kills a drift outright.
-    const band = sampleBoundary(this.x, this.z);
+    let band = sampleBoundary(this.x, this.z);
+    // Recover old saves/teleports that begin inside a blocked mountain or
+    // water band. March along the sampler's interior force until the complete
+    // bike centre is back on a rideable sample; never allow a "descending from
+    // inside" exception that can leave the chase camera embedded in geometry.
+    if (band.steep) {
+      let safeX = this.x;
+      let safeZ = this.z;
+      for (let i = 0; i < 96 && band.steep; i += 1) {
+        const force = Math.hypot(band.ax, band.az);
+        if (force < 1e-5) break;
+        safeX += (band.ax / force) * 0.5;
+        safeZ += (band.az / force) * 0.5;
+        band = sampleBoundary(safeX, safeZ);
+      }
+      if (!band.steep) {
+        this.x = safeX;
+        this.z = safeZ;
+        this.speed = 0;
+      }
+    }
     if (band.steep) this.drifting = false;
 
     let speed = this.speed;
@@ -373,8 +393,18 @@ export class MotorcycleController {
       this.velHeading = this.heading;
     }
 
-    // 6. Re-sample after the move: a slide that carries into a steep band exits immediately.
-    if (sampleBoundary(x, z).steep) this.drifting = false;
+    // 6. Re-sample after the move. Crossing from a rideable surface onto a
+    // >25° face is a positional collision, not merely a speed penalty. The old
+    // implementation let repeated throttle steps creep into the cliff until
+    // the rider and chase camera were inside its render mesh.
+    const movedBand = sampleBoundary(x, z);
+    if (movedBand.steep) {
+      this.drifting = false;
+      x = this.x;
+      z = this.z;
+      speed = 0;
+      this.speed = 0;
+    }
 
     // 7. World bounds failsafe (small inset so the rider can hug the visible edge).
     const clamped = clampToWorld(x, z);
@@ -383,8 +413,10 @@ export class MotorcycleController {
 
     // Terrain-follow (boundary band only): y tracks the heightfield; pitch follows
     // the grade along travel. Playable interior keeps y=0, slope pitch 0.
-    this.y = band.height ?? 0;
-    const slopePitch = -((band.gx ?? 0) * Math.sin(this.heading) + (band.gz ?? 0) * Math.cos(this.heading));
+    const finalBand = sampleBoundary(this.x, this.z);
+    this.y = finalBand.height ?? 0;
+    const slopePitch =
+      -((finalBand.gx ?? 0) * Math.sin(this.heading) + (finalBand.gz ?? 0) * Math.cos(this.heading));
 
     // 8. Lean: bank from yaw, plus extra slip lean while drifting.
     const aLat = yawRate * speed;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Matrix4, Quaternion, Vector3 } from "three";
 import {
   sampleBoundary,
   buildRiverGroup,
@@ -9,6 +10,8 @@ import {
   BEACH_CAP_FAR,
   FOOTHILL_WIDTH,
   STEEP_WIDTH,
+  MAX_RIDEABLE_SLOPE_DEG,
+  MOUNTAIN_COLLISION_INSET,
 } from "../app/lib/map/boundaryTerrain.ts";
 import {
   clampToWorld,
@@ -17,18 +20,39 @@ import {
   northBoundaryZ,
   southBoundaryZ,
   FAILSAFE_INSET,
+  chunksInRadius,
+  chunksInDirectionalRadius,
 } from "../app/lib/map/world.ts";
 
 const SEED = 42;
 
-test("east of foot line: force points west (interior) and becomes steep", () => {
-  const z = 0;
+test("east cliff face: force points west (interior) and blocks above 25 degrees", () => {
+  const z = Array.from({ length: 301 }, (_, i) => -1500 + i * 10).find((candidate) => {
+    const foot = eastBoundaryX(candidate, SEED);
+    return sampleBoundary(foot + 6, candidate, SEED).steep;
+  });
+  assert.notEqual(z, undefined, "east ridge contains a steep cliff face");
   const foot = eastBoundaryX(z, SEED);
-  const steepX = foot + FOOTHILL_WIDTH + STEEP_WIDTH * 0.5;
+  const steepX = foot + 6;
   const s = sampleBoundary(steepX, z, SEED);
   assert.equal(s.steep, true);
+  assert.ok(s.slopeDegrees > MAX_RIDEABLE_SLOPE_DEG);
   assert.ok(s.ax < -1, `expect strong west accel, ax=${s.ax}`);
   assert.ok(Math.abs(s.az) < Math.abs(s.ax), "east band force is mostly ±x");
+});
+
+test("mountain collision begins before the visible toe without raising playable ground", () => {
+  const z = Array.from({ length: 301 }, (_, i) => -1500 + i * 10).find((candidate) => {
+    const foot = eastBoundaryX(candidate, SEED);
+    return sampleBoundary(foot + 6, candidate, SEED).steep;
+  });
+  assert.notEqual(z, undefined, "east ridge contains a steep face");
+  const foot = eastBoundaryX(z, SEED);
+  const guarded = sampleBoundary(foot - MOUNTAIN_COLLISION_INSET * 0.5, z, SEED);
+  const interior = sampleBoundary(foot - MOUNTAIN_COLLISION_INSET - 0.25, z, SEED);
+  assert.equal(guarded.steep, true, "bike body is stopped before touching the visible rock");
+  assert.equal(guarded.height, 0, "collision inset does not create a raised invisible shelf");
+  assert.equal(interior.steep, false, "normal playable ground remains clear inside the guard");
 });
 
 test("inside playable flat: zero force, not steep", () => {
@@ -47,12 +71,35 @@ test("west of west foot: force points east (interior) and steep", () => {
 });
 
 test("north of north foot: force points south", () => {
-  const x = 0;
+  const x = Array.from({ length: 301 }, (_, i) => -1500 + i * 10).find((candidate) => {
+    const foot = northBoundaryZ(candidate, SEED);
+    return sampleBoundary(candidate, foot - 6, SEED).steep;
+  });
+  assert.notEqual(x, undefined, "north ridge contains a steep cliff face");
   const foot = northBoundaryZ(x, SEED);
-  const z = foot - FOOTHILL_WIDTH - STEEP_WIDTH * 0.5;
+  const z = foot - 6;
   const s = sampleBoundary(x, z, SEED);
   assert.equal(s.steep, true);
   assert.ok(s.az > 1, `expect south accel, az=${s.az}`);
+});
+
+test("only sparse mountain-foot approaches are at or below the 25-degree rideable limit", () => {
+  let eastRideable = 0;
+  let northRideable = 0;
+  let samples = 0;
+  for (let along = -1500; along <= 1500; along += 10) {
+    const east = sampleBoundary(eastBoundaryX(along, SEED) + 6, along, SEED);
+    const north = sampleBoundary(along, northBoundaryZ(along, SEED) - 6, SEED);
+    assert.equal(east.steep, east.slopeDegrees > MAX_RIDEABLE_SLOPE_DEG);
+    assert.equal(north.steep, north.slopeDegrees > MAX_RIDEABLE_SLOPE_DEG);
+    eastRideable += Number(!east.steep);
+    northRideable += Number(!north.steep);
+    samples += 1;
+  }
+  const eastFraction = eastRideable / samples;
+  const northFraction = northRideable / samples;
+  assert.ok(eastFraction >= 0.05 && eastFraction <= 0.18, `east access remains sparse: ${eastFraction}`);
+  assert.ok(northFraction >= 0.05 && northFraction <= 0.18, `north access remains sparse: ${northFraction}`);
 });
 
 test("south of south foot: force points north", () => {
@@ -102,8 +149,8 @@ test("mountain ruggedness produces varied heights along the east ridge", () => {
   const deep = FOOTHILL_WIDTH + STEEP_WIDTH * 0.8;
   const h1 = sampleBoundary(foot1 + deep, z1, SEED).height;
   const h2 = sampleBoundary(foot2 + deep, z2, SEED).height;
-  assert.ok(h1 > 8 && h1 < 55, `height in range, got ${h1}`);
-  assert.ok(h2 > 8 && h2 < 55, `height in range, got ${h2}`);
+  assert.ok(h1 > 8 && h1 < 75, `height in range, got ${h1}`);
+  assert.ok(h2 > 8 && h2 < 75, `height in range, got ${h2}`);
   assert.ok(Math.abs(h1 - h2) > 3, `ruggedness varies along the ridge: ${h1} vs ${h2}`);
 });
 
@@ -188,30 +235,65 @@ test("bank ribbon carries per-vertex grass→sand color", () => {
   }
 });
 
-test("east ridge mesh height varies along the ridge (ruggedness relief)", () => {
+test("mountain boundary is a layered low-poly peak range instead of a heightfield wall", () => {
   const group = buildNearMountainMeshes(SEED);
-  // The group's first mesh is the east ridge (buildNearMountainMeshes adds east, then north).
-  const east = group.children.find((m) => m.geometry && m.geometry.getAttribute("position"));
-  assert.ok(east, "east ridge mesh present");
-  const pos = east.geometry.getAttribute("position");
-  const count = pos.count;
-  // Collect the max height at each unique x (x is the along-ridge coordinate for the east ridge).
-  const byX = new Map();
-  for (let i = 0; i < count; i += 1) {
-    const x = Number(pos.getX(i).toFixed(1));
-    const y = pos.getY(i);
-    byX.set(x, Math.max(byX.has(x) ? byX.get(x) : 0, y));
+  const aprons = group.children.filter((child) => child.isMesh && child.name.endsWith("mountain-apron"));
+  assert.equal(aprons.length, 2, "east and north have compact physics-aligned rock toes");
+  for (const apron of aprons) {
+    const pos = apron.geometry.getAttribute("position");
+    assert.equal(pos.count, 320 * 7, "toe is narrow and cannot become a camera-sized wall");
+    assert.ok(apron.geometry.getAttribute("color"), "toe carries layered rock vertex colors");
+    assert.ok(apron.material.map, "toe uses a procedural rock color map");
+    assert.ok(apron.material.normalMap, "toe uses rock surface normals");
+    assert.equal(apron.material.normalMap.image.width, 256, "mountain normal map is redrawn at 256px");
+    assert.ok(apron.material.roughnessMap, "toe uses a rock roughness map");
+    const minimumY = Math.min(...Array.from({ length: pos.count }, (_, i) => pos.getY(i)));
+    assert.ok(minimumY < -0.1, `toe overlap is buried below ground: ${minimumY}`);
+    assert.equal(apron.material.flatShading, true, "toe matches the tree-style faceted shading");
   }
-  const ridgeHeights = [...byX.values()].filter((h) => h > 1); // ignore near-zero foot vertices
-  const max = Math.max(...ridgeHeights);
-  const min = Math.min(...ridgeHeights);
-  assert.ok(ridgeHeights.length > 20, `ridge sampled at many x stations: ${ridgeHeights.length}`);
-  assert.ok(max - min > 4, `ridge height varies along the ridge (ruggedness): spread ${min.toFixed(1)}..${max.toFixed(1)}`);
-  assert.ok(east.geometry.getAttribute("color"), "ridge carries layered rock vertex colors");
-  assert.ok(east.material.map, "ridge uses a procedural rock color map");
-  assert.ok(east.material.normalMap, "ridge uses rock surface normals");
-  assert.ok(east.material.roughnessMap, "ridge uses a rock roughness map");
-  const outcrops = group.children.filter((child) => child.isInstancedMesh);
-  assert.equal(outcrops.length, 2, "east and north ridges include embedded rock outcrops");
-  assert.ok(outcrops.every((mesh) => mesh.count === 56), "each ridge has a sparse field of large rock faces");
+
+  for (const side of ["east", "north"]) {
+    assert.ok(group.getObjectByName(`${side}-front-mountain-range`), `${side} front peak row exists`);
+    assert.ok(group.getObjectByName(`${side}-back-mountain-range`), `${side} back peak row exists`);
+  }
+
+  const peakMeshes = [];
+  group.traverse((child) => {
+    if (child.isInstancedMesh && child.name.includes("mountain-peaks")) peakMeshes.push(child);
+  });
+  assert.equal(peakMeshes.length, 12, "two sides × two layers × three peak variants");
+  assert.ok(peakMeshes.every((mesh) => mesh.count > 0), "every stagger bucket contains peaks");
+  assert.ok(
+    peakMeshes.every((mesh) => mesh.geometry.getAttribute("position").count === 47),
+    "each peak uses a compact closed 47-vertex polyhedron",
+  );
+  assert.ok(
+    peakMeshes.every((mesh) => mesh.geometry.index.count === 270),
+    "each closed peak stays at 90 triangles",
+  );
+
+  const matrix = new Matrix4();
+  const scale = new Vector3();
+  const position = new Vector3();
+  const rotation = new Quaternion();
+  const peakHeights = [];
+  for (const mesh of peakMeshes) {
+    for (let i = 0; i < mesh.count; i += 1) {
+      mesh.getMatrixAt(i, matrix);
+      matrix.decompose(position, rotation, scale);
+      peakHeights.push(scale.y);
+    }
+  }
+  const minHeight = Math.min(...peakHeights);
+  const maxHeight = Math.max(...peakHeights);
+  assert.ok(maxHeight - minHeight > 25, `peak skyline has substantial high/low relief: ${minHeight}..${maxHeight}`);
+});
+
+test("camera-facing streaming adds only a one-chunk forward cap", () => {
+  const focus = { cx: 0, cz: 0 };
+  const base = chunksInRadius(focus, 2);
+  const eastFacing = chunksInDirectionalRadius(focus, 2, 1, 0);
+  assert.ok(eastFacing.length > base.length, "camera direction adds forward chunks");
+  assert.ok(eastFacing.some((coord) => coord.cx === 3 && coord.cz === 0), "one extra east region is queued");
+  assert.ok(!eastFacing.some((coord) => coord.cx === -3 && coord.cz === 0), "back edge is not expanded");
 });

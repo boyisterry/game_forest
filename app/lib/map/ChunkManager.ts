@@ -12,7 +12,7 @@ import {
   LOAD_RADIUS_CHUNKS,
   UNLOAD_RADIUS_CHUNKS,
   chunkKey,
-  chunksInRadius,
+  chunksInDirectionalRadius,
   worldToChunk,
   type ChunkCoord,
 } from "./world";
@@ -87,19 +87,26 @@ export class ChunkManager {
     };
   }
 
-  /** Queue neighborhood streaming around a world-space focus point. */
-  update(focusX: number, focusZ: number) {
+  /** Queue the focus neighborhood plus one camera-facing forward cap. */
+  update(focusX: number, focusZ: number, forwardX = 0, forwardZ = 0) {
     if (!this.context) return;
     const nextFocus = worldToChunk(focusX, focusZ);
     this.focus = nextFocus;
-    const neededList = chunksInRadius(nextFocus, LOAD_RADIUS_CHUNKS).filter((coord) => {
+    const neededList = chunksInDirectionalRadius(
+      nextFocus,
+      LOAD_RADIUS_CHUNKS,
+      forwardX,
+      forwardZ,
+    ).filter((coord) => {
       const centerX = (coord.cx + 0.5) * CHUNK_SIZE;
       const centerZ = (coord.cz + 0.5) * CHUNK_SIZE;
       return this.context!.insideWorld(centerX, centerZ, -CHUNK_SIZE);
     });
     neededList.sort((a, b) => {
-      const da = (a.cx - nextFocus.cx) ** 2 + (a.cz - nextFocus.cz) ** 2;
-      const db = (b.cx - nextFocus.cx) ** 2 + (b.cz - nextFocus.cz) ** 2;
+      const aheadX = nextFocus.cx + forwardX;
+      const aheadZ = nextFocus.cz + forwardZ;
+      const da = (a.cx - aheadX) ** 2 + (a.cz - aheadZ) ** 2;
+      const db = (b.cx - aheadX) ** 2 + (b.cz - aheadZ) ** 2;
       return da - db;
     });
     const needed = new Set(neededList.map((c) => chunkKey(c.cx, c.cz)));

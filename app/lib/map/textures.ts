@@ -311,9 +311,35 @@ function drawGrassColor(
   random: () => number,
 ) {
   // Forest floor base is already grassy green — soil only peeks through sparsely.
+  // Integer-frequency waves are exactly periodic at the atlas edges, but read
+  // as broad, interlocking forest-floor variation instead of stamped circles.
   const lawnBase = averageColor(bladeColors.length ? bladeColors : [groundColor]);
-  ctx.fillStyle = shadeCss(lawnBase, 0.72);
-  ctx.fillRect(0, 0, size, size);
+  const { r: baseR, g: baseG, b: baseB } = toRgb(lawnBase);
+  const macro = ctx.createImageData(size, size);
+  const phaseA = random() * Math.PI * 2;
+  const phaseB = random() * Math.PI * 2;
+  const phaseC = random() * Math.PI * 2;
+  const tau = Math.PI * 2;
+  for (let y = 0; y < size; y += 1) {
+    const v = y / size;
+    for (let x = 0; x < size; x += 1) {
+      const u = x / size;
+      const broad =
+        Math.sin(tau * (u * 2 + v * 3) + phaseA) * 0.48
+        + Math.sin(tau * (u * 5 - v * 2) + phaseB) * 0.31
+        + Math.cos(tau * (u * 7 + v * 6) + phaseC) * 0.21;
+      const fine =
+        Math.sin(tau * (u * 17 + v * 11) - phaseB) * 0.5
+        + Math.cos(tau * (u * 23 - v * 19) + phaseA) * 0.5;
+      const shade = THREE.MathUtils.clamp(0.71 + broad * 0.065 + fine * 0.018, 0.61, 0.83);
+      const offset = (y * size + x) * 4;
+      macro.data[offset] = Math.round(baseR * shade);
+      macro.data[offset + 1] = Math.round(baseG * (shade + broad * 0.012));
+      macro.data[offset + 2] = Math.round(baseB * shade);
+      macro.data[offset + 3] = 255;
+    }
+  }
+  ctx.putImageData(macro, 0, 0);
   for (const mound of data.hummocks) {
     const grad = ctx.createRadialGradient(mound.x, mound.y, 0, mound.x, mound.y, mound.r);
     grad.addColorStop(0, shadeCss(mound.tone, 0.78 + mound.lift, 0.32));
@@ -322,20 +348,6 @@ function drawGrassColor(
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.ellipse(mound.x, mound.y, mound.r, mound.r * 0.72, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  for (let i = 0; i < 48; i += 1) {
-    const x = random() * size;
-    const y = random() * size;
-    const r = 14 + random() * 40;
-    const tone = bladeColors[Math.floor(random() * Math.max(bladeColors.length, 1))] ?? lawnBase;
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    const dark = random() < 0.55;
-    grad.addColorStop(0, shadeCss(tone, dark ? 0.55 : 1.08, 0.16 + random() * 0.18));
-    grad.addColorStop(1, shadeCss(tone, dark ? 0.55 : 1.08, 0));
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   }
   for (const e of data.earth) {
@@ -455,6 +467,79 @@ function buildRoughnessCanvas(src: HTMLCanvasElement, size: number, bias: number
   return canvas;
 }
 
+/**
+ * Blends opposite borders into the same texels before RepeatWrapping is used.
+ * The grass artwork contains broad hummocks and clouds that may cross the tile
+ * edge; without this pass their color/height discontinuity becomes a visible
+ * square grid under grazing light.
+ */
+function makeCanvasTileable(canvas: HTMLCanvasElement, band = 28) {
+  const ctx = canvas.getContext("2d")!;
+  const { width, height } = canvas;
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const blendPair = (a: number, b: number, weight: number) => {
+    for (let channel = 0; channel < 4; channel += 1) {
+      const av = data[a + channel];
+      const bv = data[b + channel];
+      data[a + channel] = Math.round(THREE.MathUtils.lerp(av, bv, weight));
+      data[b + channel] = Math.round(THREE.MathUtils.lerp(bv, av, weight));
+    }
+  };
+
+  const horizontalBand = Math.min(band, Math.floor(width * 0.25));
+  for (let y = 0; y < height; y += 1) {
+    for (let i = 0; i < horizontalBand; i += 1) {
+      const t = i / Math.max(horizontalBand - 1, 1);
+      const weight = 0.5 * (1 - smoothstep01(t));
+      const left = (y * width + i) * 4;
+      const right = (y * width + (width - 1 - i)) * 4;
+      blendPair(left, right, weight);
+    }
+  }
+
+  const verticalBand = Math.min(band, Math.floor(height * 0.25));
+  for (let x = 0; x < width; x += 1) {
+    for (let i = 0; i < verticalBand; i += 1) {
+      const t = i / Math.max(verticalBand - 1, 1);
+      const weight = 0.5 * (1 - smoothstep01(t));
+      const top = (i * width + x) * 4;
+      const bottom = ((height - 1 - i) * width + x) * 4;
+      blendPair(top, bottom, weight);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+/** Road U is a fixed cross-section, so only blend its start/end along V. */
+function makeCanvasVerticallyTileable(canvas: HTMLCanvasElement, band = 28) {
+  const ctx = canvas.getContext("2d")!;
+  const { width, height } = canvas;
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const verticalBand = Math.min(band, Math.floor(height * 0.25));
+  for (let x = 0; x < width; x += 1) {
+    for (let i = 0; i < verticalBand; i += 1) {
+      const t = i / Math.max(verticalBand - 1, 1);
+      const weight = 0.5 * (1 - smoothstep01(t));
+      const top = (i * width + x) * 4;
+      const bottom = ((height - 1 - i) * width + x) * 4;
+      for (let channel = 0; channel < 4; channel += 1) {
+        const tv = data[top + channel];
+        const bv = data[bottom + channel];
+        data[top + channel] = Math.round(THREE.MathUtils.lerp(tv, bv, weight));
+        data[bottom + channel] = Math.round(THREE.MathUtils.lerp(bv, tv, weight));
+      }
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+function smoothstep01(t: number) {
+  const x = THREE.MathUtils.clamp(t, 0, 1);
+  return x * x * (3 - 2 * x);
+}
+
 function makeSurfaceTexture(
   canvas: HTMLCanvasElement,
   repeatX: number,
@@ -471,6 +556,158 @@ function makeSurfaceTexture(
 }
 
 /**
+ * Replaces regular UV repetition with a continuous world-space stochastic
+ * sampler. Four independently offset virtual tiles are blended at every cell,
+ * so no single square tile or chunk boundary can be recognized. The identical
+ * lookup is applied to color, tangent normals, and roughness.
+ */
+export function enableGroundAntiTiling(
+  material: THREE.MeshStandardMaterial,
+  worldTileSize = 21,
+) {
+  const tileSize = Math.max(8, worldTileSize).toFixed(2);
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        "#include <common>\nvarying vec3 vGroundWorldPosition;",
+      )
+      .replace(
+        "#include <project_vertex>",
+        "#include <project_vertex>\nvGroundWorldPosition = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;",
+      );
+
+    const stochasticSampler = `
+varying vec3 vGroundWorldPosition;
+
+vec2 groundHash22( vec2 p ) {
+  vec2 q = vec2(
+    dot( p, vec2( 127.1, 311.7 ) ),
+    dot( p, vec2( 269.5, 183.3 ) )
+  );
+  return fract( sin( q ) * 43758.5453 );
+}
+
+vec4 sampleGroundStochastic( sampler2D surfaceMap ) {
+  vec2 worldUv = vGroundWorldPosition.xz / ${tileSize};
+  vec2 cell = floor( worldUv );
+  vec2 localUv = fract( worldUv );
+  vec2 blendUv = localUv * localUv * ( 3.0 - 2.0 * localUv );
+  vec4 c00 = texture2D( surfaceMap, localUv + groundHash22( cell ) );
+  vec4 c10 = texture2D( surfaceMap, localUv + groundHash22( cell + vec2( 1.0, 0.0 ) ) );
+  vec4 c01 = texture2D( surfaceMap, localUv + groundHash22( cell + vec2( 0.0, 1.0 ) ) );
+  vec4 c11 = texture2D( surfaceMap, localUv + groundHash22( cell + vec2( 1.0, 1.0 ) ) );
+  return mix( mix( c00, c10, blendUv.x ), mix( c01, c11, blendUv.x ), blendUv.y );
+}
+`;
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>\n${stochasticSampler}`,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `
+#ifdef USE_MAP
+  vec4 sampledDiffuseColor = sampleGroundStochastic( map );
+  diffuseColor *= sampledDiffuseColor;
+#endif
+`,
+      )
+      .replace(
+        "#include <normal_fragment_maps>",
+        `
+#ifdef USE_NORMALMAP_TANGENTSPACE
+  vec3 mapN = sampleGroundStochastic( normalMap ).xyz * 2.0 - 1.0;
+  mapN.xy *= normalScale;
+  normal = normalize( tbn * mapN );
+#elif defined( USE_BUMPMAP )
+  normal = perturbNormalArb( - vViewPosition, normal, dHdxy_fwd(), faceDirection );
+#endif
+`,
+      )
+      .replace(
+        "#include <roughnessmap_fragment>",
+        `
+float roughnessFactor = roughness;
+#ifdef USE_ROUGHNESSMAP
+  vec4 texelRoughness = sampleGroundStochastic( roughnessMap );
+  roughnessFactor *= texelRoughness.g;
+#endif
+`,
+      );
+  };
+  material.customProgramCacheKey = () => `ground-stochastic-v2-${tileSize}`;
+  material.needsUpdate = true;
+  return material;
+}
+
+/**
+ * Keeps the authored road cross-section intact while removing the four-meter
+ * longitudinal stamp. Adjacent virtual segments use different seeded V
+ * offsets and cross-fade with matching end values, so ruts remain continuous.
+ */
+export function enableRoadAntiTiling(material: THREE.MeshStandardMaterial) {
+  material.onBeforeCompile = (shader) => {
+    const roadSampler = `
+float roadHash11( float p ) {
+  return fract( sin( p * 127.1 + 19.19 ) * 43758.5453 );
+}
+
+vec4 sampleRoadStochastic( sampler2D surfaceMap ) {
+  float segment = floor( vMapUv.y );
+  float localV = fract( vMapUv.y );
+  float blendV = localV * localV * ( 3.0 - 2.0 * localV );
+  float offsetA = roadHash11( segment );
+  float offsetB = roadHash11( segment + 1.0 );
+  vec4 sampleA = texture2D( surfaceMap, vec2( vMapUv.x, localV + offsetA ) );
+  vec4 sampleB = texture2D( surfaceMap, vec2( vMapUv.x, localV + offsetB ) );
+  return mix( sampleA, sampleB, blendV );
+}
+`;
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>\n${roadSampler}`,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `
+#ifdef USE_MAP
+  vec4 sampledDiffuseColor = sampleRoadStochastic( map );
+  diffuseColor *= sampledDiffuseColor;
+#endif
+`,
+      )
+      .replace(
+        "#include <normal_fragment_maps>",
+        `
+#ifdef USE_NORMALMAP_TANGENTSPACE
+  vec3 mapN = sampleRoadStochastic( normalMap ).xyz * 2.0 - 1.0;
+  mapN.xy *= normalScale;
+  normal = normalize( tbn * mapN );
+#elif defined( USE_BUMPMAP )
+  normal = perturbNormalArb( - vViewPosition, normal, dHdxy_fwd(), faceDirection );
+#endif
+`,
+      )
+      .replace(
+        "#include <roughnessmap_fragment>",
+        `
+float roughnessFactor = roughness;
+#ifdef USE_ROUGHNESSMAP
+  vec4 texelRoughness = sampleRoadStochastic( roughnessMap );
+  roughnessFactor *= texelRoughness.g;
+#endif
+`,
+      );
+  };
+  material.customProgramCacheKey = () => "road-stochastic-v1";
+  material.needsUpdate = true;
+  return material;
+}
+
+/**
  * Returns the color map (sRGB grass carpet) and a matching tangent-space
  * normal map derived from the same blade strokes. bladeColors are seasonal
  * greens (typically the leaf palette); groundColor is the base soil tint.
@@ -481,18 +718,22 @@ export function createGroundTextures(
   anisotropy = 4,
   seed = 1,
 ): SurfaceTextures {
-  const size = 256;
-  const repeat = 22;
+  const size = 512;
+  // Shader-based world sampling owns the large-scale cadence. Four repeats are
+  // retained only as a graceful fallback before shader compilation.
+  const repeat = 4;
   const random = createRandom(seed ^ 0x6a55);
   const data = generateGrassStrokes(size, bladeColors, random);
 
   const { canvas: colorCanvas, ctx: colorCtx } = makeCanvas(size);
   drawGrassColor(colorCtx, size, groundColor, bladeColors, data, random);
+  makeCanvasTileable(colorCanvas, 24);
   const map = makeSurfaceTexture(colorCanvas, repeat, repeat, anisotropy, true);
 
   const { canvas: heightCanvas, ctx: heightCtx } = makeCanvas(size);
   drawGrassHeight(heightCtx, size, data);
-  const normalCanvas = buildNormalCanvas(heightCanvas, size, 2.35);
+  makeCanvasTileable(heightCanvas, 24);
+  const normalCanvas = buildNormalCanvas(heightCanvas, size, 1.15);
   const roughnessCanvas = buildRoughnessCanvas(heightCanvas, size, 150, 0.38);
   const normalMap = makeSurfaceTexture(normalCanvas, repeat, repeat, anisotropy);
   const roughnessMap = makeSurfaceTexture(roughnessCanvas, repeat, repeat, anisotropy);
@@ -595,11 +836,15 @@ export function createRoadTextures(seed = 1, anisotropy = 4): SurfaceTextures {
     height.fill();
   }
 
-  // makeRibbon spans roughly 3.2km with 48 V units. Sixteen repeats here make
-  // each dirt tile about four meters long, close to the road's physical width;
-  // that keeps clods round rather than stretching them into wood-grain stripes.
+  // Match the authored top/bottom texels before stochastic V sampling. Road U
+  // stays untouched so its edge shading, twin ruts, and center ridge line up.
+  makeCanvasVerticallyTileable(colorCanvas, 30);
+  makeCanvasVerticallyTileable(heightCanvas, 30);
   const normalCanvas = buildNormalCanvas(heightCanvas, size, 1.7);
   const roughnessCanvas = buildRoughnessCanvas(heightCanvas, size, 138, 0.48);
+  // makeRibbon spans roughly 3.2km with 48 V units. Sixteen fine repeats retain
+  // round clods; the material shader randomizes each repetition so it no longer
+  // reads as the same four-meter stamp.
   return {
     map: makeSurfaceTexture(colorCanvas, 1, 16, anisotropy, true),
     normalMap: makeSurfaceTexture(normalCanvas, 1, 16, anisotropy),

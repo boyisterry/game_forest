@@ -375,7 +375,7 @@ export function MapStudio() {
         <section className="control-group">
           <div className="section-label"><span>{t.worldParams}</span><b>01</b></div>
           <Range label={t.forestDensity} value={draft.forestDensity} min={0.36} max={2.3} step={0.01} display={`${Math.round(draft.forestDensity * 100)}%`} onChange={(v) => update("forestDensity", v)} />
-          <Range label={t.roadWidth} value={draft.roadWidth} min={2.2} max={5.4} step={0.1} display={`${draft.roadWidth.toFixed(1)}m`} onChange={(v) => update("roadWidth", v)} />
+          <Range label={t.roadWidth} value={draft.roadWidth} min={3} max={14} step={0.2} display={`${draft.roadWidth.toFixed(1)}m`} onChange={(v) => update("roadWidth", v)} />
           <Range label={t.roadCurves} value={draft.roadCurves} min={0.12} max={1} step={0.01} display={`${Math.round(draft.roadCurves * 100)}%`} onChange={(v) => update("roadCurves", v)} />
           <Range label={t.fogDensity} value={draft.fogDensity} min={0.001} max={0.01} step={0.0005} display={draft.fogDensity.toFixed(4)} onChange={(v) => update("fogDensity", v)} />
           <Range label={t.deliveryStops} value={draft.deliveryStops} min={2} max={8} step={1} display={t.stopsUnit(draft.deliveryStops)} onChange={(v) => update("deliveryStops", v)} />

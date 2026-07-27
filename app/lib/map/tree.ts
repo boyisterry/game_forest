@@ -396,17 +396,25 @@ export function describeTree(random: () => number, params: Partial<TreeParams> =
   return { branches, clusters, tipClusters, roots, rootSegments, trunkHeight };
 }
 
-export function createRippledTrunkGeometry(height: number, radial = 7, heightSegments = 6) {
+export function createRippledTrunkGeometry(height: number, radial = 7, heightSegments = 8) {
   const geometry = new THREE.CylinderGeometry(0.32, 0.56, height, radial, heightSegments, false);
   const position = geometry.attributes.position;
   for (let i = 0; i < position.count; i += 1) {
     const y = position.getY(i);
+    const heightT = THREE.MathUtils.clamp(y / height + 0.5, 0, 1);
     const angle = Math.atan2(position.getZ(i), position.getX(i));
-    // Lower-frequency lobes survive the seven-sided silhouette without aliasing
-    // into a single skewed facet, retaining the mature irregular bole shape.
-    const ripple = 1 + Math.sin(angle * 3 + y * 1.7) * 0.035 + Math.sin(angle * 2 - y * 2.8) * 0.018;
-    position.setX(i, position.getX(i) * ripple);
-    position.setZ(i, position.getZ(i) * ripple);
+    // Use one slowly twisting lobe field over the full height. The old
+    // world-unit phase changed several times between six rings, producing
+    // alternating bulges that made the bole look assembled from sections.
+    const ripple =
+      1 +
+      Math.sin(angle * 3 + heightT * 0.72) * 0.03 +
+      Math.sin(angle * 2 - heightT * 0.38) * 0.014;
+    // A tiny continuous centre-line drift adds organic character without
+    // creating visible ring-to-ring steps.
+    const bend = Math.sin(heightT * Math.PI) * 0.018;
+    position.setX(i, position.getX(i) * ripple + bend);
+    position.setZ(i, position.getZ(i) * ripple + bend * 0.45);
   }
   geometry.computeVertexNormals();
   return geometry;

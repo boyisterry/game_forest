@@ -1,5 +1,10 @@
 import * as THREE from "three";
-import { createBarkTextures, createGroundTextures, createStoneTextures } from "./textures";
+import {
+  createBarkTextures,
+  createGroundTextures,
+  createStoneTextures,
+  enableGroundAntiTiling,
+} from "./textures";
 import {
   colorLeaf,
   createLeafGeometry,
@@ -466,6 +471,17 @@ export function createSharedForestAssets(
   const resolved = resolvedTreeParams(treeParams);
   const anisotropy = renderer.capabilities.getMaxAnisotropy();
   const bark = createBarkTextures(anisotropy, seed);
+  // The bark atlas is intentionally not vertically tile-seamless. Repeating it
+  // 4.6 times on one bole created obvious horizontal bands, even though the
+  // trunk mesh itself is continuous. Give the main trunk its own single-height
+  // copies; branches and surface roots retain the denser repeat for fine detail.
+  const trunkBarkMap = bark.map.clone();
+  const trunkBarkNormalMap = bark.normalMap.clone();
+  const trunkBarkRoughnessMap = bark.roughnessMap.clone();
+  for (const texture of [trunkBarkMap, trunkBarkNormalMap, trunkBarkRoughnessMap]) {
+    texture.repeat.set(texture.repeat.x, 1);
+    texture.needsUpdate = true;
+  }
   const stone = createStoneTextures(anisotropy, seed);
   const { map: groundMap, normalMap: groundNormalMap, roughnessMap: groundRoughnessMap } = createGroundTextures(
     groundColor,
@@ -496,11 +512,11 @@ export function createSharedForestAssets(
   stoneShardMaterial.side = THREE.DoubleSide;
 
   return {
-    // 98 trunk triangles (was 264) and 12 per branch segment (was 24).
-    // PBR normals keep the faceted geometry visually rounded while saving ~50%
-    // of the wood triangles on a mature, heavily forked tree.
-    trunkGeometry: createRippledTrunkGeometry(templates[0].trunkHeight, 7, 6),
-    branchGeometry: new THREE.CylinderGeometry(1, 1, 1, 3, 1),
+    // Eight continuous height rings remove the stacked-section silhouette while
+    // staying far below the original 264-triangle trunk. Open branch links avoid
+    // dark cap discs where the procedural skeleton joins from segment to segment.
+    trunkGeometry: createRippledTrunkGeometry(templates[0].trunkHeight, 7, 8),
+    branchGeometry: new THREE.CylinderGeometry(1, 1, 1, 3, 1, true),
     leafGeometry: createLeafGeometry(),
     tipGeometry: createLeafGeometry(),
     rootGeometry: createSurfaceRootGeometry(),
@@ -517,10 +533,12 @@ export function createSharedForestAssets(
     groundGeometry: new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE),
     trunkMaterial: new THREE.MeshStandardMaterial({
       color: 0xffffff,
-      map: bark.map,
-      normalMap: bark.normalMap,
-      normalScale: new THREE.Vector2(1.2, 1.2),
-      roughnessMap: bark.roughnessMap,
+      emissive: 0x382416,
+      emissiveIntensity: 0.32,
+      map: trunkBarkMap,
+      normalMap: trunkBarkNormalMap,
+      normalScale: new THREE.Vector2(0.82, 0.82),
+      roughnessMap: trunkBarkRoughnessMap,
       roughness: 0.94,
       metalness: 0,
     }),
@@ -604,14 +622,14 @@ export function createSharedForestAssets(
       shininess: 18,
       side: THREE.DoubleSide,
     }),
-    groundMaterial: new THREE.MeshStandardMaterial({
+    groundMaterial: enableGroundAntiTiling(new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: groundMap,
       normalMap: groundNormalMap,
-      normalScale: new THREE.Vector2(1.65, 1.65),
+      normalScale: new THREE.Vector2(1.18, 1.18),
       roughnessMap: groundRoughnessMap,
       roughness: 1,
-    }),
+    })),
     templates,
     models,
     leavesPerCluster: resolved.leavesPerCluster,
@@ -787,7 +805,7 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
       x: stonePoint.x,
       z: stonePoint.z,
       scale: profile.scale,
-      y: profile.y,
+      y: 0,
       sx: profile.sx,
       sy: profile.sy,
       sz: profile.sz,
@@ -804,11 +822,26 @@ export function buildChunk(coord: ChunkCoord, context: ChunkBuildContext): Built
       assets.stoneShardMaterial,
       stonePlacements.length,
     );
+    const stonePositions = assets.stoneGeometry.getAttribute("position");
+    const stoneVertex = new THREE.Vector3();
     for (let i = 0; i < stonePlacements.length; i += 1) {
       const stone = stonePlacements[i];
-      dummy.position.set(stone.x, stone.y, stone.z);
       dummy.rotation.set(range(random, 0, Math.PI), range(random, 0, Math.PI * 2), range(random, 0, Math.PI));
       dummy.scale.set(stone.scale * stone.sx, stone.scale * stone.sy, stone.scale * stone.sz);
+      // Place each irregular boulder from its actual rotated lowest vertex.
+      // A small deliberate embed avoids coplanar faces fighting with the ground
+      // while keeping the visible mass seated naturally in the turf.
+      let lowestY = Infinity;
+      for (let vertexIndex = 0; vertexIndex < stonePositions.count; vertexIndex += 1) {
+        stoneVertex
+          .fromBufferAttribute(stonePositions, vertexIndex)
+          .multiply(dummy.scale)
+          .applyQuaternion(dummy.quaternion);
+        lowestY = Math.min(lowestY, stoneVertex.y);
+      }
+      const groundEmbed = Math.min(0.14, 0.045 + stone.scale * 0.018);
+      stone.y = -lowestY - groundEmbed;
+      dummy.position.set(stone.x, stone.y, stone.z);
       dummy.updateMatrix();
       stoneMesh.setMatrixAt(i, dummy.matrix);
       stoneShardMesh.setMatrixAt(i, dummy.matrix);
@@ -935,6 +968,33 @@ function addModelTrees(
 
   const meshes: THREE.InstancedMesh[] = [];
   const shardMeshes: THREE.InstancedMesh[] = [];
+  // All GLB templates share one continuous-bole draw call per chunk. Keeping
+  // this outside the template buckets avoids paying an extra draw call for
+  // every large/medium source variant.
+  const continuousBoles = new THREE.InstancedMesh(
+    assets.trunkGeometry,
+    assets.trunkMaterial,
+    Math.max(spots.length, 1),
+  );
+  continuousBoles.count = spots.length;
+  continuousBoles.castShadow = true;
+  continuousBoles.receiveShadow = true;
+  for (let i = 0; i < spots.length; i += 1) {
+    const spot = spots[i];
+    const worldHeight = spot.template.height * (0.42 + spot.scale * 0.38) * spot.heightScale;
+    const boleHeight = worldHeight * 0.8;
+    const boleBaseRadius = worldHeight * 0.045;
+    const boleRadiusScale = boleBaseRadius / TRUNK_BASE_RADIUS;
+    dummy.position.set(spot.p.x, boleHeight * 0.5, spot.p.z);
+    dummy.rotation.set(0, spot.twist, 0);
+    dummy.scale.set(boleRadiusScale, boleHeight / assets.trunkHeight, boleRadiusScale);
+    dummy.updateMatrix();
+    continuousBoles.setMatrixAt(i, dummy.matrix);
+  }
+  continuousBoles.instanceMatrix.needsUpdate = true;
+  group.add(continuousBoles);
+  meshes.push(continuousBoles);
+
   for (const [, bucket] of buckets) {
     const template = bucket[0].template;
     const wood = new THREE.InstancedMesh(template.wood, assets.modelWoodMaterial, bucket.length);
@@ -1052,7 +1112,9 @@ function addProceduralTrees(
   }
 
   const trunks = new THREE.InstancedMesh(assets.trunkGeometry, assets.trunkMaterial, Math.max(placed.length, 1));
-  const buttresses = new THREE.InstancedMesh(assets.buttressGeometry, assets.rootMaterial, Math.max(placed.length, 1));
+  // The root neck is visually part of the bole; sharing the bark material
+  // prevents a horizontal color/roughness band at the overlap.
+  const buttresses = new THREE.InstancedMesh(assets.buttressGeometry, assets.trunkMaterial, Math.max(placed.length, 1));
   const branches = new THREE.InstancedMesh(assets.branchGeometry, assets.branchMaterial, Math.max(branchTotal, 1));
   const roots = new THREE.InstancedMesh(assets.rootGeometry, assets.rootMaterial, Math.max(rootTotal, 1));
   const rootRunners = new THREE.InstancedMesh(assets.rootRunnerGeometry, assets.rootMaterial, Math.max(rootRunnerTotal, 1));
@@ -1098,7 +1160,9 @@ function addProceduralTrees(
       if (length < 1e-4) continue;
       dummy.position.copy(a).add(b).multiplyScalar(0.5);
       dummy.quaternion.setFromUnitVectors(up, delta.normalize());
-      dummy.scale.set(segment.radius * scale, length, segment.radius * scale);
+      // Slight overlap hides precision cracks between differently oriented
+      // links. With open-ended triangles there is no dark cap at the joint.
+      dummy.scale.set(segment.radius * scale, length * 1.045, segment.radius * scale);
       dummy.updateMatrix();
       branches.setMatrixAt(branchIndex++, dummy.matrix);
     }
@@ -1210,7 +1274,6 @@ function pickStoneProfile(random: () => number) {
       sx,
       sy,
       sz,
-      y: 0.34 * scale * sy * 0.8,
     };
   }
   const scale = range(random, 3.5, 5.2);
@@ -1223,7 +1286,6 @@ function pickStoneProfile(random: () => number) {
     sx,
     sy,
     sz,
-    y: 0.34 * scale * sy * 0.5,
   };
 }
 
