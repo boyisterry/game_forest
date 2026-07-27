@@ -608,6 +608,12 @@ export class ForestScene {
         this.chase.update(dt, this.camera, pose, input.boost);
         changed = this.chunks.pump() || changed;
       } else {
+        // Mirror the live animate loop so browse panning is deterministic here.
+        const pan = computeBrowsePanDelta(this.camera.position, this.controls.target, this.browseMove, dt, this.browsePanDelta);
+        if (pan.lengthSq() > 0) {
+          this.camera.position.add(pan);
+          this.controls.target.add(pan);
+        }
         changed = this.chunks.pump() || changed;
       }
     }
