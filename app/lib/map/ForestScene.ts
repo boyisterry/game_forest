@@ -29,6 +29,7 @@ import { FarFieldLayer } from "./farField";
 import { ProceduralSky } from "./sky";
 import { loadForestModelPack, disposeForestModelPack, type ForestModelPack } from "./treeModels";
 import { InputController } from "./input";
+import { computeBrowsePanDelta, NO_BROWSE_MOVE, type BrowseMove } from "./browsePan";
 import { MotorcycleController, PEAK_HORSEPOWER } from "./motorcycle";
 import { ChaseCamera } from "./chaseCamera";
 import { CollisionWorld } from "./collision";
@@ -91,6 +92,8 @@ export class ForestScene {
   private readonly dummy = new THREE.Object3D();
   private readonly streamForward = new THREE.Vector3();
   private driveModeListener: ((on: boolean) => void) | null = null;
+  private readonly browseMove: BrowseMove = { ...NO_BROWSE_MOVE };
+  private readonly browsePanDelta = new THREE.Vector3();
 
   constructor(canvas: HTMLCanvasElement, settings: MapSettings, onStats: StatsListener) {
     this.settings = settings;
@@ -117,6 +120,10 @@ export class ForestScene {
     this.scene.add(this.world);
     this.loadRider();
     this.input = new InputController(() => this.setDriveMode(false));
+    // Arrow keys pan the workshop camera around the map (browse mode only).
+    window.addEventListener("keydown", this.onBrowseKeyDown);
+    window.addEventListener("keyup", this.onBrowseKeyUp);
+    window.addEventListener("blur", this.onBrowseBlur);
     // Stone kicks and tree rams feed short impact bursts into the ride audio.
     this.collision.onKick = (intensity) => this.audio.triggerImpact(intensity);
     this.collision.onTreeHit = (intensity) => this.audio.triggerImpact(intensity);
@@ -354,6 +361,7 @@ export class ForestScene {
     this.pendingDrive = false;
     this.driveMode = on;
     if (on) {
+      this.clearBrowseMove();
       this.toggleRider(true);
       this.controls.enabled = false;
       if (this.rider) {
@@ -385,6 +393,51 @@ export class ForestScene {
   setDriveModeListener(listener: (on: boolean) => void) {
     this.driveModeListener = listener;
   }
+
+  private clearBrowseMove() {
+    this.browseMove.forward = false;
+    this.browseMove.back = false;
+    this.browseMove.left = false;
+    this.browseMove.right = false;
+  }
+
+  private setBrowseKey(code: string, pressed: boolean): boolean {
+    switch (code) {
+      case "ArrowUp":
+        this.browseMove.forward = pressed;
+        return true;
+      case "ArrowDown":
+        this.browseMove.back = pressed;
+        return true;
+      case "ArrowLeft":
+        this.browseMove.left = pressed;
+        return true;
+      case "ArrowRight":
+        this.browseMove.right = pressed;
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private onBrowseKeyDown = (event: KeyboardEvent) => {
+    // Ride mode owns the arrow keys (throttle/steer); only pan while browsing.
+    if (this.driveMode) return;
+    const target = event.target;
+    if (target instanceof HTMLElement) {
+      const tag = target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) return;
+    }
+    if (this.setBrowseKey(event.code, true)) event.preventDefault();
+  };
+
+  private onBrowseKeyUp = (event: KeyboardEvent) => {
+    this.setBrowseKey(event.code, false);
+  };
+
+  private onBrowseBlur = () => {
+    this.clearBrowseMove();
+  };
 
   /** Inject drive input for browser QA / tests. */
   setDriveInput(partial: Parameters<InputController["setVirtual"]>[0]) {
@@ -562,6 +615,12 @@ export class ForestScene {
         this.chase.update(dt, this.camera, pose, input.boost);
         changed = this.chunks.pump() || changed;
       } else {
+        // Mirror the live animate loop so browse panning is deterministic here.
+        const pan = computeBrowsePanDelta(this.camera.position, this.controls.target, this.browseMove, dt, this.browsePanDelta);
+        if (pan.lengthSq() > 0) {
+          this.camera.position.add(pan);
+          this.controls.target.add(pan);
+        }
         changed = this.chunks.pump() || changed;
       }
     }
@@ -622,6 +681,12 @@ export class ForestScene {
       focusZ = pose.z;
       travelHeading = pose.speed < -0.05 ? pose.heading + Math.PI : pose.velHeading;
     } else {
+      const pan = computeBrowsePanDelta(this.camera.position, this.controls.target, this.browseMove, dt, this.browsePanDelta);
+      if (pan.lengthSq() > 0) {
+        // Shift camera and focus together so the orbit angle/zoom is preserved.
+        this.camera.position.add(pan);
+        this.controls.target.add(pan);
+      }
       this.controls.update();
       const boundedFocus = clampToWorld(this.controls.target.x, this.controls.target.z, this.settings.seed, 28);
       const correctionX = boundedFocus.x - this.controls.target.x;
@@ -708,6 +773,9 @@ export class ForestScene {
 
   dispose() {
     cancelAnimationFrame(this.animationFrame);
+    window.removeEventListener("keydown", this.onBrowseKeyDown);
+    window.removeEventListener("keyup", this.onBrowseKeyUp);
+    window.removeEventListener("blur", this.onBrowseBlur);
     this.input?.detach();
     this.chase.detach();
     this.audio.dispose();
