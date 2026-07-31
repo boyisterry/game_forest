@@ -340,7 +340,7 @@ test("a rider already inside a steep mountain is ejected to the rideable side", 
   assert.equal(moto.speed, 0, "ejection cannot preserve momentum into the mountain");
 });
 
-test("crossing onto a steep face rolls position back instead of creeping into the mesh", () => {
+test("crossing onto a steep face resolves at the rock surface instead of the previous frame", () => {
   const moto = new MotorcycleController();
   moto.reset(0, 0, Math.PI / 2);
   moto.speed = 12;
@@ -353,7 +353,26 @@ test("crossing onto a steep face rolls position back instead of creeping into th
     moto.update(DT, input({ throttle: 1 }), noCollision, noClamp, cliff);
   }
   assert.ok(moto.x < 0.5, `rider remains on the rideable side, x=${moto.x}`);
+  assert.ok(moto.x > 0.49, `rider stops at the rock surface instead of an air gap, x=${moto.x}`);
   assert.equal(moto.y, 0, "rider never adopts the blocked cliff height");
+});
+
+test("high-speed impact stops within 1cm of the steep rock contact", () => {
+  const contact = 4;
+  const cliff = (x) =>
+    x >= contact
+      ? { ax: -18, az: 0, steep: true, height: 20, gx: 1.6, gz: 0, slopeDegrees: 58, speedCap: Infinity }
+      : { ax: 0, az: 0, steep: false, height: 0, gx: 0, gz: 0, slopeDegrees: 0, speedCap: Infinity };
+  const moto = new MotorcycleController();
+  moto.reset(contact - 1.2, 0, Math.PI / 2);
+  moto.speed = 38;
+  moto.velHeading = Math.PI / 2;
+  for (let i = 0; i < 12 && moto.speed > 0; i += 1) {
+    moto.update(DT, input({ throttle: 1, boost: true }), noCollision, noClamp, cliff);
+  }
+  assert.equal(moto.speed, 0, "impact zeroes speed");
+  assert.ok(moto.x < contact, `stays outside the rock, x=${moto.x}`);
+  assert.ok(contact - moto.x <= 0.01, `contact error ${contact - moto.x}m exceeds 1cm`);
 });
 
 test("terrain height is sampled after movement so rider and surface stay aligned", () => {

@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { MapSettings, Season } from "./types";
 import { createRandom, range } from "./random";
-import { createRoadTextures } from "./textures";
+import { createRoadTextures, enableRoadAntiTiling } from "./textures";
 import { ChunkManager } from "./ChunkManager";
 import { Minimap } from "./Minimap";
 import {
@@ -190,14 +190,14 @@ export class ForestScene {
     const roadTextures = createRoadTextures(settings.seed, this.renderer.capabilities.getMaxAnisotropy());
     const road = new THREE.Mesh(
       makeRibbon(this.roadPoints, settings.roadWidth, 0.012),
-      new THREE.MeshStandardMaterial({
+      enableRoadAntiTiling(new THREE.MeshStandardMaterial({
         color: 0xffffff,
         map: roadTextures.map,
         normalMap: roadTextures.normalMap,
         normalScale: new THREE.Vector2(1.35, 1.35),
         roughnessMap: roadTextures.roughnessMap,
         roughness: 0.96,
-      }),
+      })),
     );
     road.receiveShadow = true;
     this.staticLayer.add(road);

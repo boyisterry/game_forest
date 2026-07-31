@@ -316,3 +316,92 @@ Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可�
 - Browser console contains no shader compilation errors, warnings, or runtime errors.
 - Targeted ESLint reports no errors; one unrelated pre-existing unused-function warning remains in `forestAssets.ts`.
 - The required bundled web-game client still cannot import its own missing `playwright` package, so equivalent visual, interaction, streaming, and console checks were completed through the in-app browser.
+
+## Current iteration: mountain-as-boundary edge and road shader completion
+
+- Removed the east/north `mountain-apron` strip meshes entirely. There is no longer a separate visual wall at the mountain foot: the closed, faceted mountain shells are the visible boundary.
+- Increased the front-row peak cadence from 72m to 58m and the back row from 118m to 108m so adjacent mountain footprints overlap into a continuous range without needing a filler wall.
+- Moved every irregular front-peak footprint fully outside the playable foot line. This prevents the giant shell intrusion shown in the reference screenshot while the existing slope sampler remains the motorcycle collision authority.
+- Preserved the tree-compatible low-poly treatment and full procedural rock color/normal/roughness set directly on the mountain shells.
+- Finished the road anti-tiling integration and corrected the live GPU compile issue by injecting its helper after Three.js declares `vMapUv`; the road is visible again and its color, normal, and roughness channels share the same longitudinal de-repetition.
+
+### Validation
+
+- Production build and all 78 tests pass, including an explicit assertion that no mountain apron/wall exists and that every mountain shell retains its rock PBR maps.
+- Targeted ESLint passes for the mountain, road shader, scene integration, and regression files.
+- Browser verification confirms the road shader compiles and the road renders; no WebGL shader errors remain. The only two observed warnings are pre-existing optional `roughnessMap: undefined` material warnings.
+- The bundled game client still cannot import its own `playwright` dependency; the live DOM, screenshots, minimap interaction, and console inspection were completed with the in-app browser instead.
+
+## Current iteration: visible mountain contact instead of an air wall
+
+- Traced the air-wall gap to two opposing offsets: collision began 1.8m inside the playable side while front mountain shells had been moved roughly 9–13m outside the physical foot.
+- Rebuilt every mountain peak with a regular 12-sided cardinal base and retained seeded deformation only on the upper rings. This gives the visible rock toe an exact, testable footprint while preserving the faceted irregular skyline.
+- Moved the front shell base 0.9m into the grass and reduced the motorcycle collision inset to 0.55m. The full collision band is therefore covered by visible rock; the bike is stopped only after its body reaches the mountain.
+- Kept front footprints aligned to the east/north boundary axes. Upper mountain asymmetry is still varied with seeded half-turns, without rotating the elliptical base away from the physics line.
+- Added a regression that inspects every front mountain instance and verifies its visible inner toe covers the physical collision band on both east and north edges.
+
+### Validation
+
+- Production build and all 79 tests pass.
+- Targeted ESLint passes for the mountain implementation and boundary regressions.
+- The bundled game client still cannot import its own missing `playwright` dependency, so it could not produce the requested automated screenshot in this environment.
+
+## Follow-up: close the remaining inter-peak air-wall gaps
+
+- The prior footprint regression was insufficient: each peak covered the collision line at its centre, but an elliptical footprint recedes outward between peak centres. The continuous physics line therefore still crossed many places with no above-ground rock.
+- Raised front mountain bases from −1.2m to −0.08m so the contact face is visible instead of buried beneath the grass.
+- Increased the integrated mountain-toe overlap to 10m, tightened front peak spacing from 58m to 42m, widened front along-edge radii, and reduced front-row positional jitter. These are overlapping mountain shells, not a separate strip wall.
+- Added vertical ray tests across the entire east and north contact lines. At 10m sampling across both 2.9km edges, visible rock above the collision line now has a minimum height of 2.42m east and 2.34m north; there are no uncovered samples.
+
+### Validation
+
+- Production build and all 80 tests pass.
+- Targeted ESLint passes.
+- The bundled game client remains unavailable because its own `playwright` dependency is missing; no screenshot artifact was produced by that client.
+
+## Follow-up: surface contact resolution and 30-degree rideability
+
+- Raised the mountain rideability threshold from 25° to 30°. Samples from 25–30° remain terrain-following rideable rock; only samples above 30° become hard collision faces.
+- Replaced whole-frame steep-face rollback with a 12-step binary contact solver between the last rideable position and the proposed blocked position. The bike now stops within the slope contour tolerance instead of leaving a speed-dependent gap in front of the rock.
+- Kept the existing terrain-follow path for ≤30° faces, so rider height and pitch continue to follow the sampled rock height and gradient while climbing.
+- Added explicit regressions for a real 25–30° ridge sample, a >30° blocked sample, and synthetic high-speed contact that must stop at x=0.5 within 1cm rather than at the previous frame.
+
+### Validation
+
+- Production build and all 81 tests pass.
+- Targeted ESLint passes for the boundary terrain, motorcycle contact solver, and their tests.
+- The bundled game client still cannot import its missing `playwright` package, so it could not produce a browser screenshot.
+
+## Follow-up: one rendered and physical mountain surface
+
+- Replaced the independent mountain collision strip and decorative-shell approximation with one broad east/north rock terrain mesh generated from the exact same seeded height function used by motorcycle physics. The visible rock surface is now the collision surface, so physics can no longer stop the rider in an unmodeled gap or let the rider pass through a separately displaced shell.
+- Reduced the collision inset to the motorcycle body radius (`0.55m`). This is contact clearance for the scooter body rather than an invisible boundary offset.
+- Calculated slope from the full world-space surface gradient, including both the climb direction and variation along the ridge. Rock at or below `30°` remains rideable; steeper rock uses the binary contact solver.
+- Kept rideable samples on the terrain-follow path: the scooter follows the rock height while its pitch is derived from the same surface normal/gradient.
+- Moved the faceted peak shells behind the shared terrain. They now enrich the high/low skyline without defining contact or intruding into playable ground.
+- Increased the shared surface grid to `401 × 61` vertices per side so the rendered facets closely track the continuous physics sampler while retaining the intended low-poly mountain style.
+
+### Validation
+
+- Dense raycast comparison covered 702 east and 702 north surface samples away from the threshold. Maximum render/physics height error was `0.402m` east and `0.261m` north, with zero rideable/blocked slope-classification mismatches.
+- Production build and all 82 regression tests pass, including mesh-versus-physics height checks, slope-classification checks, body-radius contact, decorative-shell separation, and high-speed contact resolution.
+- Targeted ESLint passes for the mountain, motorcycle, and updated regression files.
+- Live in-app browser QA confirmed the continuous modeled mountain surface at the northeast edge and no runtime errors. The only console messages were the pre-existing optional `roughnessMap: undefined` warnings.
+- The required bundled game client still cannot import its own missing `playwright` package; equivalent live DOM, screenshot, minimap, and console checks were completed with the in-app browser.
+
+## Follow-up: move collision to the mountain players actually see
+
+- The remaining apparent air wall was not a height-function mismatch. The shared low rock surface began at the abstract map edge, while the visually dominant faceted mountain row began 14–19m farther outward. Players understandably read the peak row as the mountain and encountered the low toe before reaching it.
+- Introduced one explicit `MOUNTAIN_SURFACE_TOE_OFFSET` of 14m: the rendered terrain grid, motorcycle height sampler, slope sampler, and innermost decorative peak footprint now all begin at or behind that same visible toe.
+- Removed the 0.55m pre-contact probe (`MOUNTAIN_COLLISION_INSET = 0`). Flat grass remains completely unblocked up to the rendered toe; a steep sample becomes blocking only after the motorcycle reaches raised rock.
+- The mountain surface mesh no longer emits a coplanar hidden strip across those first 14m. Its first vertex row is the visible/collidable toe, avoiding both invisible rock and grass z-fighting.
+- Kept the ≤30° rule unchanged: gentle visible rock remains terrain-following and updates rider height/pitch, while >30° rock is resolved at the first surface crossing.
+
+### Validation
+
+- Targeted mountain and motorcycle suites pass 46/46, including explicit assertions that the final centimetres before the visible toe are flat/unblocked and that blocking samples have raised rock beneath them.
+- Added dense coverage across both mountain edges: every metre of the complete 14m pre-toe grass corridor is verified flat and collision-free at 36 along-edge locations.
+- Added geometry-level checks proving the first vertex row of each rendered mountain surface is exactly the same seeded toe line used by collision and sits slightly above the grass rather than forming a hidden coplanar strip.
+- Production build and all 84 regression tests pass; the focused mountain/motorcycle suites pass 48/48.
+- In-app browser QA confirmed the northeast edge streams successfully, workshop/play switching still works, ride rendering is intact, and no runtime errors were emitted. Only the two pre-existing optional `roughnessMap: undefined` warnings remain.
+- The bundled game client was run as required but still cannot import its own missing `playwright` dependency; equivalent interaction, screenshot, DOM, and console checks were completed in the in-app browser.

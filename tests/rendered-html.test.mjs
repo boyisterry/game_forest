@@ -112,8 +112,12 @@ test("uses relief and roughness maps for grass and dirt road surfaces", async ()
   assert.match(textures, /Long irregular wheel channels/);
   assert.match(textures, /buildNormalCanvas\(heightCanvas, size, 1\.7\)/);
   assert.match(textures, /buildRoughnessCanvas/);
-  assert.match(textures, /makeCanvasTileable\(colorCanvas, 24\)/);
-  assert.match(textures, /const repeat = 4/);
+  assert.match(textures, /makeCanvasVerticallyTileable\(colorCanvas, 30\)/);
+  assert.match(textures, /makeCanvasVerticallyTileable\(heightCanvas, 30\)/);
+  assert.match(textures, /enableRoadAntiTiling/);
+  assert.match(textures, /#include <uv_pars_fragment>/);
+  assert.match(textures, /sampleRoadStochastic/);
+  assert.match(textures, /vec2\( vMapUv\.x, localV \+ offsetA \)/);
   assert.match(textures, /enableGroundAntiTiling/);
   assert.match(textures, /sampleGroundStochastic/);
   assert.match(textures, /vGroundWorldPosition\.xz/);
@@ -123,6 +127,7 @@ test("uses relief and roughness maps for grass and dirt road surfaces", async ()
   assert.match(assets, /enableGroundAntiTiling\(new THREE\.MeshStandardMaterial/);
   assert.match(scene, /normalMap: roadTextures\.normalMap/);
   assert.match(scene, /roughnessMap: roadTextures\.roughnessMap/);
+  assert.match(scene, /enableRoadAntiTiling\(new THREE\.MeshStandardMaterial/);
   assert.match(textures, /makeSurfaceTexture\(colorCanvas, 1, 16/);
 });
 

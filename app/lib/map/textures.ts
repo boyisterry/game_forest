@@ -667,8 +667,8 @@ vec4 sampleRoadStochastic( sampler2D surfaceMap ) {
 `;
     shader.fragmentShader = shader.fragmentShader
       .replace(
-        "#include <common>",
-        `#include <common>\n${roadSampler}`,
+        "#include <uv_pars_fragment>",
+        `#include <uv_pars_fragment>\n${roadSampler}`,
       )
       .replace(
         "#include <map_fragment>",
@@ -702,7 +702,7 @@ float roughnessFactor = roughness;
 `,
       );
   };
-  material.customProgramCacheKey = () => "road-stochastic-v1";
+  material.customProgramCacheKey = () => "road-stochastic-v2";
   material.needsUpdate = true;
   return material;
 }

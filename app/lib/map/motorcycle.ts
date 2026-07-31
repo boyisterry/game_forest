@@ -394,14 +394,46 @@ export class MotorcycleController {
     }
 
     // 6. Re-sample after the move. Crossing from a rideable surface onto a
-    // >25° face is a positional collision, not merely a speed penalty. The old
-    // implementation let repeated throttle steps creep into the cliff until
-    // the rider and chase camera were inside its render mesh.
+    // >30° rock face is a positional collision. Bisect to the steep contour so
+    // high-speed impacts stop within a centimetre of the contact surface.
     const movedBand = sampleBoundary(x, z);
     if (movedBand.steep) {
       this.drifting = false;
-      x = this.x;
-      z = this.z;
+      let rideableX = this.x;
+      let rideableZ = this.z;
+      let blockedX = x;
+      let blockedZ = z;
+      // If the start of the step was already steep, walk to a rideable sample
+      // first so the bisection has a true free endpoint.
+      if (band.steep || sampleBoundary(rideableX, rideableZ).steep) {
+        rideableX = x;
+        rideableZ = z;
+        for (let i = 0; i < 128; i += 1) {
+          const sample = sampleBoundary(rideableX, rideableZ);
+          if (!sample.steep) break;
+          const forceMag = Math.hypot(sample.ax, sample.az);
+          if (forceMag < 1e-5) break;
+          rideableX += (sample.ax / forceMag) * 0.25;
+          rideableZ += (sample.az / forceMag) * 0.25;
+        }
+        blockedX = x;
+        blockedZ = z;
+      }
+      for (let i = 0; i < 24; i += 1) {
+        const gap = Math.hypot(blockedX - rideableX, blockedZ - rideableZ);
+        if (gap <= 0.01) break;
+        const midX = (rideableX + blockedX) * 0.5;
+        const midZ = (rideableZ + blockedZ) * 0.5;
+        if (sampleBoundary(midX, midZ).steep) {
+          blockedX = midX;
+          blockedZ = midZ;
+        } else {
+          rideableX = midX;
+          rideableZ = midZ;
+        }
+      }
+      x = rideableX;
+      z = rideableZ;
       speed = 0;
       this.speed = 0;
     }

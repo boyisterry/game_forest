@@ -21,10 +21,19 @@ export const FOOTHILL_ACCEL = 3.5;
 export const WATER_ACCEL = 18;
 export const BEACH_CAP_NEAR = 1.67; // ~6 km/h at the foot line
 export const BEACH_CAP_FAR = 0.28;  // ~1 km/h at the waterline
-export const MAX_RIDEABLE_SLOPE_DEG = 25;
+export const MAX_RIDEABLE_SLOPE_DEG = 30;
 export const MAX_RIDEABLE_GRADE = Math.tan(THREE.MathUtils.degToRad(MAX_RIDEABLE_SLOPE_DEG));
-/** Keeps the bike centre/body in front of the visible rock toe. */
-export const MOUNTAIN_COLLISION_INSET = 1.8;
+/** Bike contact radius used by motorcycle collision (keep in sync with BIKE_R). */
+export const MOUNTAIN_BIKE_RADIUS = 0.55;
+/**
+ * The mountain terrain begins at the innermost visible toe of the faceted
+ * peak range. The old sampler began at the abstract map edge, fourteen metres
+ * before the mountain players actually saw.
+ */
+export const MOUNTAIN_SURFACE_TOE_OFFSET = 14;
+/** No pre-contact guard: the rendered rock surface itself is authoritative. */
+export const MOUNTAIN_COLLISION_INSET = 0;
+export const MOUNTAIN_SURFACE_DEPTH = 150;
 
 export type BoundarySample = {
   /** Interior-pointing accel (mountain + open water). 0 on the beach. */
@@ -37,7 +46,7 @@ export type BoundarySample = {
   /** Height gradient (∂h/∂x, ∂h/∂z) for nose pitch. */
   gx: number;
   gz: number;
-  /** Cross-slope angle in degrees. Mountain slopes above 25° are blocked. */
+  /** Cross-slope angle in degrees. Mountain slopes above 30° are blocked. */
   slopeDegrees: number;
   /** Beach crawl ceiling (m/s). Infinity off the beach. */
   speedCap: number;
@@ -74,7 +83,8 @@ function mountainAccessBlend(along: number, seed: number, salt: number): number 
 
 /**
  * E/N ridge profile. Most of the foot begins as a 55–65° rock wall. Sparse
- * access cores start at 20°, then turn into mountain beyond the approach.
+ * access cores start at 20° (comfortably below the 30° rideable limit), then
+ * turn into mountain beyond the approach.
  */
 function mountainHeight(distPastFoot: number, ruggedness: number, access: number): number {
   if (distPastFoot <= 0) return 0;
@@ -103,13 +113,49 @@ function mountainHeight(distPastFoot: number, ruggedness: number, access: number
   return maxH * Math.tanh(rawHeight / maxH);
 }
 
-/** Central-difference gradient of mountainHeight w.r.t. distance past the foot line. */
-function mountainGradient(distPastFoot: number, ruggedness: number, access: number): number {
-  const eps = 0.25;
-  return (
-    mountainHeight(distPastFoot + eps, ruggedness, access)
-    - mountainHeight(distPastFoot - eps, ruggedness, access)
-  ) / (2 * eps);
+function eastMountainSurfaceHeight(x: number, z: number, seed: number): number {
+  const distance = x - eastBoundaryX(z, seed) - MOUNTAIN_SURFACE_TOE_OFFSET;
+  if (distance <= 0) return 0;
+  return mountainHeight(
+    distance,
+    ridgeRuggedness(z, seed, 0x9a11),
+    mountainAccessBlend(z, seed, 0xe451),
+  );
+}
+
+function northMountainSurfaceHeight(x: number, z: number, seed: number): number {
+  const distance = northBoundaryZ(x, seed) - z - MOUNTAIN_SURFACE_TOE_OFFSET;
+  if (distance <= 0) return 0;
+  return mountainHeight(
+    distance,
+    ridgeRuggedness(x, seed, 0x3c77),
+    mountainAccessBlend(x, seed, 0x74a3),
+  );
+}
+
+/** Exact height used by both the visible mountain terrain and motorcycle. */
+export function mountainSurfaceHeight(
+  side: "east" | "north",
+  x: number,
+  z: number,
+  seed: number,
+): number {
+  return side === "east"
+    ? eastMountainSurfaceHeight(x, z, seed)
+    : northMountainSurfaceHeight(x, z, seed);
+}
+
+function mountainSurfaceGradient(
+  side: "east" | "north",
+  x: number,
+  z: number,
+  seed: number,
+): { gx: number; gz: number; grade: number } {
+  const eps = 0.3;
+  const sample = side === "east" ? eastMountainSurfaceHeight : northMountainSurfaceHeight;
+  const gx = (sample(x + eps, z, seed) - sample(x - eps, z, seed)) / (2 * eps);
+  const gz = (sample(x, z + eps, seed) - sample(x, z - eps, seed)) / (2 * eps);
+  return { gx, gz, grade: Math.hypot(gx, gz) };
 }
 
 /** Force and blocking derive from the same physical grade used by the mesh. */
@@ -150,40 +196,49 @@ export function sampleBoundary(x: number, z: number, seed: number): BoundarySamp
   let slopeDegrees = 0;
   let speedCap = Infinity;
 
-  // East mountain (ruggedness along z).
-  if (eastPast > -MOUNTAIN_COLLISION_INSET) {
-    const rugged = ridgeRuggedness(z, seed, 0x9a11);
-    const access = mountainAccessBlend(z, seed, 0xe451);
-    const collisionPast = Math.max(0.05, eastPast + MOUNTAIN_COLLISION_INSET);
-    const grade = mountainGradient(collisionPast, rugged, access);
-    const f = mountainForce(grade);
-    if (f.accel > 0) {
-      ax += -f.accel;
+  // East mountain. Do not probe ahead of the visible toe: both collision and
+  // terrain-follow begin only on the rendered rock surface.
+  if (eastPast > MOUNTAIN_SURFACE_TOE_OFFSET - MOUNTAIN_COLLISION_INSET) {
+    const surfaceGradient = mountainSurfaceGradient("east", x, z, seed);
+    const f = mountainForce(surfaceGradient.grade);
+    const h = eastMountainSurfaceHeight(x, z, seed);
+    if (f.accel > 0 && h > 0) {
+      const invGrade = surfaceGradient.grade > 1e-6 ? 1 / surfaceGradient.grade : 0;
+      ax += -surfaceGradient.gx * invGrade * f.accel;
+      az += -surfaceGradient.gz * invGrade * f.accel;
       steep ||= f.steep;
       slopeDegrees = Math.max(slopeDegrees, f.slopeDegrees);
     }
-    const h = eastPast > 0 ? mountainHeight(eastPast, rugged, access) : 0;
     if (h > height) {
       height = h;
-      gx = grade; // height rises with +x here
+      gx = surfaceGradient.gx;
+      gz = surfaceGradient.gz;
+      slopeDegrees = Math.max(
+        slopeDegrees,
+        THREE.MathUtils.radToDeg(Math.atan(surfaceGradient.grade)),
+      );
     }
   }
-  // North mountain (ruggedness along x).
-  if (northPast > -MOUNTAIN_COLLISION_INSET) {
-    const rugged = ridgeRuggedness(x, seed, 0x3c77);
-    const access = mountainAccessBlend(x, seed, 0x74a3);
-    const collisionPast = Math.max(0.05, northPast + MOUNTAIN_COLLISION_INSET);
-    const grade = mountainGradient(collisionPast, rugged, access);
-    const f = mountainForce(grade);
-    if (f.accel > 0) {
-      az += f.accel;
+  // North mountain, mirrored through the same visible-surface contract.
+  if (northPast > MOUNTAIN_SURFACE_TOE_OFFSET - MOUNTAIN_COLLISION_INSET) {
+    const surfaceGradient = mountainSurfaceGradient("north", x, z, seed);
+    const f = mountainForce(surfaceGradient.grade);
+    const h = northMountainSurfaceHeight(x, z, seed);
+    if (f.accel > 0 && h > 0) {
+      const invGrade = surfaceGradient.grade > 1e-6 ? 1 / surfaceGradient.grade : 0;
+      ax += -surfaceGradient.gx * invGrade * f.accel;
+      az += -surfaceGradient.gz * invGrade * f.accel;
       steep ||= f.steep;
       slopeDegrees = Math.max(slopeDegrees, f.slopeDegrees);
     }
-    const h = northPast > 0 ? mountainHeight(northPast, rugged, access) : 0;
     if (h > height) {
       height = h;
-      gz = -grade; // outward here is −z, so ∂h/∂z flips
+      gx = surfaceGradient.gx;
+      gz = surfaceGradient.gz;
+      slopeDegrees = Math.max(
+        slopeDegrees,
+        THREE.MathUtils.radToDeg(Math.atan(surfaceGradient.grade)),
+      );
     }
   }
   // West: beach cap then open-water hard wall. Beach height ≈ 0.
@@ -222,8 +277,6 @@ export function boundaryHeight(x: number, z: number, seed: number): number {
 const SAND_COLOR = 0x9b9275;
 
 const RIDGE_MARGIN = 80;
-/** Inner edge starts slightly before the foot line so the mesh blends into flat ground. */
-const RIDGE_INNER_OVERLAP = 8;
 
 /** Periodic, plate-like relief used by all three mountain PBR channels. */
 function angularRockHeight(u: number, v: number, seed: number) {
@@ -301,62 +354,58 @@ function createMountainRockTextures(seed: number) {
   };
 }
 
-/** Narrow physical apron at the foot; the large silhouette comes from peaks. */
-function buildMountainApronGeometry(
+/**
+ * Broad low-poly rock terrain generated from the same height function sampled
+ * by motorcycle physics. This is the actual mountain body/contact surface;
+ * the peak rows behind it only enrich the skyline.
+ */
+function buildMountainSurfaceGeometry(
   seed: number,
   side: "east" | "north",
-  alongSamples = 320,
-  acrossSamples = 7,
+  alongSamples = 401,
+  acrossSamples = 61,
 ): THREE.BufferGeometry {
-  const alongMin = side === "east" ? -WORLD_HALF_DEPTH - RIDGE_MARGIN : -WORLD_HALF_WIDTH - RIDGE_MARGIN;
-  const alongMax = side === "east" ? WORLD_HALF_DEPTH + RIDGE_MARGIN : WORLD_HALF_WIDTH + RIDGE_MARGIN;
-
+  const alongMin = side === "east"
+    ? -WORLD_HALF_DEPTH - RIDGE_MARGIN
+    : -WORLD_HALF_WIDTH - RIDGE_MARGIN;
+  const alongMax = side === "east"
+    ? WORLD_HALF_DEPTH + RIDGE_MARGIN
+    : WORLD_HALF_WIDTH + RIDGE_MARGIN;
   const positions: number[] = [];
   const uvs: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
-  const highRock = new THREE.Color(0xb9b39c);
-  const lowRock = new THREE.Color(0x5f6257);
-  const vertexColor = new THREE.Color();
+  const low = new THREE.Color(0x575d54);
+  const high = new THREE.Color(0xb7b19a);
+  const shade = new THREE.Color();
 
   for (let a = 0; a < alongSamples; a += 1) {
     const alongT = a / (alongSamples - 1);
-    const alongCoord = alongMin + alongT * (alongMax - alongMin);
-    const access = mountainAccessBlend(
-      alongCoord,
-      seed,
-      side === "east" ? 0xe451 : 0x74a3,
-    );
-    // Most of the edge exposes only a compact rocky toe. The sparse rideable
-    // pass retains its full 20° approach depth.
-    const outerDepth = THREE.MathUtils.lerp(7.5, 24, access * access);
+    const along = THREE.MathUtils.lerp(alongMin, alongMax, alongT);
     for (let d = 0; d < acrossSamples; d += 1) {
       const depthT = d / (acrossSamples - 1);
-      const outward = -RIDGE_INNER_OVERLAP
-        + depthT * (RIDGE_INNER_OVERLAP + outerDepth);
-      let worldX: number;
-      let worldZ: number;
-      if (side === "east") {
-        worldZ = alongCoord;
-        worldX = eastBoundaryX(worldZ, seed) + outward;
-      } else {
-        worldX = alongCoord;
-        worldZ = northBoundaryZ(worldX, seed) - outward;
-      }
-      const baseY = boundaryHeight(worldX, worldZ, seed);
-      // No visual-only displacement: the apron and collision sampler now agree
-      // exactly, removing the holes seen when the bike reached a fractured face.
-      const worldY = baseY > 0.02 ? baseY : -0.18;
-      positions.push(worldX, worldY, worldZ);
-      uvs.push(depthT * 1.4, alongT * 24);
-      const layerShade = Math.round(
-        (0.5 + 0.5 * Math.sin(worldY * 0.48 + alongCoord * 0.026)) * 4,
-      ) / 4;
-      vertexColor.copy(lowRock).lerp(
-        highRock,
-        THREE.MathUtils.clamp(0.18 + depthT * 0.26 + layerShade * 0.32, 0, 1),
+      const outward = THREE.MathUtils.lerp(
+        MOUNTAIN_SURFACE_TOE_OFFSET,
+        MOUNTAIN_SURFACE_DEPTH,
+        depthT,
       );
-      colors.push(vertexColor.r, vertexColor.g, vertexColor.b);
+      let x: number;
+      let z: number;
+      if (side === "east") {
+        z = along;
+        x = eastBoundaryX(z, seed) + outward;
+      } else {
+        x = along;
+        z = northBoundaryZ(x, seed) - outward;
+      }
+      const y = mountainSurfaceHeight(side, x, z, seed);
+      positions.push(x, y + (d === 0 ? 0.012 : 0), z);
+      uvs.push(depthT * 5, alongT * 32);
+      const terrace = Math.round(
+        THREE.MathUtils.clamp(0.2 + y / 105 + Math.sin(along * 0.023 + depthT * 8) * 0.08, 0, 1) * 5,
+      ) / 5;
+      shade.copy(low).lerp(high, terrace);
+      colors.push(shade.r, shade.g, shade.b);
     }
   }
 
@@ -377,6 +426,7 @@ function buildMountainApronGeometry(
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
   return geometry;
 }
 
@@ -393,7 +443,7 @@ function createMountainRandom(seed: number) {
  * same deliberate faceted language as the tree crowns without a stretched
  * heightfield face ever becoming camera-sized.
  */
-function createMountainPeakGeometry(seed: number, radial = 9) {
+function createMountainPeakGeometry(seed: number, radial = 12) {
   const random = createMountainRandom(seed);
   const ringHeights = [0, 0.13, 0.37, 0.68, 0.88];
   const ringRadii = [1, 0.91, 0.67, 0.39, 0.17];
@@ -415,7 +465,11 @@ function createMountainPeakGeometry(seed: number, radial = 9) {
     const shiftX = Math.sin(seed * 0.013 + ring * 1.7) * t * 0.08;
     const shiftZ = Math.cos(seed * 0.017 - ring * 1.3) * t * 0.08;
     for (let i = 0; i < radial; i += 1) {
-      const radius = ringRadii[ring] * angularScale[i] * (0.94 + random() * 0.12);
+      // A regular cardinal base gives the front range a measurable physical
+      // toe. Higher rings keep their seeded distortion and faceted silhouette.
+      const radius = ring === 0
+        ? ringRadii[ring]
+        : ringRadii[ring] * angularScale[i] * (0.94 + random() * 0.12);
       const angle = angles[i];
       const y = ringHeights[ring] + (ring > 0 ? (random() - 0.5) * 0.035 : 0);
       positions.push(
@@ -489,7 +543,7 @@ function buildMountainPeakRange(
   const alongMax = side === "east"
     ? WORLD_HALF_DEPTH + RIDGE_MARGIN
     : WORLD_HALF_WIDTH + RIDGE_MARGIN;
-  const spacing = layer === "front" ? 72 : layer === "back" ? 118 : 168;
+  const spacing = layer === "front" ? 58 : layer === "back" ? 108 : 168;
   const count = Math.ceil((alongMax - alongMin) / spacing) + 2;
   const buckets: Array<Array<{
     along: number;
@@ -501,14 +555,15 @@ function buildMountainPeakRange(
   }>> = [[], [], []];
 
   for (let i = 0; i < count; i += 1) {
-    const along = alongMin + (i - 0.5) * spacing + (random() - 0.5) * spacing * 0.42;
+    const jitter = layer === "front" ? 0.24 : 0.42;
+    const along = alongMin + (i - 0.5) * spacing + (random() - 0.5) * spacing * jitter;
     const rugged = ridgeRuggedness(
       along,
       seed,
       side === "east" ? 0x9a11 + layerSalt : 0x3c77 + layerSalt,
     );
     const alongRadius = layer === "front"
-      ? 48 + random() * 25
+      ? 58 + random() * 18
       : layer === "back"
         ? 74 + random() * 34
         : 110 + random() * 48;
@@ -517,12 +572,15 @@ function buildMountainPeakRange(
       : layer === "back"
         ? 82 + random() * 38
         : 125 + random() * 52;
-    // A front peak's innermost base vertex must stay on the mountain side of
-    // the visible foot. The previous fixed centre offset let wide peaks extend
-    // up to ~30 m into playable ground while collision still began at the foot,
-    // which is why the rider could visibly enter the mountain shell.
+    const yaw = layer === "front"
+      // A half-turn keeps the elliptical footprint aligned to the boundary
+      // while still flipping the asymmetric upper rings for visual variety.
+      ? (random() < 0.5 ? 0 : Math.PI)
+      : (random() - 0.5) * 0.2;
     const outward = layer === "front"
-      ? depthRadius - 0.5 + random() * 3.5
+      // Keep skyline shells behind the shared physical terrain. They no longer
+      // protrude into playable grass or participate in first contact.
+      ? depthRadius + 14 + random() * 5
       : layer === "back"
         ? 112 + random() * 34
         : 208 + random() * 58;
@@ -537,7 +595,7 @@ function buildMountainPeakRange(
       alongRadius,
       depthRadius,
       height,
-      yaw: (random() - 0.5) * 0.2,
+      yaw,
     });
   }
 
@@ -553,11 +611,15 @@ function buildMountainPeakRange(
       const peak = peaks[i];
       if (side === "east") {
         const foot = eastBoundaryX(peak.along, seed);
-        dummy.position.set(foot + peak.outward, -1.2, peak.along);
+        const centerX = foot + peak.outward;
+        const baseY = eastMountainSurfaceHeight(centerX, peak.along, seed) - 2.5;
+        dummy.position.set(centerX, baseY, peak.along);
         dummy.scale.set(peak.depthRadius, peak.height, peak.alongRadius);
       } else {
         const foot = northBoundaryZ(peak.along, seed);
-        dummy.position.set(peak.along, -1.2, foot - peak.outward);
+        const centerZ = foot - peak.outward;
+        const baseY = northMountainSurfaceHeight(peak.along, centerZ, seed) - 2.5;
+        dummy.position.set(peak.along, baseY, centerZ);
         dummy.scale.set(peak.alongRadius, peak.height, peak.depthRadius);
       }
       dummy.rotation.set(0, peak.yaw, 0);
@@ -572,7 +634,7 @@ function buildMountainPeakRange(
   return group;
 }
 
-/** Low rocky toe plus two overlapping rows of closed faceted mountain peaks. */
+/** Shared physical rock terrain plus two rows of closed faceted skyline peaks. */
 export function buildNearMountainMeshes(seed: number): THREE.Group {
   const group = new THREE.Group();
   group.name = "near-ridge";
@@ -591,17 +653,16 @@ export function buildNearMountainMeshes(seed: number): THREE.Group {
   });
   const northMaterial = material.clone();
   northMaterial.color.set(0xe4e2d8);
-
-  const eastApron = new THREE.Mesh(buildMountainApronGeometry(seed, "east"), material);
-  eastApron.name = "east-mountain-apron";
-  eastApron.receiveShadow = true;
-  const northApron = new THREE.Mesh(buildMountainApronGeometry(seed, "north"), northMaterial);
-  northApron.name = "north-mountain-apron";
-  northApron.receiveShadow = true;
+  const eastSurface = new THREE.Mesh(buildMountainSurfaceGeometry(seed, "east"), material);
+  eastSurface.name = "east-mountain-surface";
+  eastSurface.receiveShadow = true;
+  const northSurface = new THREE.Mesh(buildMountainSurfaceGeometry(seed, "north"), northMaterial);
+  northSurface.name = "north-mountain-surface";
+  northSurface.receiveShadow = true;
 
   group.add(
-    eastApron,
-    northApron,
+    eastSurface,
+    northSurface,
     buildMountainPeakRange(seed, "east", material, "front"),
     buildMountainPeakRange(seed, "east", material, "back"),
     buildMountainPeakRange(seed, "north", northMaterial, "front"),
