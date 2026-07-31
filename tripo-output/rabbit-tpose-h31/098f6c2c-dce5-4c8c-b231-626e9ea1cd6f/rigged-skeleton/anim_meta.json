@@ -1,0 +1,15 @@
+{
+  "source_rig_task": "1bc657b4-ad94-4e8b-b92a-b61b85729ed2",
+  "retarget_task": "58c8106a-ccc1-4a75-936f-47741c4b23ae",
+  "spec": "tripo",
+  "model": "v1.0-20240301",
+  "animate_in_place": true,
+  "clips": [
+    "preset:biped:idle",
+    "preset:biped:walk",
+    "preset:biped:run",
+    "preset:biped:jump"
+  ],
+  "output_glb": "rabbit_animated_locomotion.glb",
+  "notes": "Mixamo retarget unsupported by Tripo; re-rigged with tripo bone names then retargeted."
+}

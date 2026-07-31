@@ -52,7 +52,16 @@ next-env.d.ts
 /.openai/
 
 # Local source assets and generated work files
-/tripo-output/
+/tripo-output/**
+# Keep the rabbit rig demo (code + GLBs) in version control
+!/tripo-output/rabbit-tpose-h31/
+!/tripo-output/rabbit-tpose-h31/098f6c2c-dce5-4c8c-b231-626e9ea1cd6f/
+!/tripo-output/rabbit-tpose-h31/098f6c2c-dce5-4c8c-b231-626e9ea1cd6f/rigged-skeleton/
+!/tripo-output/rabbit-tpose-h31/098f6c2c-dce5-4c8c-b231-626e9ea1cd6f/rigged-skeleton/**
+# Skip intermediate Tripo task dumps (duplicates of the demo GLBs)
+/tripo-output/rabbit-tpose-h31/098f6c2c-dce5-4c8c-b231-626e9ea1cd6f/rigged-skeleton/animated-locomotion/
+/tripo-output/rabbit-tpose-h31/098f6c2c-dce5-4c8c-b231-626e9ea1cd6f/rigged-skeleton/tripo-rig/
+/tripo-output/rabbit-tpose-h31/098f6c2c-dce5-4c8c-b231-626e9ea1cd6f/rigged-skeleton/3d6ab703-1702-4edb-b737-140d4cad96ba/
 /assets/
 /tmp/
 /.superpowers/

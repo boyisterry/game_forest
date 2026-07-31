@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>人形小兔 · Rig Demo</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./demo.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="boot">
+    <p class="eyebrow">RABBIT RIG DEMO</p>
+    <h1>人形小兔</h1>
+    <p class="hint">正在加载带骨架的 GLB…</p>
+    <div class="meter"><i id="load-bar"></i></div>
+    <p id="load-pct">0%</p>
+  </div>
+
+  <section id="start" class="panel hidden" aria-label="开始">
+    <p class="eyebrow">RABBIT RIG DEMO</p>
+    <h1>操作人形小兔</h1>
+    <p class="desc">WASD 移动 · 鼠标转动视角 · Shift 奔跑 · 空格跳跃 · F 全屏 · H 显示骨架</p>
+    <button id="start-btn" type="button">开始操作</button>
+  </section>
+
+  <div id="hud" class="hud hidden">
+    <span id="status">idle</span>
+    <span id="pos">0, 0</span>
+  </div>
+
+  <canvas id="game"></canvas>
+  <script type="module" src="./demo.js?v=17"></script>
+</body>
+</html>

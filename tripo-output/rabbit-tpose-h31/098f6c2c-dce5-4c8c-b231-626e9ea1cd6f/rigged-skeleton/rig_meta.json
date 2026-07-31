@@ -1,0 +1,13 @@
+{
+  "source_model": "../tripo_model_098f6c2c-dce5-4c8c-b231-626e9ea1cd6f.glb",
+  "task_id": "3d6ab703-1702-4edb-b737-140d4cad96ba",
+  "rig_check_task_id": "23c5ab84-f574-44a1-b554-b8ac28895b52",
+  "file_token": "file_59325b13-6d27-4ce2-b22c-212f5b7bb0e9",
+  "riggable": true,
+  "rig_type": "biped",
+  "model": "v1.0-20240301",
+  "spec": "mixamo",
+  "out_format": "glb",
+  "credits_consumed": 25.0,
+  "output_glb": "rabbit_rigged_biped_mixamo.glb"
+}
