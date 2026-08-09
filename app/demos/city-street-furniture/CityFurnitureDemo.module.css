@@ -1,0 +1,27 @@
+.shell { position: relative; width: 100vw; height: 100vh; overflow: hidden; color: #18272f; background: #d9edf5; }
+.canvasHost { position: absolute; inset: 0; }
+.canvasHost canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.header { position: absolute; z-index: 2; top: 22px; left: 24px; width: min(440px, calc(100vw - 48px)); padding: 18px 20px; border: 1px solid rgba(31,57,69,.15); background: rgba(248,251,250,.9); box-shadow: 0 18px 54px rgba(36,59,69,.15); backdrop-filter: blur(16px); }
+.eyebrow { margin: 0 0 6px; color: #b56236; font-size: 10px; font-weight: 800; letter-spacing: .18em; }
+.header h1 { margin: 0; font-family: "Songti SC", "STSong", Georgia, serif; font-size: 25px; font-weight: 650; letter-spacing: .04em; }
+.intro { margin: 8px 0 14px; color: #61727a; font-size: 12px; line-height: 1.6; }
+.actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.actions button { min-height: 34px; padding: 0 13px; border: 1px solid rgba(38,67,80,.17); background: #edf2f1; color: #29414c; font-size: 10px; font-weight: 700; letter-spacing: .04em; cursor: pointer; }
+.actions button:hover { background: #fff; }
+.actions button.active { border-color: #355968; background: #355968; color: #fff; }
+.modelCards { position: absolute; z-index: 2; left: 50%; bottom: 22px; display: grid; grid-template-columns: repeat(4, minmax(145px, 180px)); gap: 8px; transform: translateX(-50%); }
+.modelCard { padding: 12px 14px; border: 1px solid rgba(34,61,72,.14); background: rgba(245,249,248,.88); color: #273b44; text-align: left; backdrop-filter: blur(13px); cursor: pointer; box-shadow: 0 13px 36px rgba(36,58,67,.11); }
+.modelCard:hover, .modelCard.active { border-color: rgba(181,98,54,.62); background: rgba(255,255,255,.96); }
+.modelCard span { display: block; margin-bottom: 3px; color: #b56236; font-size: 8px; font-weight: 800; letter-spacing: .15em; }
+.modelCard strong { display: block; font-size: 12px; }
+.modelCard small { display: block; margin-top: 3px; color: #75838a; font-size: 8px; line-height: 1.4; }
+.status { position: absolute; z-index: 2; right: 20px; top: 20px; padding: 8px 11px; border: 1px solid rgba(34,61,72,.12); background: rgba(250,252,251,.82); color: #607079; font-size: 9px; letter-spacing: .06em; backdrop-filter: blur(12px); }
+.legend { position: absolute; z-index: 2; right: 20px; bottom: 22px; padding: 8px 11px; background: rgba(26,43,51,.68); color: rgba(255,255,255,.9); font-size: 9px; letter-spacing: .04em; }
+@media (max-width: 760px) {
+  .header { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 14px 15px; }
+  .intro { display: none; }
+  .modelCards { bottom: 12px; width: calc(100vw - 24px); grid-template-columns: repeat(2, 1fr); }
+  .modelCard { min-width: 0; padding: 9px; }
+  .modelCard small { display: none; }
+  .status, .legend { display: none; }
+}

@@ -36,11 +36,14 @@ import { CollisionWorld } from "./collision";
 import { SkidMarks } from "./skidMarks";
 import { AudioEngine } from "./audioEngine";
 import { ShatterMorphController } from "./shatterMorph";
+import { buildCityWorld, clampToCity, sampleCitySurface } from "./city";
 
 export type SceneStats = {
   trees: number;
   grass: number;
   stones: number;
+  buildings: number;
+  streetLights: number;
   deliveryStops: number;
   drawCalls: number;
   chunks: number;
@@ -94,6 +97,7 @@ export class ForestScene {
   private driveModeListener: ((on: boolean) => void) | null = null;
   private readonly browseMove: BrowseMove = { ...NO_BROWSE_MOVE };
   private readonly browsePanDelta = new THREE.Vector3();
+  private cityStats = { buildings: 0, streetTrees: 0, streetLights: 0, drawCalls: 0 };
 
   constructor(canvas: HTMLCanvasElement, settings: MapSettings, onStats: StatsListener) {
     this.settings = settings;
@@ -149,6 +153,7 @@ export class ForestScene {
       this.roadPoints.map((p) => ({ x: p.x, z: p.z })),
       this.stopPoints,
       this.settings.seed,
+      this.settings.mapType,
     );
     this.minimap.setJumpHandler((x, z) => this.jumpTo(x, z));
   }
@@ -180,8 +185,18 @@ export class ForestScene {
     const palette = SEASONS[settings.season];
     this.scene.background = new THREE.Color(palette.fog);
     this.sky.setSeason(settings.season);
+    this.sky.setClear(false);
+    if (this.sun) {
+      this.sun.color.set(0xfff0c8);
+      this.sun.intensity = 3.15;
+    }
     // Larger world needs thinner fog so distant canopy still reads.
     this.scene.fog = new THREE.FogExp2(palette.fog, Math.min(settings.fogDensity, 0.0035));
+
+    if (settings.mapType === "city") {
+      this.buildCity(settings);
+      return;
+    }
 
     this.staticLayer.add(createWorldBoundaries(settings.seed, palette.ground));
 
@@ -277,6 +292,49 @@ export class ForestScene {
       this.roadPoints.map((p) => ({ x: p.x, z: p.z })),
       this.stopPoints,
       settings.seed,
+      settings.mapType,
+    );
+  }
+
+  private buildCity(settings: MapSettings) {
+    this.scene.background = new THREE.Color(0xc5e5f5);
+    this.scene.fog = new THREE.FogExp2(0xd9edf5, 0.00055);
+    this.sky.setSeason("summer");
+    this.sky.setClear(true);
+    if (this.sun) {
+      this.sun.color.set(0xfff3d3);
+      this.sun.intensity = 4.15;
+    }
+    const built = buildCityWorld(settings, this.collision);
+    this.staticLayer.add(built.group);
+    this.roadPoints = built.roadPoints;
+    this.stopPoints = built.stops;
+    this.deliveryStopCount = settings.deliveryStops;
+    this.cityStats = {
+      buildings: built.buildings,
+      streetTrees: built.streetTrees,
+      streetLights: built.streetLights,
+      drawCalls: built.drawCalls,
+    };
+
+    const start = this.roadPoints[Math.floor(this.roadPoints.length * 0.08)];
+    const next = this.roadPoints[Math.floor(this.roadPoints.length * 0.08) + 1] ?? start;
+    this.controls.target.set(start.x, 0, start.z);
+    this.camera.position.set(start.x + 76, 58, start.z + 92);
+    this.controls.update();
+    if (this.rider) {
+      this.staticLayer.add(this.rider);
+      this.rider.position.set(start.x, 0.012, start.z);
+      this.rider.rotation.y = Math.atan2(next.x - start.x, next.z - start.z);
+      this.rider.visible = this.riderVisible;
+    }
+    this.lastChunkFocus = "";
+    this.publishStats();
+    this.minimap?.setWorld(
+      this.roadPoints.map((p) => ({ x: p.x, z: p.z })),
+      this.stopPoints,
+      settings.seed,
+      settings.mapType,
     );
   }
 
@@ -462,6 +520,7 @@ export class ForestScene {
    */
   setShatterMode(on: boolean) {
     this.settings = { ...this.settings, shatterMode: on };
+    if (this.settings.mapType === "city") return;
     this.shatterMorph.animateTo(on);
     // Apply first frame immediately so the click feels responsive.
     this.chunks.setShatterVisual(this.shatterMorph.getAmount(), this.shatterMorph.isBlasting());
@@ -486,6 +545,13 @@ export class ForestScene {
 
   jumpTo(x: number, z: number) {
     if (this.driveMode) return; // minimap jump would teleport the rider mid-drive
+    if (this.settings.mapType === "city") {
+      const clamped = clampToCity(x, z, 80);
+      this.controls.target.set(clamped.x, 0, clamped.z);
+      this.camera.position.set(clamped.x + 66, 52, clamped.z + 78);
+      this.controls.update();
+      return;
+    }
     const clamped = clampToWorld(x, z, this.settings.seed, 150);
     this.controls.target.set(clamped.x, 0, clamped.z);
     const distances = [
@@ -508,6 +574,7 @@ export class ForestScene {
 
   /** Queue the focus disc plus one camera-facing forward cap. */
   private queueCameraFacingChunks(focusX: number, focusZ: number) {
+    if (this.settings.mapType === "city") return;
     this.camera.getWorldDirection(this.streamForward);
     this.chunks.update(focusX, focusZ, this.streamForward.x, this.streamForward.z);
   }
@@ -540,11 +607,26 @@ export class ForestScene {
   }
 
   private publishStats() {
+    if (this.settings.mapType === "city") {
+      this.onStats({
+        trees: this.cityStats.streetTrees,
+        grass: 0,
+        stones: 0,
+        buildings: this.cityStats.buildings,
+        streetLights: this.cityStats.streetLights,
+        deliveryStops: this.deliveryStopCount,
+        drawCalls: this.cityStats.drawCalls,
+        chunks: 1,
+      });
+      return;
+    }
     const stats = this.chunks.getStats();
     this.onStats({
       trees: stats.trees,
       grass: stats.grass,
       stones: stats.stones,
+      buildings: 0,
+      streetLights: 0,
       deliveryStops: this.deliveryStopCount,
       drawCalls: stats.drawCalls + 9,
       chunks: stats.chunks,
@@ -556,6 +638,7 @@ export class ForestScene {
     const pose = this.moto.getPose();
     return {
       mode: this.driveMode ? "ride" : "map-editor",
+      mapType: this.settings.mapType,
       coordinateSystem: "world origin at map center; +x east/right, +z south/down",
       cameraFocus: this.driveMode
         ? { x: Number(pose.x.toFixed(1)), z: Number(pose.z.toFixed(1)) }
@@ -579,6 +662,7 @@ export class ForestScene {
         stones: stats.stones,
       },
       settings: {
+        mapType: this.settings.mapType,
         seed: this.settings.seed,
         forestDensity: this.settings.forestDensity,
         treeHeightScale: this.settings.treeHeightScale,
@@ -601,8 +685,12 @@ export class ForestScene {
           ? this.input.poll()
           : { throttle: 0, brake: 0, steer: 0, boost: false, hardBrake: false, hardBrakeEdge: false };
         const seed = this.settings.seed;
-        const clampFn = (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
-        const boundaryFn = (x: number, z: number) => sampleBoundary(x, z, seed);
+        const clampFn = this.settings.mapType === "city"
+          ? (x: number, z: number) => clampToCity(x, z, 3)
+          : (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
+        const boundaryFn = this.settings.mapType === "city"
+          ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth)
+          : (x: number, z: number) => sampleBoundary(x, z, seed);
         this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
         this.collision.stepStones(dt, clampFn, boundaryFn);
         this.collision.writeMatrices(this.dummy);
@@ -613,7 +701,7 @@ export class ForestScene {
         }
         this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
         this.chase.update(dt, this.camera, pose, input.boost);
-        changed = this.chunks.pump() || changed;
+        if (this.settings.mapType === "forest") changed = this.chunks.pump() || changed;
       } else {
         // Mirror the live animate loop so browse panning is deterministic here.
         const pan = computeBrowsePanDelta(this.camera.position, this.controls.target, this.browseMove, dt, this.browsePanDelta);
@@ -621,7 +709,7 @@ export class ForestScene {
           this.camera.position.add(pan);
           this.controls.target.add(pan);
         }
-        changed = this.chunks.pump() || changed;
+        if (this.settings.mapType === "forest") changed = this.chunks.pump() || changed;
       }
     }
     if (changed) this.publishStats();
@@ -656,8 +744,12 @@ export class ForestScene {
     if (this.driveMode) {
       const input = this.input!.poll();
       const seed = this.settings.seed;
-      const clampFn = (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
-      const boundaryFn = (x: number, z: number) => sampleBoundary(x, z, seed);
+      const clampFn = this.settings.mapType === "city"
+        ? (x: number, z: number) => clampToCity(x, z, 3)
+        : (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
+      const boundaryFn = this.settings.mapType === "city"
+        ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth)
+        : (x: number, z: number) => sampleBoundary(x, z, seed);
       this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
       this.collision.stepStones(dt, clampFn, boundaryFn);
       this.collision.writeMatrices(this.dummy);
@@ -688,7 +780,9 @@ export class ForestScene {
         this.controls.target.add(pan);
       }
       this.controls.update();
-      const boundedFocus = clampToWorld(this.controls.target.x, this.controls.target.z, this.settings.seed, 28);
+      const boundedFocus = this.settings.mapType === "city"
+        ? clampToCity(this.controls.target.x, this.controls.target.z, 28)
+        : clampToWorld(this.controls.target.x, this.controls.target.z, this.settings.seed, 28);
       const correctionX = boundedFocus.x - this.controls.target.x;
       const correctionZ = boundedFocus.z - this.controls.target.z;
       if (Math.abs(correctionX) > 0.01 || Math.abs(correctionZ) > 0.01) {
@@ -701,16 +795,18 @@ export class ForestScene {
       focusZ = boundedFocus.z;
     }
 
-    this.camera.getWorldDirection(this.streamForward);
-    const stepX = Math.abs(this.streamForward.x) < 0.38 ? 0 : Math.sign(this.streamForward.x);
-    const stepZ = Math.abs(this.streamForward.z) < 0.38 ? 0 : Math.sign(this.streamForward.z);
-    const focusKey = `${Math.round(focusX / 24)},${Math.round(focusZ / 24)},${stepX},${stepZ}`;
-    if (focusKey !== this.lastChunkFocus) {
-      this.lastChunkFocus = focusKey;
-      this.queueCameraFacingChunks(focusX, focusZ);
+    if (this.settings.mapType === "forest") {
+      this.camera.getWorldDirection(this.streamForward);
+      const stepX = Math.abs(this.streamForward.x) < 0.38 ? 0 : Math.sign(this.streamForward.x);
+      const stepZ = Math.abs(this.streamForward.z) < 0.38 ? 0 : Math.sign(this.streamForward.z);
+      const focusKey = `${Math.round(focusX / 24)},${Math.round(focusZ / 24)},${stepX},${stepZ}`;
+      if (focusKey !== this.lastChunkFocus) {
+        this.lastChunkFocus = focusKey;
+        this.queueCameraFacingChunks(focusX, focusZ);
+      }
+      this.collision.syncChunks(this.chunks.loadedEntries());
+      if (this.chunks.pump()) this.publishStats();
     }
-    this.collision.syncChunks(this.chunks.loadedEntries());
-    if (this.chunks.pump()) this.publishStats();
     // Far field latches after the first complete near-field load; keep the
     // readiness gate strict so horizon cards do not appear over empty ground.
     const pending = this.chunks.getStats().pending;
@@ -730,7 +826,7 @@ export class ForestScene {
         cameraX: this.camera.position.x,
         cameraZ: this.camera.position.z,
         travelHeading,
-        loadedKeys: stats.loadedKeys,
+        loadedKeys: this.settings.mapType === "forest" ? stats.loadedKeys : [],
       });
     }
   };
@@ -738,6 +834,7 @@ export class ForestScene {
   private disposeWorld() {
     this.chunks.clear();
     this.collision.clear();
+    this.cityStats = { buildings: 0, streetTrees: 0, streetLights: 0, drawCalls: 0 };
     this.roadDistanceFn = null;
     if (this.farField) {
       this.staticLayer.remove(this.farField.group);

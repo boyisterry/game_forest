@@ -32,6 +32,7 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uCloud;
   uniform vec3 uSun;
   uniform vec3 uSunDirection;
+  uniform float uCloudAmount;
 
   varying vec3 vWorldPosition;
 
@@ -78,7 +79,7 @@ const fragmentShader = /* glsl */ `
     float azimuth = atan(direction.z, direction.x) / 6.2831853 + 0.5;
     vec2 cloudUv = vec2(azimuth * 7.0, altitude * 8.5);
     float cloudBand = smoothstep(0.035, 0.13, altitude) * (1.0 - smoothstep(0.54, 0.76, altitude));
-    float clouds = smoothstep(0.56, 0.73, cloudNoise(cloudUv)) * cloudBand * 0.22;
+    float clouds = smoothstep(0.56, 0.73, cloudNoise(cloudUv)) * cloudBand * 0.22 * uCloudAmount;
     color = mix(color, uCloud, clouds);
 
     gl_FragColor = vec4(color, 1.0);
@@ -98,6 +99,7 @@ export class ProceduralSky {
         uCloud: { value: new THREE.Color(palette.cloud) },
         uSun: { value: new THREE.Color(palette.sun) },
         uSunDirection: { value: new THREE.Vector3(-28, 48, 22).normalize() },
+        uCloudAmount: { value: 1 },
       },
       vertexShader,
       fragmentShader,
@@ -120,6 +122,10 @@ export class ProceduralSky {
     this.mesh.material.uniforms.uHaze.value.set(palette.haze);
     this.mesh.material.uniforms.uCloud.value.set(palette.cloud);
     this.mesh.material.uniforms.uSun.value.set(palette.sun);
+  }
+
+  setClear(clear: boolean) {
+    this.mesh.material.uniforms.uCloudAmount.value = clear ? 0.04 : 1;
   }
 
   follow(camera: THREE.Camera) {

@@ -1,8 +1,11 @@
 export type Season = "spring" | "summer" | "autumn";
+export type MapType = "forest" | "city";
 
 export type MapSettings = {
+  mapType: MapType;
   seed: number;
   forestDensity: number;
+  cityDensity: number;
   roadWidth: number;
   roadCurves: number;
   fogDensity: number;
@@ -22,8 +25,10 @@ export type MapSettings = {
 };
 
 export const DEFAULT_SETTINGS: MapSettings = {
+  mapType: "forest",
   seed: 24719,
   forestDensity: 0.86,
+  cityDensity: 1,
   roadWidth: 6.4,
   roadCurves: 0.66,
   fogDensity: 0.0028,

@@ -11,6 +11,8 @@ import {
   westBoundaryX,
   worldToChunk,
 } from "./world";
+import { CITY_MAX_X, CITY_MAX_Z, CITY_MIN_X, CITY_MIN_Z } from "./city";
+import type { MapType } from "./types";
 
 export type MinimapFrame = {
   road: Array<{ x: number; z: number }>;
@@ -32,6 +34,7 @@ export class Minimap {
   private stops: Array<{ x: number; z: number }> = [];
   private onJump: ((x: number, z: number) => void) | null = null;
   private worldSeed = 1;
+  private mapType: MapType = "forest";
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -41,11 +44,12 @@ export class Minimap {
     canvas.addEventListener("pointerdown", this.handlePointer);
   }
 
-  setWorld(road: Array<{ x: number; z: number }>, stops: Array<{ x: number; z: number }>, seed = 1) {
+  setWorld(road: Array<{ x: number; z: number }>, stops: Array<{ x: number; z: number }>, seed = 1, mapType: MapType = "forest") {
     // Decimate for draw cost while keeping route silhouette.
     this.roadCache = road.filter((_, index) => index % 6 === 0 || index === road.length - 1);
     this.stops = stops;
     this.worldSeed = seed;
+    this.mapType = mapType;
   }
 
   setJumpHandler(handler: ((x: number, z: number) => void) | null) {
@@ -58,7 +62,10 @@ export class Minimap {
     const px = ((event.clientX - rect.left) / rect.width) * this.canvas.width;
     const py = ((event.clientY - rect.top) / rect.height) * this.canvas.height;
     const world = this.pixelToWorld(px, py);
-    if (!isInsideWorld(world.x, world.z, this.worldSeed, 24)) return;
+    const inside = this.mapType === "city"
+      ? world.x >= CITY_MIN_X + 24 && world.x <= CITY_MAX_X - 24 && world.z >= CITY_MIN_Z + 24 && world.z <= CITY_MAX_Z - 24
+      : isInsideWorld(world.x, world.z, this.worldSeed, 24);
+    if (!inside) return;
     this.onJump(world.x, world.z);
   };
 
@@ -151,30 +158,52 @@ export class Minimap {
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = "#cfd8c6";
-    this.traceBoundary();
-    ctx.fill();
-
-    // Loaded streaming neighborhood.
-    ctx.save();
-    this.traceBoundary();
-    ctx.clip();
-    ctx.fillStyle = "rgba(71, 111, 40, 0.12)";
-    for (const key of frame.loadedKeys) {
-      const [cx, cz] = key.split(",").map(Number);
-      const a = this.worldToPixel(cx * CHUNK_SIZE, cz * CHUNK_SIZE);
-      const b = this.worldToPixel((cx + 1) * CHUNK_SIZE, (cz + 1) * CHUNK_SIZE);
+    if (this.mapType === "city") {
+      const a = this.worldToPixel(CITY_MIN_X, CITY_MIN_Z);
+      const b = this.worldToPixel(CITY_MAX_X, CITY_MAX_Z);
+      ctx.fillStyle = "#7f898d";
       ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.strokeStyle = "rgba(43, 54, 61, 0.24)";
+      ctx.lineWidth = 5;
+      for (const x of [-820, -360, 120, 500, 820]) {
+        const p0 = this.worldToPixel(x, CITY_MIN_Z);
+        const p1 = this.worldToPixel(x, CITY_MAX_Z);
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+      }
+      for (const z of [-640, -180, 280, 700]) {
+        const p0 = this.worldToPixel(CITY_MIN_X, z);
+        const p1 = this.worldToPixel(CITY_MAX_X, z);
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+      }
+      const sea = this.worldToPixel(CITY_MIN_X, CITY_MAX_Z);
+      ctx.fillStyle = "#5d8897";
+      ctx.fillRect(sea.x, sea.y, b.x - a.x, h - sea.y);
+    } else {
+      ctx.fillStyle = "#cfd8c6";
+      this.traceBoundary();
+      ctx.fill();
+
+      // Loaded streaming neighborhood.
+      ctx.save();
+      this.traceBoundary();
+      ctx.clip();
+      ctx.fillStyle = "rgba(71, 111, 40, 0.12)";
+      for (const key of frame.loadedKeys) {
+        const [cx, cz] = key.split(",").map(Number);
+        const a = this.worldToPixel(cx * CHUNK_SIZE, cz * CHUNK_SIZE);
+        const b = this.worldToPixel((cx + 1) * CHUNK_SIZE, (cz + 1) * CHUNK_SIZE);
+        ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      }
+      ctx.restore();
+
+      this.strokeEdge("north", "#70796f", 4.2);
+      this.strokeEdge("east", "#70796f", 4.2);
+      this.strokeEdge("south", "#6e9da2", 3.5);
+      this.strokeEdge("west", "#6e9da2", 3.5);
     }
-    ctx.restore();
 
-    this.strokeEdge("north", "#70796f", 4.2);
-    this.strokeEdge("east", "#70796f", 4.2);
-    this.strokeEdge("south", "#6e9da2", 3.5);
-    this.strokeEdge("west", "#6e9da2", 3.5);
-
-    ctx.strokeStyle = "#c4b08a";
-    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = this.mapType === "city" ? "#ffd27d" : "#c4b08a";
+    ctx.lineWidth = this.mapType === "city" ? 2.2 : 1.6;
     ctx.beginPath();
     this.roadCache.forEach((point, index) => {
       const p = this.worldToPixel(point.x, point.z);
@@ -194,13 +223,15 @@ export class Minimap {
     const focus = this.worldToPixel(frame.focusX, frame.focusZ);
     const cam = this.worldToPixel(frame.cameraX, frame.cameraZ);
     const focusChunk = worldToChunk(frame.focusX, frame.focusZ);
-    const ring = LOAD_RADIUS_CHUNKS * CHUNK_SIZE;
-    const ringPx = this.worldToPixel(frame.focusX + ring, frame.focusZ).x - focus.x;
-    ctx.strokeStyle = "rgba(40, 74, 42, 0.35)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(focus.x, focus.y, Math.abs(ringPx), 0, Math.PI * 2);
-    ctx.stroke();
+    if (this.mapType === "forest") {
+      const ring = LOAD_RADIUS_CHUNKS * CHUNK_SIZE;
+      const ringPx = this.worldToPixel(frame.focusX + ring, frame.focusZ).x - focus.x;
+      ctx.strokeStyle = "rgba(40, 74, 42, 0.35)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(focus.x, focus.y, Math.abs(ringPx), 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     if (frame.travelHeading === null) {
       ctx.strokeStyle = "#294a2a";
@@ -245,10 +276,10 @@ export class Minimap {
 
     ctx.fillStyle = "rgba(24, 48, 33, 0.72)";
     ctx.font = "600 9px 'Avenir Next', 'PingFang SC', sans-serif";
-    ctx.fillText("WORLD MAP", 10, 14);
+    ctx.fillText(this.mapType === "city" ? "RAIN HARBOR" : "WORLD MAP", 10, 14);
     ctx.fillStyle = "rgba(98, 112, 102, 0.85)";
     ctx.font = "8px 'SFMono-Regular', Consolas, monospace";
-    ctx.fillText(`×20 · chunk ${chunkKey(focusChunk.cx, focusChunk.cz)}`, 10, h - 8);
+    ctx.fillText(this.mapType === "city" ? "CITY DELIVERY GRID" : `×20 · chunk ${chunkKey(focusChunk.cx, focusChunk.cz)}`, 10, h - 8);
   }
 
   dispose() {

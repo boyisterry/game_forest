@@ -13,13 +13,15 @@ async function render() {
   );
 }
 
-test("server-renders the forest map studio", async () => {
+test("server-renders the forest and city map workshop", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Forest Courier · Map Workshop<\/title>/);
+  assert.match(html, /<title>Forest Courier · World Workshop<\/title>/);
+  assert.match(html, /Deep Forest/);
+  assert.match(html, /Rain Harbor/);
   assert.match(html, /Forest density<\/b><em>86%<\/em>/);
   assert.match(html, /Forest density 86%[^>]*value="0\.86"|max="2\.3"/);
   assert.match(html, /Tree height/);
