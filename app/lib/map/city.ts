@@ -707,6 +707,7 @@ type FurniturePlacement = {
   z: number;
   rotationY: number;
   scale?: number;
+  heightScale?: number;
 };
 
 /**
@@ -742,7 +743,8 @@ function addInstancedShowroomModel(
     placements.forEach((placement, index) => {
       position.set(placement.x, CURB_HEIGHT, placement.z);
       rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), placement.rotationY);
-      scale.setScalar(placement.scale ?? 1);
+      const baseScale = placement.scale ?? 1;
+      scale.set(baseScale, baseScale * (placement.heightScale ?? 1), baseScale);
       placementMatrix.compose(position, rotation, scale);
       instances.setMatrixAt(index, placementMatrix.clone().multiply(source.matrixWorld));
     });
@@ -751,6 +753,7 @@ function addInstancedShowroomModel(
   }
   layer.userData.instanceCount = placements.length;
   layer.userData.sourceModel = prototype.name;
+  layer.userData.heightScale = placements[0]?.heightScale ?? 1;
   group.add(layer);
   return sourceMeshes.length;
 }
@@ -825,8 +828,8 @@ function addStreetFurniture(
     for (let z = road.start + 34; z < road.end - 28; z += 84) {
       if (!farFromIntersections(z, junctions, maxIntersectionRadius)) continue;
       lightPlacements.push(
-        { x: road.position - sidewalkCenter, z, rotationY: 0 },
-        { x: road.position + sidewalkCenter, z, rotationY: Math.PI },
+        { x: road.position - sidewalkCenter, z, rotationY: 0, heightScale: 1.32 },
+        { x: road.position + sidewalkCenter, z, rotationY: Math.PI, heightScale: 1.32 },
       );
       const treeZ = z + 42;
       if (treeZ < road.end - 18 && farFromIntersections(treeZ, junctions, maxIntersectionRadius)) {
@@ -843,8 +846,8 @@ function addStreetFurniture(
     for (let x = road.start + 34; x < road.end - 28; x += 84) {
       if (!farFromIntersections(x, junctions, maxIntersectionRadius)) continue;
       lightPlacements.push(
-        { x, z: road.position - sidewalkCenter, rotationY: -Math.PI * 0.5 },
-        { x, z: road.position + sidewalkCenter, rotationY: Math.PI * 0.5 },
+        { x, z: road.position - sidewalkCenter, rotationY: -Math.PI * 0.5, heightScale: 1.32 },
+        { x, z: road.position + sidewalkCenter, rotationY: Math.PI * 0.5, heightScale: 1.32 },
       );
       const treeX = x + 42;
       if (treeX < road.end - 18 && farFromIntersections(treeX, junctions, maxIntersectionRadius)) {
@@ -871,13 +874,17 @@ function addStreetFurniture(
       const verticalHasPriority = vertical.lanesPerDirection >= horizontal.lanesPerDirection;
       const verticalPhase: TrafficPhase = verticalHasPriority ? "green" : "red";
       const horizontalPhase: TrafficPhase = verticalHasPriority ? "red" : "green";
+      // Signals sit on the far-side corner for each incoming right-hand-traffic
+      // approach. The showroom lens faces local +Z, so the pole must be on the
+      // opposite corner from the direction it watches while its arm still
+      // reaches inward over the carriageway.
       signalsByPhase[verticalPhase].push(
-        { x: vertical.position - xOffset, z: horizontal.position + zOffset, rotationY: 0 },
-        { x: vertical.position + xOffset, z: horizontal.position - zOffset, rotationY: Math.PI },
+        { x: vertical.position + xOffset, z: horizontal.position + zOffset, rotationY: Math.PI, heightScale: 1.25 },
+        { x: vertical.position - xOffset, z: horizontal.position - zOffset, rotationY: 0, heightScale: 1.25 },
       );
       signalsByPhase[horizontalPhase].push(
-        { x: vertical.position + xOffset, z: horizontal.position + zOffset, rotationY: Math.PI * 0.5 },
-        { x: vertical.position - xOffset, z: horizontal.position - zOffset, rotationY: -Math.PI * 0.5 },
+        { x: vertical.position + xOffset, z: horizontal.position - zOffset, rotationY: -Math.PI * 0.5, heightScale: 1.25 },
+        { x: vertical.position - xOffset, z: horizontal.position + zOffset, rotationY: Math.PI * 0.5, heightScale: 1.25 },
       );
     }
   }

@@ -37,9 +37,12 @@ test("builds a playable five-district city with a delivery loop", () => {
   const greenSignals = city.group.getObjectByName("city-showroom-traffic-lights-green");
   assert.equal(lamps?.userData.sourceModel, "city-street-light-lowpoly");
   assert.equal(lamps?.userData.instanceCount, city.streetLights);
+  assert.equal(lamps?.userData.heightScale, 1.32);
   assert.equal(trees?.userData.sourceModel, "tree_normal_medium_redwood_a.glb");
   assert.equal(trees?.userData.instanceCount, city.streetTrees);
   assert.equal((redSignals?.userData.instanceCount ?? 0) + (greenSignals?.userData.instanceCount ?? 0), city.trafficLights);
+  assert.equal(redSignals?.userData.heightScale, 1.25);
+  assert.equal(greenSignals?.userData.heightScale, 1.25);
   assert.ok(redSignals?.getObjectByName("city-showroom-traffic-lights-red-traffic-light-lens"));
   assert.ok(greenSignals?.getObjectByName("city-showroom-traffic-lights-green-traffic-light-lens"));
 });

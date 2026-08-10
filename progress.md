@@ -12,6 +12,8 @@ Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可�
 - Rain Harbor now places 306 exact showroom street lights along both sidewalk verges; every lamp arm faces inward toward the carriageway and placements clear active intersections.
 - Added 270 street trees sourced from `tree_normal_medium_redwood_a.glb`, interleaved between lamps at realistic sidewalk scale with trunk collision.
 - Added 72 exact showroom traffic signals: four correctly rotated poles per active junction, with perpendicular approaches assigned coherent red/green phases from the road hierarchy.
+- Corrected the first visual pass after user review: each signal now occupies its incoming approach's far-side corner and faces back toward approaching traffic while its mast arm still reaches inward over the road.
+- Raised showroom street lights vertically by 1.32x (about 8.4m overall) and traffic lights by 1.25x (about 6.7m), without thickening their poles or enlarging their housings horizontally.
 - Retained an untouched copy of the full showroom tree wood geometry before the streamed-forest bole optimization, so city trees do not lose their original trunk.
 - Added compact `cityFacilities` telemetry to the game text state and structural regressions for source identity, counts, and signal deployment.
 
@@ -549,4 +551,21 @@ Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可�
 - Targeted city-furniture tests pass 13/13, targeted ESLint passes, and the full production build plus all 106 project tests pass.
 - In-app browser QA inspected the furnished cutaway and restored exterior, verified the door open/close interaction, confirmed the approach steps visually meet the terrain, and found no console warnings or errors.
 - The bundled web-game client was invoked but still cannot import its own missing `playwright` dependency; equivalent live interaction and visual QA used the in-app browser.
+- Rebuilt production service is running at `http://localhost:3000/` and the showroom returns HTTP 200.
+
+## Follow-up: 18-storey high-rise residential tower
+
+- Added MODEL 11, a 13.65 × 36.46 × 10.40m high-rise residential tower derived from the five-storey community apartment's concrete, brick, glazing, balcony, and flat-roof design language.
+- Built 18 physical floor slabs, 72 apartment doors, 108 front windows, 34 enclosed balconies, a glazed ground-floor lobby, and rooftop elevator machine room, water tank, and antenna.
+- Added two independent elevator shafts with 36 floor doors, floor indicators, and two dispatchable elevator cabins initially parked at floors 4 and 13.
+- Added a separate emergency stair core with 204 stair treads, 17 half-storey landings, handrails, and one fire door plus illuminated exit sign on every floor.
+- Added a high-rise cutaway control that hides the front shell and elevator floor doors to expose both elevator cars and the complete emergency stair route.
+- Integrated the tower with unified day/night lighting, normal/shattered states, dedicated focus camera, model metrics, and a two-elevator dispatch control.
+
+### Validation
+
+- Geometry regressions verify all 18 floors, 72 apartments, two elevators, 36 elevator doors, two cabins, 18 fire doors, 204 emergency stair treads, 17 stair landings, cutaway visibility, elevator floor clamping, night lighting, and tower proportions.
+- Targeted city-furniture tests pass 14/14, targeted ESLint passes, and the full production build plus all 107 project tests pass.
+- In-app browser QA verified the complete exterior, exposed double-elevator/emergency-stair cutaway, elevator dispatch between 4/13 and 18/1, day/night lighting, model data, shatter/repair, and an empty warning/error console.
+- The required bundled web-game client was invoked but still cannot import its own missing `playwright` package, so equivalent interaction, screenshots, DOM-state, and console checks used the in-app browser.
 - Rebuilt production service is running at `http://localhost:3000/` and the showroom returns HTTP 200.
