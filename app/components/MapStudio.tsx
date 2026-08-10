@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_SETTINGS, type MapSettings, type MapType, type Season } from "../lib/map/types";
 import { ForestScene, type SceneStats } from "../lib/map/ForestScene";
-import { getCityRoadDimensions } from "../lib/map/city";
+import { getCityRoadWidthRange } from "../lib/map/city";
 import {
   COPY,
   DEFAULT_LOCALE,
@@ -444,7 +444,7 @@ export function MapStudio() {
           ) : (
             <>
               <Range label={t.cityDensity} value={draft.cityDensity} min={0.55} max={1.25} step={0.01} display={`${Math.round(draft.cityDensity * 100)}%`} onChange={(v) => update("cityDensity", v)} />
-              <Range label={t.roadWidth} value={draft.roadWidth} min={6.7} max={11.5} step={0.1} display={`${getCityRoadDimensions(draft.roadWidth).motorWidth.toFixed(0)}m`} onChange={(v) => update("roadWidth", v)} />
+              <Range label={t.roadWidth} value={draft.roadWidth} min={6.7} max={11.5} step={0.1} display={`${getCityRoadWidthRange(draft.roadWidth, draft.seed).min.toFixed(0)}–${getCityRoadWidthRange(draft.roadWidth, draft.seed).max.toFixed(0)}m`} onChange={(v) => update("roadWidth", v)} />
             </>
           )}
           {draft.mapType === "forest" && (

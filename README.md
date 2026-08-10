@@ -63,7 +63,7 @@ npm run dev
 - 实际地图：<http://localhost:3000/>
 - 单树碎裂与修复 Demo：<http://localhost:3000/demos/shatter-morph-tree.html>
 - 石头磨碎与重组 Demo：<http://localhost:3000/demos/stone-grind.html>
-- 城市树木、路灯、红绿灯与流动餐车模型展厅：<http://localhost:3000/demos/city-street-furniture>
+- 城市树木、路灯、红绿灯、流动餐车、街边亭、长条花坛、居民楼与小别墅正常/破碎双版本展厅：<http://localhost:3000/demos/city-street-furniture>
 
 执行构建和全部测试：
 

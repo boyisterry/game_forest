@@ -9,19 +9,33 @@
 .actions button { min-height: 34px; padding: 0 13px; border: 1px solid rgba(38,67,80,.17); background: #edf2f1; color: #29414c; font-size: 10px; font-weight: 700; letter-spacing: .04em; cursor: pointer; }
 .actions button:hover { background: #fff; }
 .actions button.active { border-color: #355968; background: #355968; color: #fff; }
-.modelCards { position: absolute; z-index: 2; left: 50%; bottom: 22px; display: grid; grid-template-columns: repeat(4, minmax(145px, 180px)); gap: 8px; transform: translateX(-50%); }
-.modelCard { padding: 12px 14px; border: 1px solid rgba(34,61,72,.14); background: rgba(245,249,248,.88); color: #273b44; text-align: left; backdrop-filter: blur(13px); cursor: pointer; box-shadow: 0 13px 36px rgba(36,58,67,.11); }
+.actions button.danger { border-color: #8f352e; background: #a74439; color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+.modelCards { position: absolute; z-index: 2; left: 50%; bottom: 22px; display: grid; width: min(1400px, calc(100vw - 48px)); grid-template-columns: repeat(10, minmax(0, 1fr)); align-items: end; gap: 8px; transform: translateX(-50%); }
+.modelCard { overflow: hidden; border: 1px solid rgba(34,61,72,.14); background: rgba(245,249,248,.88); color: #273b44; text-align: left; backdrop-filter: blur(13px); box-shadow: 0 13px 36px rgba(36,58,67,.11); }
 .modelCard:hover, .modelCard.active { border-color: rgba(181,98,54,.62); background: rgba(255,255,255,.96); }
+.modelCard.expanded { border-color: rgba(181,98,54,.74); background: rgba(255,255,255,.97); }
+.modelFocusButton { width: 100%; padding: 12px 14px 10px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.modelFocusButton:focus-visible, .expandButton:focus-visible { outline: 2px solid #b56236; outline-offset: -2px; }
 .modelCard span { display: block; margin-bottom: 3px; color: #b56236; font-size: 8px; font-weight: 800; letter-spacing: .15em; }
 .modelCard strong { display: block; font-size: 12px; }
 .modelCard small { display: block; margin-top: 3px; color: #75838a; font-size: 8px; line-height: 1.4; }
+.expandButton { width: 100%; min-height: 28px; padding: 5px 14px; border: 0; border-top: 1px solid rgba(34,61,72,.1); background: rgba(231,237,235,.62); color: #536972; font-size: 8px; font-weight: 800; letter-spacing: .06em; text-align: left; cursor: pointer; }
+.expandButton:hover { background: rgba(222,231,228,.85); color: #29414c; }
+.modelData { padding: 8px 12px 11px; border-top: 1px solid rgba(34,61,72,.1); background: rgba(239,244,242,.72); }
+.modelData dl { display: grid; gap: 6px; margin: 0; }
+.modelData dl > div { display: grid; gap: 2px; }
+.modelData dt { color: #8a694f; font-size: 7px; font-weight: 800; letter-spacing: .08em; }
+.modelData dd { margin: 0; color: #354c56; font-size: 8px; line-height: 1.35; }
 .status { position: absolute; z-index: 2; right: 20px; top: 20px; padding: 8px 11px; border: 1px solid rgba(34,61,72,.12); background: rgba(250,252,251,.82); color: #607079; font-size: 9px; letter-spacing: .06em; backdrop-filter: blur(12px); }
 .legend { position: absolute; z-index: 2; right: 20px; bottom: 22px; padding: 8px 11px; background: rgba(26,43,51,.68); color: rgba(255,255,255,.9); font-size: 9px; letter-spacing: .04em; }
 @media (max-width: 760px) {
   .header { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 14px 15px; }
   .intro { display: none; }
-  .modelCards { bottom: 12px; width: calc(100vw - 24px); grid-template-columns: repeat(2, 1fr); }
-  .modelCard { min-width: 0; padding: 9px; }
+  .modelCards { bottom: 12px; display: flex; width: calc(100vw - 24px); align-items: flex-end; gap: 7px; overflow-x: auto; transform: translateX(-50%); scrollbar-width: none; }
+  .modelCards::-webkit-scrollbar { display: none; }
+  .modelCard { flex: 0 0 158px; min-width: 0; }
+  .modelFocusButton { padding: 9px 10px 8px; }
+  .expandButton { padding-inline: 10px; }
   .modelCard small { display: none; }
   .status, .legend { display: none; }
 }

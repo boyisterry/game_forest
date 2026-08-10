@@ -689,7 +689,7 @@ export class ForestScene {
           ? (x: number, z: number) => clampToCity(x, z, 3)
           : (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
         const boundaryFn = this.settings.mapType === "city"
-          ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth)
+          ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth, this.settings.seed)
           : (x: number, z: number) => sampleBoundary(x, z, seed);
         this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
         this.collision.stepStones(dt, clampFn, boundaryFn);
@@ -748,7 +748,7 @@ export class ForestScene {
         ? (x: number, z: number) => clampToCity(x, z, 3)
         : (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
       const boundaryFn = this.settings.mapType === "city"
-        ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth)
+        ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth, this.settings.seed)
         : (x: number, z: number) => sampleBoundary(x, z, seed);
       this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
       this.collision.stepStones(dt, clampFn, boundaryFn);
