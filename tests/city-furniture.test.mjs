@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import * as THREE from "three";
 import {
   buildLowPolyFoodTruck,
   buildLowPolyHotDogKiosk,
+  buildLowPolyHighRiseResidential,
   buildLowPolyNewsstand,
   buildLowPolyPhoneBooth,
   buildLowPolyRoadsidePlanter,
@@ -85,6 +87,11 @@ test("generates an opening hot-dog kiosk with a grill, canopy and rooftop sign",
   assert.equal(kiosk.getObjectByName("hot-dog-kiosk-serving-opening"), undefined);
   assert.ok(kiosk.getObjectByName("hot-dog-kiosk-interior-floor"));
   assert.equal(kiosk.children.filter((child) => child.name === "hot-dog-kiosk-corner-post" && child.position.z > 0).length, 2);
+  const lowerRearWall = kiosk.getObjectByName("hot-dog-kiosk-rear-lower-wall");
+  const upperRearWall = kiosk.getObjectByName("hot-dog-kiosk-back-wall");
+  const lowerRearTop = lowerRearWall.position.y + lowerRearWall.geometry.parameters.height * 0.5;
+  const upperRearBottom = upperRearWall.position.y - upperRearWall.geometry.parameters.height * 0.5;
+  assert.ok(Math.abs(lowerRearTop - upperRearBottom) < 1e-9, "rear wall panels should meet without coplanar overlap");
   assert.ok(kiosk.userData.occupantSpace.x > 2.5);
   assert.ok(kiosk.userData.occupantSpace.y > 2.7);
   const hatch = kiosk.getObjectByName("hot-dog-kiosk-hatch-pivot");
@@ -92,6 +99,10 @@ test("generates an opening hot-dog kiosk with a grill, canopy and rooftop sign",
   assert.equal(hatch.rotation.x, 0);
   kiosk.userData.setServingOpen(true);
   assert.ok(hatch.rotation.x < -1);
+  kiosk.userData.setPowered(true);
+  assert.ok(kiosk.getObjectByName("hot-dog-kiosk-interior-light").intensity > 3);
+  kiosk.userData.setPowered(false);
+  assert.equal(kiosk.getObjectByName("hot-dog-kiosk-interior-light").intensity, 0);
 });
 
 test("generates a newsstand with layered publications and an opening shutter", () => {
@@ -109,6 +120,10 @@ test("generates a newsstand with layered publications and an opening shutter", (
   assert.equal(shutter.rotation.x, 0);
   stand.userData.setOpen(true);
   assert.ok(shutter.rotation.x < -1);
+  stand.userData.setPowered(true);
+  assert.ok(stand.getObjectByName("newsstand-interior-light").intensity > 4);
+  stand.userData.setPowered(false);
+  assert.equal(stand.getObjectByName("newsstand-interior-light").intensity, 0);
 });
 
 test("generates a lit phone booth with a telephone and opening framed door", () => {
@@ -140,36 +155,193 @@ test("generates a long roadside planter with masonry, soil, shrubs and flowers",
   assert.ok(metrics.faceCount > 400);
 });
 
-test("generates a five-storey residential building with balconies and rooftop details", () => {
+test("generates an enterable five-storey residential building with an operable door and connected stairs", () => {
   const building = buildLowPolyResidentialBuilding();
   assert.equal(building.name, "city-residential-building-lowpoly");
   assert.equal(building.userData.generatedLocally, true);
   assert.equal(building.userData.floorCount, 5);
   assert.equal(building.userData.apartmentCount, 20);
   assert.ok(building.getObjectByName("residential-building-entrance"));
+  assert.equal(building.getObjectByName("residential-building-main-body"), undefined);
+  assert.ok(building.getObjectByName("residential-building-left-wing"));
+  assert.ok(building.getObjectByName("residential-building-right-wing"));
+  assert.ok(building.getObjectByName("residential-building-stairwell-glazing"));
+  assert.equal(building.children.filter((child) => child.name === "residential-building-stairwell-mullion").length, 5);
+  const doorPivot = building.getObjectByName("residential-building-door-pivot");
+  const entranceDoor = building.getObjectByName("residential-building-entrance");
+  const entryStep = building.getObjectByName("residential-building-entry-step");
+  assert.ok(doorPivot);
+  assert.equal(entranceDoor.geometry.parameters.width, 1.18);
+  assert.equal(entranceDoor.geometry.parameters.height, 1.78);
+  building.updateWorldMatrix(true, true);
+  const entranceDoorBounds = new THREE.Box3().setFromObject(entranceDoor);
+  const entryStepBounds = new THREE.Box3().setFromObject(entryStep);
+  assert.ok(entranceDoorBounds.min.y > entryStepBounds.max.y);
+  assert.equal(building.children.filter((child) => child.name === "residential-building-entrance-sidelight").length, 2);
+  building.userData.setDoorOpen(true);
+  assert.ok(doorPivot.rotation.y < -1);
+  building.userData.setDoorOpen(false);
+  assert.equal(doorPivot.rotation.y, 0);
+  assert.deepEqual(building.userData.floorLevels.map((level) => Number(level.toFixed(2))), [0.52, 2.14, 3.76, 5.38, 7]);
+  assert.equal(building.children.filter((child) => child.name === "residential-building-floor-platform").length, 5);
+  assert.equal(building.children.filter((child) => child.name === "residential-building-stair-landing").length, 4);
+  assert.equal(building.children.filter((child) => child.name === "residential-building-stair-step").length, 64);
+  assert.equal(building.children.filter((child) => child.name === "residential-building-floor-door").length, 10);
+  assert.equal(building.children.filter((child) => child.name === "residential-building-floor-door-handle").length, 10);
+  assert.ok(building.userData.climbPath.length > 64);
+  assert.equal(building.userData.climbPath[0].y, building.userData.floorLevels[0]);
+  assert.equal(building.userData.climbPath.at(-1).y, building.userData.floorLevels.at(-1));
+  assert.ok(building.userData.climbPath.every((point, index, path) => index === 0 || point.y >= path[index - 1].y));
   assert.ok(building.getObjectByName("residential-building-water-tank"));
-  assert.equal(building.children.filter((child) => child.name === "residential-building-balcony-floor").length, 8);
+  const balconyFloors = building.children.filter((child) => child.name === "residential-building-balcony-floor");
+  const balconyRails = building.children.filter((child) => child.name === "residential-building-balcony-rail");
+  const balconySideRails = building.children.filter((child) => child.name === "residential-building-balcony-side-rail");
+  assert.equal(balconyFloors.length, 8);
+  assert.equal(balconyRails.length, 8);
+  assert.equal(balconySideRails.length, 16);
+  assert.equal(building.children.filter((child) => child.name === "residential-building-balcony-post").length, 0);
+  balconyFloors.forEach((floor, index) => {
+    const floorBounds = new THREE.Box3().setFromObject(floor);
+    const frontRailBounds = new THREE.Box3().setFromObject(balconyRails[index]);
+    assert.ok(frontRailBounds.min.y - floorBounds.max.y > 0.009);
+    for (const sideRail of balconySideRails.slice(index * 2, index * 2 + 2)) {
+      const sideRailBounds = new THREE.Box3().setFromObject(sideRail);
+      assert.ok(sideRailBounds.min.y - floorBounds.max.y > 0.009);
+    }
+  });
   assert.equal(building.children.filter((child) => child.name === "residential-building-air-conditioner").length, 2);
+  const buildingLight = building.getObjectByName("residential-building-night-light");
+  const buildingWindow = building.getObjectByName("residential-building-window");
+  building.userData.setPowered(true);
+  assert.ok(buildingLight.intensity > 4);
+  assert.ok(buildingWindow.material.emissiveIntensity > 2);
+  building.userData.setPowered(false);
+  assert.equal(buildingLight.intensity, 0);
   const metrics = measureModelGeometry(building);
   assert.ok(metrics.size.y > 10);
   assert.ok(metrics.size.x > 7);
   assert.ok(metrics.faceCount > 1_000);
 });
 
-test("generates a two-storey small villa with a gable roof, porch and terrace", () => {
+test("generates an 18-storey residential tower with two elevators and an emergency stair", () => {
+  const tower = buildLowPolyHighRiseResidential();
+  assert.equal(tower.name, "city-high-rise-residential-lowpoly");
+  assert.equal(tower.userData.generatedLocally, true);
+  assert.equal(tower.userData.floorCount, 18);
+  assert.equal(tower.userData.apartmentCount, 72);
+  assert.equal(tower.userData.elevatorCount, 2);
+  assert.equal(tower.userData.emergencyStairCount, 1);
+  assert.equal(tower.userData.floorLevels.length, 18);
+  assert.ok(tower.userData.floorLevels.every((level, index, levels) => index === 0 || level > levels[index - 1]));
+  assert.equal(tower.children.filter((child) => child.name === "high-rise-floor-slab").length, 18);
+  assert.equal(tower.children.filter((child) => child.name === "high-rise-window").length, 108);
+  assert.equal(tower.children.filter((child) => child.name === "high-rise-apartment-door").length, 72);
+  assert.equal(tower.children.filter((child) => child.name === "high-rise-elevator-door").length, 36);
+  assert.equal(tower.children.filter((child) => child.name === "high-rise-elevator-cabin").length, 2);
+  assert.equal(tower.children.filter((child) => child.name === "high-rise-emergency-fire-door").length, 18);
+  const emergencyStair = tower.getObjectByName("high-rise-emergency-stair");
+  assert.ok(emergencyStair);
+  assert.equal(emergencyStair.children.filter((child) => child.name === "high-rise-emergency-stair-step").length, 204);
+  assert.equal(emergencyStair.children.filter((child) => child.name === "high-rise-emergency-stair-landing").length, 17);
+  const cabins = tower.children.filter((child) => child.name === "high-rise-elevator-cabin");
+  tower.userData.setElevatorFloors([18, 1]);
+  assert.deepEqual(tower.userData.elevatorFloors, [18, 1]);
+  assert.equal(cabins[0].position.y, tower.userData.floorLevels[17]);
+  assert.equal(cabins[1].position.y, tower.userData.floorLevels[0]);
+  tower.userData.setElevatorFloors([99, -4]);
+  assert.deepEqual(tower.userData.elevatorFloors, [18, 1]);
+  tower.userData.setInteriorCutaway(true);
+  assert.equal(tower.getObjectByName("high-rise-elevator-core-glazing").visible, false);
+  assert.equal(emergencyStair.visible, true);
+  tower.userData.setInteriorCutaway(false);
+  assert.equal(tower.getObjectByName("high-rise-elevator-core-glazing").visible, true);
+  tower.userData.setPowered(true);
+  assert.ok(tower.getObjectByName("high-rise-night-light").intensity > 4);
+  assert.ok(tower.getObjectByName("high-rise-window").material.emissiveIntensity > 2);
+  tower.userData.setPowered(false);
+  assert.equal(tower.getObjectByName("high-rise-night-light").intensity, 0);
+  const metrics = measureModelGeometry(tower);
+  assert.ok(metrics.size.y > 34);
+  assert.ok(metrics.size.x > 12);
+  assert.ok(metrics.faceCount > 7_000);
+});
+
+test("generates an enterable furnished two-storey villa with a sealed chimney connection", () => {
   const villa = buildLowPolySmallVilla();
   assert.equal(villa.name, "city-small-villa-lowpoly");
   assert.equal(villa.userData.generatedLocally, true);
   assert.equal(villa.userData.floorCount, 2);
+  assert.equal(villa.getObjectByName("small-villa-first-floor"), undefined);
+  assert.ok(villa.getObjectByName("small-villa-ground-floor"));
+  assert.equal(villa.children.filter((child) => child.name === "small-villa-second-floor-slab").length, 3);
   assert.ok(villa.getObjectByName("small-villa-gable-roof"));
   assert.ok(villa.getObjectByName("small-villa-front-door"));
+  const villaDoorPivot = villa.getObjectByName("small-villa-front-door-pivot");
+  villa.userData.setDoorOpen(true);
+  assert.ok(villaDoorPivot.rotation.y < -1);
+  villa.userData.setDoorOpen(false);
+  assert.equal(villaDoorPivot.rotation.y, 0);
+  const approachSteps = villa.children.filter((child) => child.name === "small-villa-approach-step");
+  assert.equal(approachSteps.length, 2);
+  villa.updateWorldMatrix(true, true);
+  const approachBounds = approachSteps.map((step) => new THREE.Box3().setFromObject(step));
+  const porchStepBounds = new THREE.Box3().setFromObject(villa.getObjectByName("small-villa-porch-step"));
+  assert.ok(Math.abs(approachBounds[1].min.y) < 1e-6);
+  assert.ok(approachBounds[1].max.y < approachBounds[0].max.y);
+  assert.ok(approachBounds[0].max.y < porchStepBounds.max.y);
+  villa.userData.setInteriorCutaway(true);
+  assert.equal(villa.getObjectByName("small-villa-gable-roof").visible, false);
+  assert.equal(villaDoorPivot.visible, false);
+  assert.equal(villa.getObjectByName("small-villa-sofa").visible, true);
+  villa.userData.setInteriorCutaway(false);
+  assert.equal(villa.getObjectByName("small-villa-gable-roof").visible, true);
   assert.ok(villa.getObjectByName("small-villa-porch-roof"));
   assert.ok(villa.getObjectByName("small-villa-terrace"));
-  assert.ok(villa.getObjectByName("small-villa-chimney"));
+  const chimney = villa.getObjectByName("small-villa-chimney");
+  const chimneyFlashing = villa.getObjectByName("small-villa-chimney-flashing");
+  assert.ok(chimney);
+  assert.ok(chimneyFlashing);
+  assert.ok(chimney.position.y - chimney.geometry.parameters.height * 0.5 < chimneyFlashing.position.y);
+  assert.ok(villa.getObjectByName("small-villa-living-room"));
+  assert.ok(villa.getObjectByName("small-villa-sofa"));
+  assert.ok(villa.getObjectByName("small-villa-television"));
+  assert.ok(villa.getObjectByName("small-villa-dining-kitchen"));
+  assert.ok(villa.getObjectByName("small-villa-kitchen-counter"));
+  assert.ok(villa.getObjectByName("small-villa-stove"));
+  assert.ok(villa.getObjectByName("small-villa-refrigerator"));
+  assert.ok(villa.getObjectByName("small-villa-dining-table"));
+  const villaStaircase = villa.getObjectByName("small-villa-staircase");
+  const villaStairSteps = villaStaircase.children.filter((child) => child.name === "small-villa-stair-step");
+  assert.ok(villaStaircase);
+  assert.equal(villaStairSteps.length, 12);
+  assert.ok(villaStairSteps[0].position.z < villaStairSteps.at(-1).position.z);
+  assert.ok(villa.getObjectByName("small-villa-upstairs-landing"));
+  const upstairsHallway = villa.getObjectByName("small-villa-upstairs-hallway");
+  assert.ok(upstairsHallway);
+  assert.ok(upstairsHallway.position.z > 1.5);
+  const bathroomSideWall = villa.getObjectByName("small-villa-bathroom-side-wall");
+  assert.ok(bathroomSideWall);
+  assert.equal(villa.getObjectByName("small-villa-second-floor-interior").children.filter((child) => child.name === "small-villa-bathroom-front-wall").length, 2);
+  assert.ok(bathroomSideWall.position.z + bathroomSideWall.geometry.parameters.depth * 0.5 < 0);
+  assert.ok(villa.getObjectByName("small-villa-bed"));
+  assert.ok(villa.getObjectByName("small-villa-wardrobe"));
+  assert.ok(villa.getObjectByName("small-villa-toilet"));
+  assert.ok(villa.getObjectByName("small-villa-toilet").position.z < -2);
+  assert.ok(villa.getObjectByName("small-villa-bathroom-sink"));
+  assert.ok(villa.getObjectByName("small-villa-shower-screen"));
+  assert.deepEqual(Object.keys(villa.userData.roomAnchors).sort(), ["bathroom", "bedroom", "diningKitchen", "entrance", "livingRoom", "stairs"]);
   assert.equal(villa.children.filter((child) => child.name === "small-villa-shrub").length, 2);
+  const villaLight = villa.getObjectByName("small-villa-night-light");
+  const villaWindow = villa.getObjectByName("small-villa-window");
+  villa.userData.setPowered(true);
+  assert.ok(villaLight.intensity > 4);
+  assert.ok(villaWindow.material.emissiveIntensity > 2);
+  villa.userData.setPowered(false);
+  assert.equal(villaLight.intensity, 0);
   const metrics = measureModelGeometry(villa);
-  assert.ok(metrics.size.y > 6);
-  assert.ok(metrics.size.x > 7);
+  assert.ok(metrics.size.y > 7.4);
+  assert.ok(metrics.size.x > 8);
+  assert.ok(metrics.size.z > 7.5);
   assert.ok(metrics.faceCount > 400);
 });
 
@@ -215,7 +387,23 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /buildLowPolyPhoneBooth/);
   assert.match(source, /buildLowPolyRoadsidePlanter/);
   assert.match(source, /buildLowPolyResidentialBuilding/);
+  assert.match(source, /buildLowPolyHighRiseResidential/);
   assert.match(source, /buildLowPolySmallVilla/);
+  assert.match(source, /APARTMENT_SHOWCASE_SCALE = 1\.5/);
+  assert.match(source, /VILLA_SHOWCASE_SCALE = 1\.3/);
+  assert.match(source, /HIGH_RISE_SHOWCASE_SCALE = 1\.05/);
+  assert.match(source, /pair\.root\.scale\.setScalar\(displayScale\)/);
+  assert.match(source, /setApartmentDoorOpen/);
+  assert.match(source, /setVillaDoorOpen/);
+  assert.match(source, /setVillaInteriorCutaway/);
+  assert.match(source, /关闭居民楼入口门/);
+  assert.match(source, /打开居民楼入口门/);
+  assert.match(source, /关闭别墅入口门/);
+  assert.match(source, /打开别墅入口门/);
+  assert.match(source, /查看别墅内部/);
+  assert.match(source, /恢复别墅外观/);
+  assert.match(source, /查看高层内部/);
+  assert.match(source, /调度电梯至 18 \/ 1 层/);
   assert.match(source, /createFurnitureShatterPair/);
   assert.match(source, /ShatterMorphController/);
   assert.match(source, /破碎所有装饰/);
@@ -223,8 +411,8 @@ test("demo uses the forest normal tree and contains no third-party model or API 
 
 test("every showcase card exposes expandable model data", async () => {
   const source = await readFile(new URL("../app/demos/city-street-furniture/CityFurnitureDemo.tsx", import.meta.url), "utf8");
-  assert.equal(source.match(/number: "MODEL \d{2}"/g)?.length, 10);
-  assert.equal(source.match(/stats: \[/g)?.length, 10);
+  assert.equal(source.match(/number: "MODEL \d{2}"/g)?.length, 11);
+  assert.equal(source.match(/stats: \[/g)?.length, 11);
   assert.match(source, /aria-expanded=\{expanded\}/);
   assert.match(source, /aria-controls=\{`model-data-\$\{model\.id\}`\}/);
   assert.match(source, /查看参数 \+/);

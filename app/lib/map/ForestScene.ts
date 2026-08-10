@@ -97,7 +97,7 @@ export class ForestScene {
   private driveModeListener: ((on: boolean) => void) | null = null;
   private readonly browseMove: BrowseMove = { ...NO_BROWSE_MOVE };
   private readonly browsePanDelta = new THREE.Vector3();
-  private cityStats = { buildings: 0, streetTrees: 0, streetLights: 0, drawCalls: 0 };
+  private cityStats = { buildings: 0, streetTrees: 0, streetLights: 0, trafficLights: 0, drawCalls: 0 };
 
   constructor(canvas: HTMLCanvasElement, settings: MapSettings, onStats: StatsListener) {
     this.settings = settings;
@@ -305,7 +305,7 @@ export class ForestScene {
       this.sun.color.set(0xfff3d3);
       this.sun.intensity = 4.15;
     }
-    const built = buildCityWorld(settings, this.collision);
+    const built = buildCityWorld(settings, this.collision, this.modelPack);
     this.staticLayer.add(built.group);
     this.roadPoints = built.roadPoints;
     this.stopPoints = built.stops;
@@ -314,6 +314,7 @@ export class ForestScene {
       buildings: built.buildings,
       streetTrees: built.streetTrees,
       streetLights: built.streetLights,
+      trafficLights: built.trafficLights,
       drawCalls: built.drawCalls,
     };
 
@@ -669,6 +670,14 @@ export class ForestScene {
         shatterMode: this.settings.shatterMode,
         season: this.settings.season,
       },
+      cityFacilities: this.settings.mapType === "city"
+        ? {
+            showroomTree: "tree_normal_medium_redwood_a.glb",
+            trees: this.cityStats.streetTrees,
+            showroomStreetLights: this.cityStats.streetLights,
+            showroomTrafficLights: this.cityStats.trafficLights,
+          }
+        : null,
     };
   }
 
@@ -834,7 +843,7 @@ export class ForestScene {
   private disposeWorld() {
     this.chunks.clear();
     this.collision.clear();
-    this.cityStats = { buildings: 0, streetTrees: 0, streetLights: 0, drawCalls: 0 };
+    this.cityStats = { buildings: 0, streetTrees: 0, streetLights: 0, trafficLights: 0, drawCalls: 0 };
     this.roadDistanceFn = null;
     if (this.farField) {
       this.staticLayer.remove(this.farField.group);

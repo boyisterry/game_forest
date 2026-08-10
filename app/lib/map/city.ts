@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type { CollisionWorld } from "./collision";
 import type { MapSettings } from "./types";
+import { buildLowPolyStreetLight, buildLowPolyTrafficLight, type TrafficPhase } from "./cityFurniture.ts";
+import type { ForestModelPack } from "./treeModels";
 
 export const CITY_MIN_X = -1100;
 export const CITY_MAX_X = 1100;
@@ -47,6 +49,7 @@ type CityBuildResult = {
   buildings: number;
   streetTrees: number;
   streetLights: number;
+  trafficLights: number;
   drawCalls: number;
 };
 
@@ -699,66 +702,198 @@ function farFromIntersections(value: number, roads: number[], radius: number) {
   return roads.every((road) => Math.abs(value - road) > radius);
 }
 
-function addStreetFurniture(group: THREE.Group, collision: CollisionWorld, xProfiles: CityRoadProfile[], zProfiles: CityRoadProfile[]) {
-  const lightPositions: Array<[number, number]> = [];
+type FurniturePlacement = {
+  x: number;
+  z: number;
+  rotationY: number;
+  scale?: number;
+};
+
+/**
+ * Batch every mesh in a showroom model into an InstancedMesh. This preserves
+ * the exact authored geometry/material hierarchy while keeping a city-wide
+ * deployment to one draw call per model part rather than one per object.
+ */
+function addInstancedShowroomModel(
+  group: THREE.Group,
+  prototype: THREE.Group,
+  placements: FurniturePlacement[],
+  name: string,
+) {
+  const layer = new THREE.Group();
+  layer.name = name;
+  prototype.updateMatrixWorld(true);
+  const placementMatrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  const sourceMeshes: THREE.Mesh[] = [];
+  prototype.traverse((object) => {
+    if (object instanceof THREE.Mesh) sourceMeshes.push(object);
+  });
+  for (const source of sourceMeshes) {
+    const material = Array.isArray(source.material)
+      ? source.material.map((entry) => entry.clone())
+      : source.material.clone();
+    const instances = new THREE.InstancedMesh(source.geometry.clone(), material, placements.length);
+    instances.name = `${name}-${source.name || "part"}`;
+    instances.castShadow = source.castShadow;
+    instances.receiveShadow = source.receiveShadow;
+    placements.forEach((placement, index) => {
+      position.set(placement.x, CURB_HEIGHT, placement.z);
+      rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), placement.rotationY);
+      scale.setScalar(placement.scale ?? 1);
+      placementMatrix.compose(position, rotation, scale);
+      instances.setMatrixAt(index, placementMatrix.clone().multiply(source.matrixWorld));
+    });
+    instances.instanceMatrix.needsUpdate = true;
+    layer.add(instances);
+  }
+  layer.userData.instanceCount = placements.length;
+  layer.userData.sourceModel = prototype.name;
+  group.add(layer);
+  return sourceMeshes.length;
+}
+
+function addShowroomStreetTrees(
+  group: THREE.Group,
+  collision: CollisionWorld,
+  placements: FurniturePlacement[],
+  modelPack: ForestModelPack | null,
+) {
+  const layer = new THREE.Group();
+  layer.name = "city-showroom-street-trees";
+  layer.userData.sourceModel = "tree_normal_medium_redwood_a.glb";
+  layer.userData.instanceCount = placements.length;
+  const template = modelPack?.medium.find((entry) => entry.id === "tree_normal_medium_redwood_a") ?? null;
+  const woodGeometry = template?.showroomWood?.clone() ?? template?.wood.clone()
+    ?? new THREE.CylinderGeometry(0.34, 0.46, 6.4, 7);
+  const leafGeometry = template?.leaves.clone() ?? new THREE.IcosahedronGeometry(2.35, 1);
+  const wood = new THREE.InstancedMesh(
+    woodGeometry,
+    new THREE.MeshStandardMaterial({ color: template ? 0xffffff : 0x685442, vertexColors: Boolean(template), roughness: 0.96 }),
+    placements.length,
+  );
+  wood.name = "city-showroom-tree-wood";
+  const leaves = new THREE.InstancedMesh(
+    leafGeometry,
+    new THREE.MeshPhongMaterial({
+      color: template ? 0xffffff : 0x5f8a57,
+      vertexColors: Boolean(template),
+      specular: 0x78955e,
+      shininess: 12,
+      emissive: 0x142806,
+      emissiveIntensity: 0.55,
+      side: THREE.DoubleSide,
+    }),
+    placements.length,
+  );
+  leaves.name = "city-showroom-tree-leaves";
+  const dummy = new THREE.Object3D();
+  placements.forEach((placement, index) => {
+    dummy.position.set(placement.x, CURB_HEIGHT, placement.z);
+    dummy.rotation.set(0, placement.rotationY, 0);
+    dummy.scale.setScalar(placement.scale ?? 1);
+    dummy.updateMatrix();
+    wood.setMatrixAt(index, dummy.matrix);
+    leaves.setMatrixAt(index, dummy.matrix);
+    collision.registerStatic({ x: placement.x, z: placement.z, r: Math.max(0.7, (template?.trunkRadius ?? 0.7) * (placement.scale ?? 1)) });
+  });
+  wood.instanceMatrix.needsUpdate = true;
+  leaves.instanceMatrix.needsUpdate = true;
+  wood.castShadow = true;
+  wood.receiveShadow = true;
+  leaves.receiveShadow = true;
+  layer.add(wood, leaves);
+  group.add(layer);
+  return 2;
+}
+
+function addStreetFurniture(
+  group: THREE.Group,
+  collision: CollisionWorld,
+  xProfiles: CityRoadProfile[],
+  zProfiles: CityRoadProfile[],
+  modelPack: ForestModelPack | null,
+) {
+  const lightPlacements: FurniturePlacement[] = [];
+  const treePlacements: FurniturePlacement[] = [];
   const maxIntersectionRadius = Math.max(...[...xProfiles, ...zProfiles].map((profile) => profile.corridorWidth * 0.6));
   for (const road of xProfiles) {
-    const sidewalkCenter = road.streetOuter + road.sidewalkWidth * 0.66;
+    const sidewalkCenter = road.streetOuter + road.sidewalkWidth * 0.62;
     const junctions = zProfiles.filter((profile) => roadsIntersect(road, profile)).map((profile) => profile.position);
-    for (let z = road.start + 28; z < road.end - 24; z += 92) {
-      if (farFromIntersections(z, junctions, maxIntersectionRadius)) lightPositions.push([road.position + sidewalkCenter, z]);
+    for (let z = road.start + 34; z < road.end - 28; z += 84) {
+      if (!farFromIntersections(z, junctions, maxIntersectionRadius)) continue;
+      lightPlacements.push(
+        { x: road.position - sidewalkCenter, z, rotationY: 0 },
+        { x: road.position + sidewalkCenter, z, rotationY: Math.PI },
+      );
+      const treeZ = z + 42;
+      if (treeZ < road.end - 18 && farFromIntersections(treeZ, junctions, maxIntersectionRadius)) {
+        treePlacements.push(
+          { x: road.position - sidewalkCenter, z: treeZ, rotationY: (treeZ * 0.017) % (Math.PI * 2), scale: 0.76 + ((Math.abs(treeZ) % 19) / 190) },
+          { x: road.position + sidewalkCenter, z: treeZ, rotationY: (treeZ * 0.021 + 1.7) % (Math.PI * 2), scale: 0.74 + ((Math.abs(treeZ) % 23) / 205) },
+        );
+      }
     }
   }
   for (const road of zProfiles) {
-    const sidewalkCenter = road.streetOuter + road.sidewalkWidth * 0.66;
+    const sidewalkCenter = road.streetOuter + road.sidewalkWidth * 0.62;
     const junctions = xProfiles.filter((profile) => roadsIntersect(road, profile)).map((profile) => profile.position);
-    for (let x = road.start + 28; x < road.end - 24; x += 92) {
-      if (farFromIntersections(x, junctions, maxIntersectionRadius)) lightPositions.push([x, road.position + sidewalkCenter]);
+    for (let x = road.start + 34; x < road.end - 28; x += 84) {
+      if (!farFromIntersections(x, junctions, maxIntersectionRadius)) continue;
+      lightPlacements.push(
+        { x, z: road.position - sidewalkCenter, rotationY: -Math.PI * 0.5 },
+        { x, z: road.position + sidewalkCenter, rotationY: Math.PI * 0.5 },
+      );
+      const treeX = x + 42;
+      if (treeX < road.end - 18 && farFromIntersections(treeX, junctions, maxIntersectionRadius)) {
+        treePlacements.push(
+          { x: treeX, z: road.position - sidewalkCenter, rotationY: (treeX * 0.019) % (Math.PI * 2), scale: 0.76 + ((Math.abs(treeX) % 17) / 180) },
+          { x: treeX, z: road.position + sidewalkCenter, rotationY: (treeX * 0.023 + 2.1) % (Math.PI * 2), scale: 0.75 + ((Math.abs(treeX) % 29) / 240) },
+        );
+      }
     }
   }
 
-  const dummy = new THREE.Object3D();
-  const poles = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.13, 0.2, 6.8, 7),
-    new THREE.MeshStandardMaterial({ color: 0x35434b, roughness: 0.68, metalness: 0.58 }),
-    lightPositions.length,
-  );
-  const lamps = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(0.75, 0.3, 0.38),
-    new THREE.MeshStandardMaterial({ color: 0xffe2a2, emissive: 0xffc765, emissiveIntensity: 0.45, roughness: 0.52 }),
-    lightPositions.length,
-  );
-  lightPositions.forEach(([x, z], index) => {
-    setInstance(poles, index, dummy, [x, 3.4 + CURB_HEIGHT, z], [1, 1, 1]);
-    setInstance(lamps, index, dummy, [x, 6.67 + CURB_HEIGHT, z], [1, 1, 1]);
-  });
-  poles.instanceMatrix.needsUpdate = true;
-  lamps.instanceMatrix.needsUpdate = true;
-  group.add(poles, lamps);
+  const streetLight = buildLowPolyStreetLight();
+  streetLight.userData.setPowered(true);
+  let drawCalls = addInstancedShowroomModel(group, streetLight, lightPlacements, "city-showroom-street-lights");
+  lightPlacements.forEach(({ x, z }) => collision.registerStatic({ x, z, r: 0.58 }));
+  drawCalls += addShowroomStreetTrees(group, collision, treePlacements, modelPack);
 
-  const treePositions = lightPositions.filter((_, index) => index % 4 === 2);
-  for (let x = -1000; x <= 1000; x += 88) treePositions.push([x, 818]);
-  const trunks = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.2, 0.28, 3.3, 7),
-    new THREE.MeshStandardMaterial({ color: 0x685442, roughness: 1 }),
-    treePositions.length,
-  );
-  const crowns = new THREE.InstancedMesh(
-    new THREE.IcosahedronGeometry(1.4, 1),
-    new THREE.MeshStandardMaterial({ color: 0x5f8a57, roughness: 0.95 }),
-    treePositions.length,
-  );
-  treePositions.forEach(([x, z], index) => {
-    setInstance(trunks, index, dummy, [x, 1.65 + CURB_HEIGHT, z], [1, 1, 1]);
-    setInstance(crowns, index, dummy, [x, 4.45 + CURB_HEIGHT, z], [1.15, 1.4, 1.15]);
-    collision.registerStatic({ x, z, r: 0.72 });
-  });
-  trunks.instanceMatrix.needsUpdate = true;
-  crowns.instanceMatrix.needsUpdate = true;
-  trunks.castShadow = true;
-  crowns.castShadow = true;
-  group.add(trunks, crowns);
-  return { streetLights: lightPositions.length, streetTrees: treePositions.length };
+  const signalsByPhase: Record<TrafficPhase, FurniturePlacement[]> = { red: [], yellow: [], green: [] };
+  for (const vertical of xProfiles) {
+    for (const horizontal of zProfiles) {
+      if (!roadsIntersect(vertical, horizontal)) continue;
+      const xOffset = vertical.streetOuter + vertical.sidewalkWidth * 0.34;
+      const zOffset = horizontal.streetOuter + horizontal.sidewalkWidth * 0.34;
+      const verticalHasPriority = vertical.lanesPerDirection >= horizontal.lanesPerDirection;
+      const verticalPhase: TrafficPhase = verticalHasPriority ? "green" : "red";
+      const horizontalPhase: TrafficPhase = verticalHasPriority ? "red" : "green";
+      signalsByPhase[verticalPhase].push(
+        { x: vertical.position - xOffset, z: horizontal.position + zOffset, rotationY: 0 },
+        { x: vertical.position + xOffset, z: horizontal.position - zOffset, rotationY: Math.PI },
+      );
+      signalsByPhase[horizontalPhase].push(
+        { x: vertical.position + xOffset, z: horizontal.position + zOffset, rotationY: Math.PI * 0.5 },
+        { x: vertical.position - xOffset, z: horizontal.position - zOffset, rotationY: -Math.PI * 0.5 },
+      );
+    }
+  }
+  for (const phase of ["red", "green"] as const) {
+    if (!signalsByPhase[phase].length) continue;
+    const signal = buildLowPolyTrafficLight();
+    signal.userData.setPhase(phase);
+    drawCalls += addInstancedShowroomModel(group, signal, signalsByPhase[phase], `city-showroom-traffic-lights-${phase}`);
+    signalsByPhase[phase].forEach(({ x, z }) => collision.registerStatic({ x, z, r: 0.64 }));
+  }
+  return {
+    streetLights: lightPlacements.length,
+    streetTrees: treePlacements.length,
+    trafficLights: signalsByPhase.red.length + signalsByPhase.green.length,
+    drawCalls,
+  };
 }
 
 function addDeliveryStops(
@@ -945,7 +1080,7 @@ function addRestrictedBoundaryCompounds(group: THREE.Group, collision: Collision
   group.add(compounds);
 }
 
-export function buildCityWorld(settings: MapSettings, collision: CollisionWorld): CityBuildResult {
+export function buildCityWorld(settings: MapSettings, collision: CollisionWorld, modelPack: ForestModelPack | null = null): CityBuildResult {
   const group = new THREE.Group();
   group.name = "rain-harbor-city";
   const profiles = getCityRoadProfiles(settings.roadWidth, settings.seed);
@@ -1014,7 +1149,7 @@ export function buildCityWorld(settings: MapSettings, collision: CollisionWorld)
   ]);
 
   const buildings = addBuildings(group, settings, collision, profiles.x, profiles.z);
-  const furniture = addStreetFurniture(group, collision, profiles.x, profiles.z);
+  const furniture = addStreetFurniture(group, collision, profiles.x, profiles.z, modelPack);
   const stops = addDeliveryStops(group, route, settings.deliveryStops, collision, profiles.x, profiles.z);
   addRestrictedBoundaryCompounds(group, collision, settings.seed);
 
@@ -1058,6 +1193,7 @@ export function buildCityWorld(settings: MapSettings, collision: CollisionWorld)
     buildings,
     streetTrees: furniture.streetTrees,
     streetLights: furniture.streetLights,
-    drawCalls: 47,
+    trafficLights: furniture.trafficLights,
+    drawCalls: 45 + furniture.drawCalls,
   };
 }

@@ -1,5 +1,32 @@
 Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可扩展的地图生成器，并参考 gpt_demo 的唯美视觉与 cursor_demo 的工程结构。
 
+## Current iteration: deploy showroom street facilities into Rain Harbor
+
+- Replace Rain Harbor's placeholder street trees and lamps with the exact showroom tree, street-light, and traffic-light sources.
+- Arrange trees and lamps along both sidewalk verges, clear of intersections, with lamp arms facing the carriageway.
+- Add four directionally oriented signals to every active intersection, using coherent red/green phases based on road hierarchy.
+- Batch showroom mesh parts as instanced geometry to preserve detail without multiplying city draw calls per object.
+
+### Implemented
+
+- Rain Harbor now places 306 exact showroom street lights along both sidewalk verges; every lamp arm faces inward toward the carriageway and placements clear active intersections.
+- Added 270 street trees sourced from `tree_normal_medium_redwood_a.glb`, interleaved between lamps at realistic sidewalk scale with trunk collision.
+- Added 72 exact showroom traffic signals: four correctly rotated poles per active junction, with perpendicular approaches assigned coherent red/green phases from the road hierarchy.
+- Retained an untouched copy of the full showroom tree wood geometry before the streamed-forest bole optimization, so city trees do not lose their original trunk.
+- Added compact `cityFacilities` telemetry to the game text state and structural regressions for source identity, counts, and signal deployment.
+
+### Validation
+
+- Production build succeeds; targeted ESLint is clean and all 107 project tests pass.
+- Street-level browser QA checked a complete signalized crossing and a separate mid-block segment: signals face their approaches, crosswalks remain clear, trees and lamps sit on the sidewalk verge, and model scale reads consistently.
+- Ride mode still enters successfully in Rain Harbor and reports the normal HUD/minimap state.
+- The required bundled web-game client was invoked but still cannot import its own missing `playwright` package; equivalent DOM, interaction, screenshot, and console checks used the in-app browser.
+- No new browser errors were introduced. Two existing forest material warnings about an undefined optional roughness map remain unchanged.
+
+### TODO / next ideas
+
+- If animated traffic is added later, drive the existing signal phase groups from a shared intersection timer rather than rebuilding their instanced meshes.
+
 ## Current iteration
 
 - Add abundant low-poly grass/weeds that visually belong with the existing trees.
@@ -405,3 +432,121 @@ Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可�
 - Production build and all 84 regression tests pass; the focused mountain/motorcycle suites pass 48/48.
 - In-app browser QA confirmed the northeast edge streams successfully, workshop/play switching still works, ride rendering is intact, and no runtime errors were emitted. Only the two pre-existing optional `roughnessMap: undefined` warnings remain.
 - The bundled game client was run as required but still cannot import its own missing `playwright` dependency; equivalent interaction, screenshot, DOM, and console checks were completed in the in-app browser.
+## 2026-08-10 local dev startup
+
+- `npm run dev` initially failed because Miniflare's SQLite state on the external workspace volume reported `SQLITE_BUSY`, then caused a `workerd` segmentation fault after the stale lock was cleared.
+- Preserved the external-volume state as `.wrangler/state-external-backup-20260810` and linked `.wrangler/state` to `/tmp/zd_game1-wrangler-state` so SQLite runs on the local macOS filesystem.
+- Development server now starts successfully at `http://localhost:3000/` and returns HTTP 200.
+
+## Current iteration: unified night lighting for independent city models
+
+- Extended the existing showroom night switch to the apartment, villa, hot-dog kiosk, newsstand, and phone booth alongside the street light and food truck.
+- Added warm emissive windows plus entrance/porch spill lights to the community apartment and small villa.
+- Added switchable ceiling/display lamps and warm interior spill to the hot-dog kiosk and newsstand.
+- Every affected model exposes its own reusable `setPowered` control while the showroom remains the single source of night/day state.
+
+### Validation
+
+- Independent-model regressions pass 13/13; the full production build and all 106 project tests pass.
+- In-app browser QA verified the unified night switch on the apartment, villa, hot-dog kiosk, newsstand, phone booth, street light, and food truck; switching back to day restores blue unlit glazing and disables spill lights.
+- The newsstand display light was moved forward after visual QA showed its first position was hidden by the back panel; the final warm strip and display spill are clearly visible.
+- Browser console QA reported no warnings or errors for the showroom interaction sequence.
+- The required bundled web-game client was invoked but still cannot import its own missing `playwright` package; equivalent focus, click, screenshot, day/night, and console checks were completed with the in-app browser.
+- The validated production server is running at `http://localhost:3000/` because rebuilding Vite's development optimizer cache on the external workspace volume was abnormally slow after the full build.
+
+## Follow-up: hot-dog kiosk rear-wall z-fighting
+
+- The screenshot exposed a 0.445m coplanar overlap between the cream upper rear wall and red lower rear wall.
+- Shortened and raised the cream panel so its bottom edge meets the red panel's top edge exactly at y=1.52, eliminating overlapping depth surfaces.
+- Added a geometry regression that calculates both panel bounds and requires an exact non-overlapping seam.
+
+### Validation
+
+- Targeted city-furniture tests pass 13/13; targeted ESLint passes.
+- Full production build and all 106 project tests pass.
+- Close browser QA inspected the rear seam head-on and from both oblique angles while orbiting; the boundary remains clean and stable with no speckling or flicker.
+- Browser console contains no warnings or errors. The bundled web-game client remains unavailable because its own `playwright` package is missing, so the required visual QA used the in-app browser.
+- Rebuilt production server is running at `http://localhost:3000/`.
+
+## Follow-up: realistic apartment and villa showcase scale
+
+- Measured the unscaled models against the food truck and newsstand: truck 4.13m tall, newsstand 4.14m, apartment 10.23m, and villa 6.57m.
+- Applied a 1.5x apartment showcase scale (15.35m displayed height) and 1.3x villa scale (8.54m displayed height), producing credible five-storey and two-storey proportions.
+- Applied scale at the normal/shattered pair root so both states remain identical in size, and updated reported model bounds to reflect displayed dimensions.
+- Moved the two building pedestals apart, enlarged their bases, and recalibrated overview/apartment/villa focus cameras for the larger models.
+
+### Validation
+
+- Targeted city-furniture tests pass 13/13 and targeted ESLint passes.
+- Full production build and all 106 project tests pass; a final post-camera production build also passes.
+- Browser QA compared the apartment and villa directly with the truck, hot-dog kiosk, and newsstand in overview and focused views; the apartment is about 3.7x the truck height and the villa about 2.1x the newsstand height.
+- Normal, shattered, and restored states retain the same corrected scale. Browser console contains no warnings or errors.
+- Production server is running at `http://localhost:3000/`.
+
+## Follow-up: enterable apartment entrance and five-storey stairwell
+
+- Replaced the apartment's solid central mass with separate residential wings and a hollow internal stairwell.
+- Added a left-hinged entrance door with reusable `setDoorOpen` control, framed glass, handle, canopy, exterior step, and a dedicated showroom open/close button.
+- Built four connected switchback storey transitions with 64 physical stair treads, four intermediate landings, five floor platforms, and handrails.
+- Exposed ordered `floorLevels` and a monotonically ascending `climbPath` so later character collision or navigation can follow the same modeled stairs.
+- Enclosed the upper stairwell behind a translucent framed glass facade so the stairs remain visible while reading as an indoor circulation core.
+- Kept door interaction compatible with the apartment's night lighting and reversible normal/shattered model pair.
+
+### Validation
+
+- Targeted city-furniture tests pass 13/13 and targeted ESLint passes.
+- Full production build and all 106 project tests pass.
+- In-app browser QA verified open and closed door states, visible stair continuity across all five levels, shatter/repair, restored door interaction, and night lighting. Browser console logs are empty.
+- The required bundled web-game client was invoked but still cannot import its own missing `playwright` package; equivalent interaction, screenshots, DOM state, and console checks were completed with the in-app browser.
+- Rebuilt production server is running at `http://localhost:3000/`.
+
+## Follow-up: apartment balcony and entrance geometry cleanup
+
+- Removed the hidden balcony posts and separated every front/side railing panel from the balcony slab by 1cm, eliminating the previous depth-fighting strip.
+- Added matching left and right side panels to all eight balconies; the building facade now closes the fourth edge, so every balcony is enclosed on all sides.
+- Added two apartment doors with handles at each of the five stair landings (10 doors total), visible through the stairwell glazing.
+- Reduced the entrance door from 2.10m to 1.78m high and 1.30m to 1.18m wide, then raised its base to the interior floor level so the open door no longer penetrates the step or foundation.
+- Filled the two fixed gaps beside the entrance door with dedicated glass sidelights.
+
+### Validation
+
+- Geometry regressions verify all 24 balcony rail panels remain above the slab surfaces, all eight balconies have both side rails, all ten floor doors exist, both entry sidelights exist, and the entrance door stays above the step.
+- Targeted city-furniture tests pass 13/13; targeted ESLint passes.
+- Full production build and all 106 project tests pass.
+- In-app browser QA inspected the facade head-on and from an oblique side angle, verified the open/closed entrance states plus shatter/repair, and found no railing speckling or new console warnings/errors.
+- The bundled web-game client was invoked as required but still cannot import its own missing `playwright` dependency; equivalent screenshots, interaction, DOM-state, and console checks used the in-app browser.
+- Rebuilt production service is running at `http://localhost:3000/`.
+
+## Follow-up: enterable furnished villa and chimney repair
+
+- Expanded the villa's main footprint to 7.8 × 6.2m (8.3 × 7.58 × 8.12m full model bounds) and replaced both solid storey blocks with thin exterior walls, floor slabs, a real entrance opening, and a second-floor stairwell opening.
+- Added a hinged front door with `setDoorOpen`, transparent glazing, handle, and a dedicated showroom button.
+- Furnished the first floor with a sofa and cushions, television and console, coffee table, dining table and four chairs, kitchen counter, stove with four burners, and refrigerator.
+- Added a 12-step staircase and handrail connecting the two physical floor levels.
+- Furnished the second floor with a bed, headboard, nightstands, wardrobe, toilet, cistern, washbasin, shower tray, and glass shower screen.
+- Added semantic room anchors for the entrance, living room, dining/kitchen, stairs, bedroom, and bathroom.
+- Added a villa-only dollhouse cutaway toggle that hides the front/right exterior shell and roof, exposing both furnished floors for inspection; restoring it returns the complete exterior.
+- Repositioned the chimney from the roof slope equation and added a dedicated flashing collar beneath it, removing the previous raw roof intersection.
+
+### Validation
+
+- Targeted city-furniture tests pass 13/13 and targeted ESLint passes.
+- Full production build and all 106 project tests pass.
+- In-app browser QA verified the exterior chimney/flashing, open and closed door states, clear entrance and staircase, complete two-floor cutaway contents, night/day lighting, shatter/repair, and restoration from cutaway to the full exterior.
+- Browser console warnings/errors are empty. The bundled web-game client was invoked but still cannot import its own missing `playwright` dependency, so equivalent live screenshots, interactions, DOM state, and console checks used the in-app browser.
+- Rebuilt production service is running at `http://localhost:3000/` and the showroom returns HTTP 200.
+
+## Follow-up: corrected villa upstairs circulation and grounded entry steps
+
+- Reversed the internal staircase so it rises from the rear of the first floor toward a new front-side upstairs landing, keeping the arrival point away from the bathroom fixtures.
+- Added a dedicated upstairs landing and front hallway so the bedroom remains reachable without crossing a wall or the bathroom.
+- Moved the bathroom to an enclosed rear-left room, added a clear doorway and header, and rearranged the toilet, sink, and shower inside it.
+- Added two graduated approach steps between the porch and terrain; the lowest step now has an exact world-space bottom elevation of y=0 instead of floating above the ground.
+
+### Validation
+
+- Geometry regressions verify the staircase direction, upstairs landing/hallway, rear bathroom boundary and fixtures, two approach steps, strictly ascending tread heights, and exact ground contact.
+- Targeted city-furniture tests pass 13/13, targeted ESLint passes, and the full production build plus all 106 project tests pass.
+- In-app browser QA inspected the furnished cutaway and restored exterior, verified the door open/close interaction, confirmed the approach steps visually meet the terrain, and found no console warnings or errors.
+- The bundled web-game client was invoked but still cannot import its own missing `playwright` dependency; equivalent live interaction and visual QA used the in-app browser.
+- Rebuilt production service is running at `http://localhost:3000/` and the showroom returns HTTP 200.

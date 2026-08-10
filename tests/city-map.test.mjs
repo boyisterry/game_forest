@@ -27,9 +27,21 @@ test("builds a playable five-district city with a delivery loop", () => {
   assert.equal(city.group.name, "rain-harbor-city");
   assert.ok(city.buildings >= 70, `expected a substantial skyline, got ${city.buildings}`);
   assert.ok(city.streetLights >= 100, `expected lit streets, got ${city.streetLights}`);
+  assert.ok(city.trafficLights >= 40, `expected signals at active intersections, got ${city.trafficLights}`);
   assert.ok(city.roadPoints.length >= 200, "delivery route should be smoothly sampled");
   assert.equal(city.stops.length, 8);
   assert.ok(city.group.children.length >= 10, "city should contain roads, buildings, furniture and coast");
+  const lamps = city.group.getObjectByName("city-showroom-street-lights");
+  const trees = city.group.getObjectByName("city-showroom-street-trees");
+  const redSignals = city.group.getObjectByName("city-showroom-traffic-lights-red");
+  const greenSignals = city.group.getObjectByName("city-showroom-traffic-lights-green");
+  assert.equal(lamps?.userData.sourceModel, "city-street-light-lowpoly");
+  assert.equal(lamps?.userData.instanceCount, city.streetLights);
+  assert.equal(trees?.userData.sourceModel, "tree_normal_medium_redwood_a.glb");
+  assert.equal(trees?.userData.instanceCount, city.streetTrees);
+  assert.equal((redSignals?.userData.instanceCount ?? 0) + (greenSignals?.userData.instanceCount ?? 0), city.trafficLights);
+  assert.ok(redSignals?.getObjectByName("city-showroom-traffic-lights-red-traffic-light-lens"));
+  assert.ok(greenSignals?.getObjectByName("city-showroom-traffic-lights-green-traffic-light-lens"));
 });
 
 test("city clamp keeps riding on land and inside the coastal edge", () => {

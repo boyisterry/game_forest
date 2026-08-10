@@ -11,6 +11,8 @@ export type ForestModelTemplate = {
   trunkRadius: number;
   wood: THREE.BufferGeometry;
   leaves: THREE.BufferGeometry;
+  /** Untouched source-tree wood retained for street/showroom placements. */
+  showroomWood?: THREE.BufferGeometry;
   /** Real fragments rebuilt from the matching legacy shattered-tree GLB. */
   shatterWood?: THREE.BufferGeometry;
   shatterLeaves?: THREE.BufferGeometry;
@@ -393,6 +395,10 @@ export async function loadForestModelPack(): Promise<ForestModelPack> {
     const normal = byId.get(normalTrees[i]);
     const shattered = byId.get(shatteredTrees[i]);
     if (!normal || !shattered) continue;
+    // The streamed forest replaces the GLB's central bole with a cheaper shared
+    // trunk. Keep one untouched copy so Rain Harbor can deploy the exact same
+    // complete tree that appears in the street-furniture showroom.
+    normal.showroomWood = normal.wood.clone();
     shattered.wood.computeBoundingBox();
     shattered.leaves.computeBoundingBox();
     const bounds = new THREE.Box3();
@@ -421,6 +427,7 @@ export function disposeForestModelPack(pack: ForestModelPack | null) {
   for (const template of pack.all) {
     template.wood.dispose();
     template.leaves.dispose();
+    template.showroomWood?.dispose();
     template.shatterWood?.dispose();
     template.shatterLeaves?.dispose();
   }

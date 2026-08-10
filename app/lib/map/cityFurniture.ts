@@ -36,6 +36,7 @@ type HotDogKioskModel = THREE.Group & {
     occupantAnchor: THREE.Vector3;
     occupantSpace: THREE.Vector3;
     setServingOpen: (open: boolean) => void;
+    setPowered: (powered: boolean) => void;
   };
 };
 
@@ -44,6 +45,7 @@ type NewsstandModel = THREE.Group & {
     modelType: "newsstand";
     generatedLocally: true;
     setOpen: (open: boolean) => void;
+    setPowered: (powered: boolean) => void;
   };
 };
 
@@ -70,6 +72,26 @@ type ResidentialBuildingModel = THREE.Group & {
     generatedLocally: true;
     floorCount: number;
     apartmentCount: number;
+    floorLevels: number[];
+    climbPath: THREE.Vector3[];
+    setDoorOpen: (open: boolean) => void;
+    setPowered: (powered: boolean) => void;
+  };
+};
+
+type HighRiseResidentialModel = THREE.Group & {
+  userData: {
+    modelType: "high-rise-residential";
+    generatedLocally: true;
+    floorCount: number;
+    apartmentCount: number;
+    elevatorCount: number;
+    emergencyStairCount: number;
+    floorLevels: number[];
+    elevatorFloors: number[];
+    setElevatorFloors: (floors: [number, number]) => void;
+    setInteriorCutaway: (cutaway: boolean) => void;
+    setPowered: (powered: boolean) => void;
   };
 };
 
@@ -79,6 +101,11 @@ type SmallVillaModel = THREE.Group & {
     generatedLocally: true;
     floorCount: number;
     occupantAnchor: THREE.Vector3;
+    floorLevels: number[];
+    roomAnchors: Record<"entrance" | "livingRoom" | "diningKitchen" | "stairs" | "bedroom" | "bathroom", THREE.Vector3>;
+    setDoorOpen: (open: boolean) => void;
+    setInteriorCutaway: (cutaway: boolean) => void;
+    setPowered: (powered: boolean) => void;
   };
 };
 
@@ -437,6 +464,12 @@ export function buildLowPolyHotDogKiosk(): HotDogKioskModel {
   const cream = new THREE.MeshStandardMaterial({ color: 0xf4dfae, roughness: 0.86 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x342f2b, roughness: 0.76, metalness: 0.12 });
   const steel = new THREE.MeshStandardMaterial({ color: 0x8f9b9a, roughness: 0.48, metalness: 0.56 });
+  const warmLight = new THREE.MeshStandardMaterial({
+    color: 0xffe1a3,
+    emissive: 0xffa53a,
+    emissiveIntensity: 0.18,
+    roughness: 0.32,
+  });
 
   const base = mesh(new THREE.BoxGeometry(3.5, 0.28, 2.5), dark, "hot-dog-kiosk-base");
   base.position.y = 0.14;
@@ -444,8 +477,10 @@ export function buildLowPolyHotDogKiosk(): HotDogKioskModel {
   floor.position.y = 0.34;
   const rearLowerWall = mesh(new THREE.BoxGeometry(3.08, 1.18, 0.16), red, "hot-dog-kiosk-rear-lower-wall");
   rearLowerWall.position.set(0, 0.93, -1.02);
-  const back = mesh(new THREE.BoxGeometry(3.1, 2.05, 0.16), cream, "hot-dog-kiosk-back-wall");
-  back.position.set(0, 2.1, -1.02);
+  // Begin exactly at the lower wall's top edge. The old 0.445 m coplanar
+  // overlap made the cream and red surfaces fight in the depth buffer.
+  const back = mesh(new THREE.BoxGeometry(3.1, 1.6, 0.16), cream, "hot-dog-kiosk-back-wall");
+  back.position.set(0, 2.32, -1.02);
   const leftLowerWall = mesh(new THREE.BoxGeometry(0.16, 1.18, 2.04), red, "hot-dog-kiosk-lower-side-wall");
   leftLowerWall.position.set(-1.46, 0.93, 0);
   const rightLowerWall = leftLowerWall.clone();
@@ -475,6 +510,12 @@ export function buildLowPolyHotDogKiosk(): HotDogKioskModel {
   const roof = mesh(new THREE.BoxGeometry(3.85, 0.22, 2.8), mustard, "hot-dog-kiosk-canopy");
   roof.position.y = 3.34;
   group.add(roof);
+  const ceilingLamp = mesh(new THREE.BoxGeometry(1.85, 0.1, 0.42), warmLight, "hot-dog-kiosk-ceiling-lamp");
+  ceilingLamp.position.set(0, 3.16, 0.18);
+  const interiorLight = new THREE.PointLight(0xffbd67, 0, 7.5, 1.8);
+  interiorLight.name = "hot-dog-kiosk-interior-light";
+  interiorLight.position.set(0, 2.82, 0.28);
+  group.add(ceilingLamp, interiorLight);
   for (let i = 0; i < 8; i += 1) {
     const stripe = mesh(new THREE.BoxGeometry(0.44, 0.42, 0.1), i % 2 === 0 ? red : cream, "hot-dog-kiosk-canopy-stripe");
     stripe.position.set(-1.55 + i * 0.44, 3.14, 1.43);
@@ -507,8 +548,13 @@ export function buildLowPolyHotDogKiosk(): HotDogKioskModel {
     setServingOpen(open: boolean) {
       hatchPivot.rotation.x = open ? -1.12 : 0;
     },
+    setPowered(powered: boolean) {
+      warmLight.emissiveIntensity = powered ? 3.4 : 0.18;
+      interiorLight.intensity = powered ? 3.2 : 0;
+    },
   };
   group.userData.setServingOpen(true);
+  group.userData.setPowered(false);
   return group;
 }
 
@@ -518,6 +564,12 @@ export function buildLowPolyNewsstand(): NewsstandModel {
   const green = new THREE.MeshStandardMaterial({ color: 0x3f6f61, roughness: 0.82 });
   const cream = new THREE.MeshStandardMaterial({ color: 0xeadfbf, roughness: 0.88 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x263b36, roughness: 0.78 });
+  const warmLight = new THREE.MeshStandardMaterial({
+    color: 0xffe7b0,
+    emissive: 0xffad47,
+    emissiveIntensity: 0.16,
+    roughness: 0.34,
+  });
   const paperMaterials = [
     new THREE.MeshStandardMaterial({ color: 0xe9d6a8, roughness: 0.92 }),
     new THREE.MeshStandardMaterial({ color: 0xc75843, roughness: 0.88 }),
@@ -559,6 +611,12 @@ export function buildLowPolyNewsstand(): NewsstandModel {
   const sign = mesh(new THREE.BoxGeometry(2.75, 0.62, 0.16), green, "newsstand-sign");
   sign.position.set(0, 3.83, 0.42);
   group.add(roof, sign);
+  const displayLamp = mesh(new THREE.BoxGeometry(2.35, 0.1, 0.32), warmLight, "newsstand-display-lamp");
+  displayLamp.position.set(0, 3.18, 1.2);
+  const displayLight = new THREE.PointLight(0xffc66f, 0, 8.5, 1.75);
+  displayLight.name = "newsstand-interior-light";
+  displayLight.position.set(0, 2.56, 1.48);
+  group.add(displayLamp, displayLight);
   for (let i = 0; i < 5; i += 1) {
     const letterBlock = mesh(new THREE.BoxGeometry(0.28, 0.3, 0.04), cream, "newsstand-sign-letter-block");
     letterBlock.position.set(-0.72 + i * 0.36, 3.83, 0.53);
@@ -584,8 +642,13 @@ export function buildLowPolyNewsstand(): NewsstandModel {
     setOpen(open: boolean) {
       shutterPivot.rotation.x = open ? -1.2 : 0;
     },
+    setPowered(powered: boolean) {
+      warmLight.emissiveIntensity = powered ? 3.2 : 0.16;
+      displayLight.intensity = powered ? 4.1 : 0;
+    },
   };
   group.userData.setOpen(true);
+  group.userData.setPowered(false);
   return group;
 }
 
@@ -789,30 +852,156 @@ export function buildLowPolyResidentialBuilding(): ResidentialBuildingModel {
   const brick = new THREE.MeshStandardMaterial({ color: 0x9f6550, roughness: 0.94 });
   const trim = new THREE.MeshStandardMaterial({ color: 0xf0e7d5, roughness: 0.84 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x3c4548, roughness: 0.72, metalness: 0.18 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x78a9b7, roughness: 0.28, metalness: 0.08 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x78a9b7,
+    emissive: 0x193845,
+    emissiveIntensity: 0.08,
+    roughness: 0.28,
+    metalness: 0.08,
+  });
+  const entranceLightMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffe3aa,
+    emissive: 0xffa83f,
+    emissiveIntensity: 0.14,
+    roughness: 0.34,
+  });
   const balcony = new THREE.MeshStandardMaterial({ color: 0xc5bba8, roughness: 0.88 });
   const roof = new THREE.MeshStandardMaterial({ color: 0x5a5b58, roughness: 0.82 });
   const acMaterial = new THREE.MeshStandardMaterial({ color: 0xd6d8d4, roughness: 0.76, metalness: 0.12 });
+  const stairMaterial = new THREE.MeshStandardMaterial({ color: 0xb9afa0, roughness: 0.92 });
+  const stairwellMaterial = new THREE.MeshStandardMaterial({ color: 0xe6dcc8, roughness: 0.94, side: THREE.DoubleSide });
+  const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x334a51, roughness: 0.58, metalness: 0.22 });
+  const stairwellGlass = new THREE.MeshStandardMaterial({
+    color: 0x83aeb7,
+    emissive: 0x18343c,
+    emissiveIntensity: 0.06,
+    roughness: 0.32,
+    transparent: true,
+    opacity: 0.48,
+    depthWrite: false,
+  });
 
   const foundation = mesh(new THREE.BoxGeometry(7.4, 0.3, 5.25), dark, "residential-building-foundation");
   foundation.position.y = 0.15;
-  const body = mesh(new THREE.BoxGeometry(6.9, 8.8, 4.65), concrete, "residential-building-main-body");
-  body.position.y = 4.7;
-  const brickCore = mesh(new THREE.BoxGeometry(2.05, 8.88, 4.75), brick, "residential-building-stair-core");
-  brickCore.position.set(0, 4.72, 0);
+  const leftWing = mesh(new THREE.BoxGeometry(2.42, 8.8, 4.65), concrete, "residential-building-left-wing");
+  leftWing.position.set(-2.24, 4.7, 0);
+  const rightWing = mesh(new THREE.BoxGeometry(2.42, 8.8, 4.65), concrete, "residential-building-right-wing");
+  rightWing.position.set(2.24, 4.7, 0);
+  const stairwellBack = mesh(new THREE.BoxGeometry(2.06, 8.88, 0.18), stairwellMaterial, "residential-building-stair-core-back-wall");
+  stairwellBack.position.set(0, 4.72, -2.28);
+  const stairwellLeftJamb = mesh(new THREE.BoxGeometry(0.22, 8.88, 0.32), brick, "residential-building-stairwell-jamb");
+  stairwellLeftJamb.position.set(-0.92, 4.72, 2.22);
+  const stairwellRightJamb = stairwellLeftJamb.clone();
+  stairwellRightJamb.position.x = 0.92;
   const roofSlab = mesh(new THREE.BoxGeometry(7.15, 0.28, 4.9), roof, "residential-building-flat-roof");
   roofSlab.position.y = 9.22;
-  group.add(foundation, body, brickCore, roofSlab);
+  group.add(foundation, leftWing, rightWing, stairwellBack, stairwellLeftJamb, stairwellRightJamb, roofSlab);
 
-  const entrance = mesh(new THREE.BoxGeometry(1.3, 2.1, 0.12), glass, "residential-building-entrance");
-  entrance.position.set(0, 1.35, 2.39);
+  const doorPivot = new THREE.Group();
+  doorPivot.name = "residential-building-door-pivot";
+  doorPivot.position.set(-0.59, 0.52, 2.4);
+  const entrance = mesh(new THREE.BoxGeometry(1.18, 1.78, 0.1), doorMaterial, "residential-building-entrance");
+  entrance.position.set(0.59, 0.89, 0);
+  const doorGlass = mesh(new THREE.BoxGeometry(0.62, 0.68, 0.035), glass, "residential-building-entrance-door-glass");
+  doorGlass.position.set(0.59, 1.08, 0.066);
+  const doorHandle = mesh(new THREE.BoxGeometry(0.06, 0.36, 0.08), trim, "residential-building-entrance-door-handle");
+  doorHandle.position.set(0.99, 0.86, 0.1);
+  doorPivot.add(entrance, doorGlass, doorHandle);
+  for (const x of [-0.71, 0.71]) {
+    const sidelight = mesh(new THREE.BoxGeometry(0.2, 1.78, 0.06), stairwellGlass, "residential-building-entrance-sidelight");
+    sidelight.position.set(x, 1.41, 2.39);
+    group.add(sidelight);
+  }
   const entranceFrame = mesh(new THREE.BoxGeometry(1.65, 0.16, 0.28), trim, "residential-building-entrance-frame");
   entranceFrame.position.set(0, 2.45, 2.42);
   const canopy = mesh(new THREE.BoxGeometry(2.25, 0.18, 1.12), roof, "residential-building-entrance-canopy");
   canopy.position.set(0, 2.72, 2.77);
+  const entranceLamp = mesh(new THREE.BoxGeometry(0.78, 0.1, 0.32), entranceLightMaterial, "residential-building-entrance-lamp");
+  entranceLamp.position.set(0, 2.56, 2.91);
+  const entranceLight = new THREE.PointLight(0xffbd6d, 0, 8.5, 1.9);
+  entranceLight.name = "residential-building-night-light";
+  entranceLight.position.set(0, 2.42, 3.16);
   const step = mesh(new THREE.BoxGeometry(2.4, 0.22, 0.85), balcony, "residential-building-entry-step");
   step.position.set(0, 0.39, 2.66);
-  group.add(entrance, entranceFrame, canopy, step);
+  group.add(doorPivot, entranceFrame, canopy, entranceLamp, entranceLight, step);
+
+  const stairwellGlazing = mesh(new THREE.BoxGeometry(1.54, 6.34, 0.06), stairwellGlass, "residential-building-stairwell-glazing");
+  stairwellGlazing.position.set(0, 5.75, 2.34);
+  group.add(stairwellGlazing);
+  for (const y of [2.58, 3.76, 5.38, 7, 8.9]) {
+    const mullion = mesh(new THREE.BoxGeometry(1.68, 0.1, 0.1), dark, "residential-building-stairwell-mullion");
+    mullion.position.set(0, y, 2.39);
+    group.add(mullion);
+  }
+
+  const floorLevels = Array.from({ length: 5 }, (_, floor) => 0.52 + floor * 1.62);
+  const climbPath: THREE.Vector3[] = [new THREE.Vector3(-0.46, floorLevels[0], 1.78)];
+  const addLanding = (y: number, z: number, name = "residential-building-stair-landing") => {
+    const landing = mesh(new THREE.BoxGeometry(1.82, 0.14, 0.68), stairMaterial, name);
+    landing.position.set(0, y - 0.07, z);
+    group.add(landing);
+  };
+  floorLevels.forEach((level) => addLanding(level, 1.78, "residential-building-floor-platform"));
+
+  for (const level of floorLevels) {
+    for (const side of [-1, 1]) {
+      const apartmentDoor = mesh(new THREE.BoxGeometry(0.72, 1.24, 0.06), doorMaterial, "residential-building-floor-door");
+      apartmentDoor.rotation.y = Math.PI * 0.5;
+      apartmentDoor.position.set(side, level + 0.62, 1.63);
+      const apartmentHandle = mesh(new THREE.BoxGeometry(0.07, 0.08, 0.08), trim, "residential-building-floor-door-handle");
+      apartmentHandle.position.set(side * 0.96, level + 0.64, 1.87);
+      group.add(apartmentDoor, apartmentHandle);
+    }
+  }
+
+  const stepsPerFlight = 8;
+  const flightRun = 2.78;
+  const frontZ = 1.72;
+  const rearZ = frontZ - flightRun;
+  for (let storey = 0; storey < floorLevels.length - 1; storey += 1) {
+    const baseY = floorLevels[storey];
+    const nextY = floorLevels[storey + 1];
+    const halfRise = (nextY - baseY) * 0.5;
+    const firstX = storey % 2 === 0 ? -0.46 : 0.46;
+    const secondX = -firstX;
+    const firstFlightPath: THREE.Vector3[] = [];
+    const secondFlightPath: THREE.Vector3[] = [];
+    for (let index = 0; index < stepsPerFlight; index += 1) {
+      const progress = (index + 1) / stepsPerFlight;
+      const firstTop = baseY + halfRise * progress;
+      const firstStep = mesh(
+        new THREE.BoxGeometry(0.78, halfRise / stepsPerFlight, flightRun / stepsPerFlight + 0.03),
+        stairMaterial,
+        "residential-building-stair-step",
+      );
+      firstStep.position.set(firstX, firstTop - halfRise / stepsPerFlight * 0.5, frontZ - flightRun * (index + 0.5) / stepsPerFlight);
+      const secondTop = baseY + halfRise + halfRise * progress;
+      const secondStep = mesh(
+        new THREE.BoxGeometry(0.78, halfRise / stepsPerFlight, flightRun / stepsPerFlight + 0.03),
+        stairMaterial,
+        "residential-building-stair-step",
+      );
+      secondStep.position.set(secondX, secondTop - halfRise / stepsPerFlight * 0.5, rearZ + flightRun * (index + 0.5) / stepsPerFlight);
+      group.add(firstStep, secondStep);
+      firstFlightPath.push(firstStep.position.clone().setY(firstTop));
+      secondFlightPath.push(secondStep.position.clone().setY(secondTop));
+    }
+    addLanding(baseY + halfRise, rearZ, "residential-building-stair-landing");
+    climbPath.push(
+      ...firstFlightPath,
+      new THREE.Vector3(firstX, baseY + halfRise, rearZ),
+      ...secondFlightPath,
+      new THREE.Vector3(secondX, nextY, frontZ),
+    );
+
+    const railY = baseY + 0.72;
+    const outerX = firstX + Math.sign(firstX) * 0.42;
+    const returnOuterX = secondX + Math.sign(secondX) * 0.42;
+    group.add(
+      beamBetween(new THREE.Vector3(outerX, railY, frontZ), new THREE.Vector3(outerX, railY + halfRise, rearZ), 0.035, 0.035, dark, "residential-building-stair-handrail"),
+      beamBetween(new THREE.Vector3(returnOuterX, railY + halfRise, rearZ), new THREE.Vector3(returnOuterX, railY + halfRise * 2, frontZ), 0.035, 0.035, dark, "residential-building-stair-handrail"),
+    );
+  }
 
   const windowGeometry = new THREE.BoxGeometry(0.82, 1.08, 0.1);
   const sillGeometry = new THREE.BoxGeometry(1.02, 0.1, 0.18);
@@ -835,13 +1024,13 @@ export function buildLowPolyResidentialBuilding(): ResidentialBuildingModel {
       for (const x of [-2.18, 2.18]) {
         const balconyFloor = mesh(new THREE.BoxGeometry(2.05, 0.16, 0.82), balcony, "residential-building-balcony-floor");
         balconyFloor.position.set(x, y - 0.7, 2.72);
-        const balconyRail = mesh(new THREE.BoxGeometry(2.05, 0.62, 0.1), dark, "residential-building-balcony-rail");
-        balconyRail.position.set(x, y - 0.36, 3.08);
+        const balconyRail = mesh(new THREE.BoxGeometry(2.05, 0.58, 0.1), dark, "residential-building-balcony-rail");
+        balconyRail.position.set(x, y - 0.32, 3.08);
         group.add(balconyFloor, balconyRail);
-        for (const postX of [-0.86, -0.43, 0, 0.43, 0.86]) {
-          const post = mesh(new THREE.BoxGeometry(0.06, 0.6, 0.08), dark, "residential-building-balcony-post");
-          post.position.set(x + postX, y - 0.36, 3.03);
-          group.add(post);
+        for (const side of [-1, 1]) {
+          const sideRail = mesh(new THREE.BoxGeometry(0.1, 0.58, 0.72), dark, "residential-building-balcony-side-rail");
+          sideRail.position.set(x + side * 0.975, y - 0.32, 2.72);
+          group.add(sideRail);
         }
       }
     }
@@ -875,7 +1064,297 @@ export function buildLowPolyResidentialBuilding(): ResidentialBuildingModel {
     generatedLocally: true,
     floorCount: 5,
     apartmentCount: 20,
+    floorLevels,
+    climbPath,
+    setDoorOpen(open: boolean) {
+      doorPivot.rotation.y = open ? -1.12 : 0;
+    },
+    setPowered(powered: boolean) {
+      glass.color.setHex(powered ? 0xffcf82 : 0x78a9b7);
+      glass.emissive.setHex(powered ? 0xffa63d : 0x193845);
+      glass.emissiveIntensity = powered ? 2.65 : 0.08;
+      stairwellGlass.emissive.setHex(powered ? 0xffa63d : 0x18343c);
+      stairwellGlass.emissiveIntensity = powered ? 1.3 : 0.06;
+      entranceLightMaterial.emissiveIntensity = powered ? 3.6 : 0.14;
+      entranceLight.intensity = powered ? 4.2 : 0;
+    },
   };
+  group.userData.setDoorOpen(false);
+  group.userData.setPowered(false);
+  return group;
+}
+
+export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
+  const group = new THREE.Group() as HighRiseResidentialModel;
+  group.name = "city-high-rise-residential-lowpoly";
+  const cutawayShell: THREE.Object3D[] = [];
+  const concrete = new THREE.MeshStandardMaterial({ color: 0xd8cbb5, roughness: 0.9 });
+  const brick = new THREE.MeshStandardMaterial({ color: 0x9d6250, roughness: 0.94 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0xf0e6d2, roughness: 0.84 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x394448, roughness: 0.7, metalness: 0.2 });
+  const stairMaterial = new THREE.MeshStandardMaterial({ color: 0xb9afa0, roughness: 0.92 });
+  const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x3e5256, roughness: 0.62, metalness: 0.16 });
+  const elevatorMaterial = new THREE.MeshStandardMaterial({ color: 0x909b9d, roughness: 0.42, metalness: 0.52 });
+  const cabinMaterial = new THREE.MeshStandardMaterial({ color: 0xc9b897, roughness: 0.7 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x78a9b7,
+    emissive: 0x193845,
+    emissiveIntensity: 0.08,
+    roughness: 0.28,
+    metalness: 0.08,
+  });
+  const coreGlass = new THREE.MeshStandardMaterial({
+    color: 0x6f9ba7,
+    emissive: 0x18343c,
+    emissiveIntensity: 0.06,
+    roughness: 0.24,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const warmLight = new THREE.MeshStandardMaterial({
+    color: 0xffe4ad,
+    emissive: 0xffa43b,
+    emissiveIntensity: 0.14,
+    roughness: 0.34,
+  });
+
+  const floorCount = 18;
+  const floorPitch = 1.78;
+  const floorLevels = Array.from({ length: floorCount }, (_, floor) => 0.5 + floor * floorPitch);
+  const bodyBottom = 0.4;
+  const bodyTop = floorLevels.at(-1)! + 1.56;
+  const bodyHeight = bodyTop - bodyBottom;
+  const bodyCenterY = bodyBottom + bodyHeight * 0.5;
+  const buildingWidth = 12.2;
+  const buildingDepth = 8.2;
+
+  const foundation = mesh(new THREE.BoxGeometry(13, 0.4, 9), dark, "high-rise-foundation");
+  foundation.position.y = 0.2;
+  const rearWall = mesh(new THREE.BoxGeometry(buildingWidth, bodyHeight, 0.2), concrete, "high-rise-rear-wall");
+  rearWall.position.set(0, bodyCenterY, -buildingDepth * 0.5);
+  const leftWall = mesh(new THREE.BoxGeometry(0.2, bodyHeight, buildingDepth), concrete, "high-rise-side-wall");
+  leftWall.position.set(-buildingWidth * 0.5, bodyCenterY, 0);
+  const rightWall = leftWall.clone();
+  rightWall.position.x = buildingWidth * 0.5;
+  group.add(foundation, rearWall, leftWall, rightWall);
+  cutawayShell.push(rightWall);
+
+  for (const level of floorLevels) {
+    const slab = mesh(new THREE.BoxGeometry(11.8, 0.14, 7.8), stairMaterial, "high-rise-floor-slab");
+    slab.position.set(0, level - 0.07, 0);
+    group.add(slab);
+
+    const spandrel = mesh(new THREE.BoxGeometry(buildingWidth, 0.3, 0.2), concrete, "high-rise-front-spandrel");
+    spandrel.position.set(0, level + 0.15, buildingDepth * 0.5);
+    group.add(spandrel);
+    cutawayShell.push(spandrel);
+  }
+
+  for (const x of [-5.94, -1.52, 1.52, 5.94]) {
+    const pier = mesh(new THREE.BoxGeometry(0.32, bodyHeight, 0.24), x === -1.52 || x === 1.52 ? brick : concrete, "high-rise-front-pier");
+    pier.position.set(x, bodyCenterY, buildingDepth * 0.5 + 0.01);
+    group.add(pier);
+    cutawayShell.push(pier);
+  }
+
+  const windowGeometry = new THREE.BoxGeometry(0.92, 1.02, 0.08);
+  const sillGeometry = new THREE.BoxGeometry(1.08, 0.09, 0.17);
+  for (let floor = 0; floor < floorCount; floor += 1) {
+    const level = floorLevels[floor];
+    const windowY = level + 0.9;
+    for (const x of [-5.25, -4.15, -2.75, 2.75, 4.15, 5.25]) {
+      const window = mesh(windowGeometry, glass, "high-rise-window");
+      window.position.set(x, windowY, buildingDepth * 0.5 + 0.12);
+      const sill = mesh(sillGeometry, trim, "high-rise-window-sill");
+      sill.position.set(x, windowY - 0.565, buildingDepth * 0.5 + 0.17);
+      group.add(window, sill);
+      cutawayShell.push(window, sill);
+    }
+
+    if (floor > 0) {
+      for (const x of [-3.95, 3.95]) {
+        const balconyFloor = mesh(new THREE.BoxGeometry(3.0, 0.16, 0.9), trim, "high-rise-balcony-floor");
+        balconyFloor.position.set(x, level + 0.08, 4.47);
+        const balconyRail = mesh(new THREE.BoxGeometry(3.0, 0.64, 0.1), dark, "high-rise-balcony-rail");
+        balconyRail.position.set(x, level + 0.48, 4.87);
+        group.add(balconyFloor, balconyRail);
+        cutawayShell.push(balconyFloor, balconyRail);
+        for (const side of [-1, 1]) {
+          const sideRail = mesh(new THREE.BoxGeometry(0.1, 0.64, 0.8), dark, "high-rise-balcony-side-rail");
+          sideRail.position.set(x + side * 1.45, level + 0.48, 4.47);
+          group.add(sideRail);
+          cutawayShell.push(sideRail);
+        }
+      }
+    }
+
+    for (const x of [-3.0, -2.05, 2.05, 3.0]) {
+      const apartmentDoor = mesh(new THREE.BoxGeometry(0.72, 1.32, 0.06), doorMaterial, "high-rise-apartment-door");
+      apartmentDoor.position.set(x, level + 0.66, 1.58);
+      const handle = mesh(new THREE.BoxGeometry(0.055, 0.12, 0.08), trim, "high-rise-apartment-door-handle");
+      handle.position.set(x + 0.24, level + 0.66, 1.64);
+      group.add(apartmentDoor, handle);
+    }
+  }
+
+  const elevatorCoreHeight = bodyHeight - 0.25;
+  const elevatorCoreBack = mesh(new THREE.BoxGeometry(3.0, elevatorCoreHeight, 0.16), dark, "high-rise-elevator-core-back");
+  elevatorCoreBack.position.set(0, bodyCenterY, -0.25);
+  const elevatorCoreGlazing = mesh(new THREE.BoxGeometry(2.84, elevatorCoreHeight, 0.08), coreGlass, "high-rise-elevator-core-glazing");
+  elevatorCoreGlazing.position.set(0, bodyCenterY, 2.22);
+  group.add(elevatorCoreBack, elevatorCoreGlazing);
+  cutawayShell.push(elevatorCoreGlazing);
+  for (const x of [-1.48, 0, 1.48]) {
+    const frame = mesh(new THREE.BoxGeometry(0.12, elevatorCoreHeight, 0.16), dark, "high-rise-elevator-core-frame");
+    frame.position.set(x, bodyCenterY, 2.25);
+    group.add(frame);
+    cutawayShell.push(frame);
+  }
+
+  for (let floor = 0; floor < floorCount; floor += 1) {
+    const level = floorLevels[floor];
+    for (const x of [-0.72, 0.72]) {
+      const elevatorDoor = mesh(new THREE.BoxGeometry(1.05, 1.34, 0.06), elevatorMaterial, "high-rise-elevator-door");
+      elevatorDoor.position.set(x, level + 0.67, 2.17);
+      const seam = mesh(new THREE.BoxGeometry(0.025, 1.28, 0.025), dark, "high-rise-elevator-door-seam");
+      seam.position.set(x, level + 0.67, 2.215);
+      const floorIndicator = mesh(new THREE.BoxGeometry(0.22, 0.18, 0.035), warmLight, "high-rise-elevator-floor-indicator");
+      floorIndicator.position.set(x, level + 1.48, 2.22);
+      group.add(elevatorDoor, seam, floorIndicator);
+      cutawayShell.push(elevatorDoor, seam);
+    }
+  }
+
+  const elevatorCabins: THREE.Group[] = [];
+  for (const [index, x] of [-0.72, 0.72].entries()) {
+    const cabin = new THREE.Group();
+    cabin.name = "high-rise-elevator-cabin";
+    cabin.userData.elevatorIndex = index;
+    const cabinBack = mesh(new THREE.BoxGeometry(1.02, 1.42, 0.08), cabinMaterial, "high-rise-elevator-cabin-back");
+    cabinBack.position.set(0, 0.72, -0.78);
+    const cabinFloor = mesh(new THREE.BoxGeometry(1.02, 0.1, 1.45), elevatorMaterial, "high-rise-elevator-cabin-floor");
+    cabinFloor.position.set(0, 0.05, -0.08);
+    const cabinRoof = mesh(new THREE.BoxGeometry(1.02, 0.1, 1.45), elevatorMaterial, "high-rise-elevator-cabin-roof");
+    cabinRoof.position.set(0, 1.45, -0.08);
+    for (const side of [-1, 1]) {
+      const cabinSide = mesh(new THREE.BoxGeometry(0.06, 1.4, 1.45), cabinMaterial, "high-rise-elevator-cabin-side");
+      cabinSide.position.set(side * 0.49, 0.72, -0.08);
+      cabin.add(cabinSide);
+    }
+    const cabinLamp = mesh(new THREE.BoxGeometry(0.5, 0.04, 0.42), warmLight, "high-rise-elevator-cabin-lamp");
+    cabinLamp.position.set(0, 1.38, -0.05);
+    cabin.add(cabinBack, cabinFloor, cabinRoof, cabinLamp);
+    cabin.position.set(x, floorLevels[index === 0 ? 3 : 12], 1.25);
+    group.add(cabin);
+    elevatorCabins.push(cabin);
+  }
+
+  const stairDivider = mesh(new THREE.BoxGeometry(0.14, elevatorCoreHeight, 4.45), brick, "high-rise-emergency-stair-divider");
+  stairDivider.position.set(3.72, bodyCenterY, -0.2);
+  group.add(stairDivider);
+  const emergencyStair = new THREE.Group();
+  emergencyStair.name = "high-rise-emergency-stair";
+  const stepsPerFlight = 6;
+  const flightRun = 2.7;
+  const frontZ = 1.42;
+  const rearZ = frontZ - flightRun;
+  for (let storey = 0; storey < floorCount - 1; storey += 1) {
+    const baseY = floorLevels[storey];
+    const nextY = floorLevels[storey + 1];
+    const halfRise = (nextY - baseY) * 0.5;
+    for (let index = 0; index < stepsPerFlight; index += 1) {
+      const progress = (index + 1) / stepsPerFlight;
+      const firstTop = baseY + halfRise * progress;
+      const firstStep = mesh(new THREE.BoxGeometry(0.78, halfRise / stepsPerFlight, flightRun / stepsPerFlight + 0.03), stairMaterial, "high-rise-emergency-stair-step");
+      firstStep.position.set(4.35, firstTop - halfRise / stepsPerFlight * 0.5, frontZ - flightRun * (index + 0.5) / stepsPerFlight);
+      const secondTop = baseY + halfRise + halfRise * progress;
+      const secondStep = mesh(new THREE.BoxGeometry(0.78, halfRise / stepsPerFlight, flightRun / stepsPerFlight + 0.03), stairMaterial, "high-rise-emergency-stair-step");
+      secondStep.position.set(5.18, secondTop - halfRise / stepsPerFlight * 0.5, rearZ + flightRun * (index + 0.5) / stepsPerFlight);
+      emergencyStair.add(firstStep, secondStep);
+    }
+    const landing = mesh(new THREE.BoxGeometry(1.72, 0.14, 0.62), stairMaterial, "high-rise-emergency-stair-landing");
+    landing.position.set(4.765, baseY + halfRise - 0.07, rearZ);
+    emergencyStair.add(landing);
+    emergencyStair.add(
+      beamBetween(new THREE.Vector3(3.9, baseY + 0.68, frontZ), new THREE.Vector3(3.9, baseY + halfRise + 0.68, rearZ), 0.03, 0.03, dark, "high-rise-emergency-stair-handrail"),
+      beamBetween(new THREE.Vector3(5.62, baseY + halfRise + 0.68, rearZ), new THREE.Vector3(5.62, nextY + 0.68, frontZ), 0.03, 0.03, dark, "high-rise-emergency-stair-handrail"),
+    );
+  }
+  group.add(emergencyStair);
+
+  for (let floor = 0; floor < floorCount; floor += 1) {
+    const level = floorLevels[floor];
+    const fireDoor = mesh(new THREE.BoxGeometry(0.06, 1.32, 0.74), doorMaterial, "high-rise-emergency-fire-door");
+    fireDoor.position.set(3.64, level + 0.66, 1.24);
+    const exitSign = mesh(new THREE.BoxGeometry(0.04, 0.22, 0.42), warmLight, "high-rise-emergency-exit-sign");
+    exitSign.position.set(3.59, level + 1.48, 1.24);
+    group.add(fireDoor, exitSign);
+  }
+
+  const entranceCanopy = mesh(new THREE.BoxGeometry(3.7, 0.2, 1.45), dark, "high-rise-entrance-canopy");
+  entranceCanopy.position.set(0, 2.82, 4.68);
+  const entranceHeader = mesh(new THREE.BoxGeometry(3.4, 0.55, 0.22), brick, "high-rise-entrance-header");
+  entranceHeader.position.set(0, 2.38, 4.13);
+  group.add(entranceCanopy, entranceHeader);
+  cutawayShell.push(entranceCanopy, entranceHeader);
+  for (const x of [-0.78, 0.78]) {
+    const entranceDoor = mesh(new THREE.BoxGeometry(1.42, 1.9, 0.08), coreGlass, "high-rise-entrance-door");
+    entranceDoor.position.set(x, 1.35, 4.24);
+    const handle = mesh(new THREE.BoxGeometry(0.055, 0.42, 0.08), trim, "high-rise-entrance-door-handle");
+    handle.position.set(x + Math.sign(x) * 0.46, 1.3, 4.31);
+    group.add(entranceDoor, handle);
+    cutawayShell.push(entranceDoor, handle);
+  }
+  const entranceLamp = new THREE.PointLight(0xffbd6d, 0, 10, 1.9);
+  entranceLamp.name = "high-rise-night-light";
+  entranceLamp.position.set(0, 2.62, 4.92);
+  group.add(entranceLamp);
+
+  const roofSlab = mesh(new THREE.BoxGeometry(12.45, 0.24, 8.45), dark, "high-rise-flat-roof");
+  roofSlab.position.set(0, bodyTop + 0.12, 0);
+  const machineRoom = mesh(new THREE.BoxGeometry(3.5, 1.3, 3.0), brick, "high-rise-elevator-machine-room");
+  machineRoom.position.set(0, bodyTop + 0.89, -0.1);
+  const waterTank = mesh(new THREE.CylinderGeometry(0.68, 0.74, 1.2, 8), dark, "high-rise-roof-water-tank");
+  waterTank.position.set(-3.8, bodyTop + 0.74, -1.2);
+  const antenna = mesh(new THREE.CylinderGeometry(0.045, 0.07, 2.2, 8), elevatorMaterial, "high-rise-roof-antenna");
+  antenna.position.set(2.3, bodyTop + 1.3, -0.6);
+  group.add(roofSlab, machineRoom, waterTank, antenna);
+  cutawayShell.push(roofSlab, machineRoom, waterTank, antenna);
+
+  group.userData = {
+    modelType: "high-rise-residential",
+    generatedLocally: true,
+    floorCount,
+    apartmentCount: floorCount * 4,
+    elevatorCount: 2,
+    emergencyStairCount: 1,
+    floorLevels,
+    elevatorFloors: [4, 13],
+    setElevatorFloors(floors: [number, number]) {
+      const normalized = floors.map((floor) => THREE.MathUtils.clamp(Math.round(floor), 1, floorCount));
+      elevatorCabins.forEach((cabin, index) => {
+        cabin.position.y = floorLevels[normalized[index] - 1];
+      });
+      group.userData.elevatorFloors = normalized;
+    },
+    setInteriorCutaway(cutaway: boolean) {
+      cutawayShell.forEach((object) => { object.visible = !cutaway; });
+    },
+    setPowered(powered: boolean) {
+      glass.color.setHex(powered ? 0xffcf82 : 0x78a9b7);
+      glass.emissive.setHex(powered ? 0xffa63d : 0x193845);
+      glass.emissiveIntensity = powered ? 2.5 : 0.08;
+      coreGlass.emissive.setHex(powered ? 0xffa63d : 0x18343c);
+      coreGlass.emissiveIntensity = powered ? 1.45 : 0.06;
+      warmLight.emissiveIntensity = powered ? 3.5 : 0.14;
+      entranceLamp.intensity = powered ? 4.6 : 0;
+    },
+  };
+  group.userData.setElevatorFloors([4, 13]);
+  group.userData.setInteriorCutaway(false);
+  group.userData.setPowered(false);
   return group;
 }
 
@@ -902,80 +1381,330 @@ function createGableRoofGeometry(width: number, depth: number, eaveY: number, ri
 export function buildLowPolySmallVilla(): SmallVillaModel {
   const group = new THREE.Group() as SmallVillaModel;
   group.name = "city-small-villa-lowpoly";
+  const cutawayShell: THREE.Object3D[] = [];
   const plaster = new THREE.MeshStandardMaterial({ color: 0xeadfc5, roughness: 0.9 });
   const stone = new THREE.MeshStandardMaterial({ color: 0x9a8c78, roughness: 0.96 });
   const timber = new THREE.MeshStandardMaterial({ color: 0x684534, roughness: 0.88 });
   const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x8f4437, roughness: 0.9 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x75a7b5, roughness: 0.3, metalness: 0.06 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x75a7b5,
+    emissive: 0x193744,
+    emissiveIntensity: 0.08,
+    roughness: 0.3,
+    metalness: 0.06,
+    transparent: true,
+    opacity: 0.48,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const porchLightMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffe4ad,
+    emissive: 0xffa43b,
+    emissiveIntensity: 0.14,
+    roughness: 0.34,
+  });
   const dark = new THREE.MeshStandardMaterial({ color: 0x354043, roughness: 0.75, metalness: 0.18 });
   const green = new THREE.MeshStandardMaterial({ color: 0x416c44, roughness: 0.94 });
+  const interiorWall = new THREE.MeshStandardMaterial({ color: 0xf3ead8, roughness: 0.9, side: THREE.DoubleSide });
+  const woodFloor = new THREE.MeshStandardMaterial({ color: 0x9b704b, roughness: 0.84 });
+  const sofaFabric = new THREE.MeshStandardMaterial({ color: 0x476d70, roughness: 0.92 });
+  const cushionMaterial = new THREE.MeshStandardMaterial({ color: 0xd9b86c, roughness: 0.9 });
+  const kitchenMaterial = new THREE.MeshStandardMaterial({ color: 0xd9d5c9, roughness: 0.72 });
+  const counterMaterial = new THREE.MeshStandardMaterial({ color: 0x5c625f, roughness: 0.62, metalness: 0.12 });
+  const applianceMaterial = new THREE.MeshStandardMaterial({ color: 0xb9c0bd, roughness: 0.5, metalness: 0.35 });
+  const porcelain = new THREE.MeshStandardMaterial({ color: 0xf1f2ed, roughness: 0.45 });
+  const bedding = new THREE.MeshStandardMaterial({ color: 0xb87569, roughness: 0.94 });
+  const showerGlass = new THREE.MeshStandardMaterial({
+    color: 0x9fc5cb,
+    roughness: 0.18,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
 
-  const foundation = mesh(new THREE.BoxGeometry(7.25, 0.3, 5.65), stone, "small-villa-foundation");
+  const foundation = mesh(new THREE.BoxGeometry(8.3, 0.3, 6.65), stone, "small-villa-foundation");
   foundation.position.y = 0.15;
-  const firstFloor = mesh(new THREE.BoxGeometry(6.7, 2.6, 5.1), plaster, "small-villa-first-floor");
-  firstFloor.position.y = 1.65;
-  const secondFloor = mesh(new THREE.BoxGeometry(5.65, 2.15, 4.55), plaster, "small-villa-second-floor");
-  secondFloor.position.set(0.32, 4.02, -0.12);
-  const stoneAccent = mesh(new THREE.BoxGeometry(1.62, 2.62, 5.18), stone, "small-villa-stone-accent");
-  stoneAccent.position.set(-2.45, 1.66, 0);
-  const roof = mesh(createGableRoofGeometry(6.7, 5.35, 5.1, 6.5), roofMaterial, "small-villa-gable-roof");
-  group.add(foundation, firstFloor, secondFloor, stoneAccent, roof);
-
-  const door = mesh(new THREE.BoxGeometry(1.08, 2.05, 0.12), timber, "small-villa-front-door");
-  door.position.set(-1.05, 1.38, 2.62);
-  const doorGlass = mesh(new THREE.BoxGeometry(0.42, 0.7, 0.04), glass, "small-villa-door-glass");
-  doorGlass.position.set(-1.05, 1.65, 2.7);
-  const porchRoof = mesh(new THREE.BoxGeometry(2.7, 0.18, 1.45), roofMaterial, "small-villa-porch-roof");
-  porchRoof.position.set(-0.95, 2.85, 3.05);
-  const porchStep = mesh(new THREE.BoxGeometry(2.9, 0.24, 1.2), stone, "small-villa-porch-step");
-  porchStep.position.set(-0.95, 0.4, 3.05);
-  group.add(door, doorGlass, porchRoof, porchStep);
-  for (const x of [-2.08, 0.18]) {
-    const post = mesh(new THREE.BoxGeometry(0.16, 2.42, 0.16), timber, "small-villa-porch-post");
-    post.position.set(x, 1.65, 3.48);
-    group.add(post);
+  const groundFloor = mesh(new THREE.BoxGeometry(7.62, 0.18, 6.02), woodFloor, "small-villa-ground-floor");
+  groundFloor.position.y = 0.39;
+  const firstRearWall = mesh(new THREE.BoxGeometry(7.8, 2.64, 0.18), plaster, "small-villa-first-floor-rear-wall");
+  firstRearWall.position.set(0, 1.8, -3.01);
+  group.add(foundation, groundFloor, firstRearWall);
+  for (const side of [-1, 1]) {
+    const sideWall = mesh(new THREE.BoxGeometry(0.18, 2.64, 6.02), plaster, "small-villa-first-floor-side-wall");
+    sideWall.position.set(side * 3.81, 1.8, 0);
+    group.add(sideWall);
+    if (side === 1) cutawayShell.push(sideWall);
   }
 
-  const windowGeometry = new THREE.BoxGeometry(1.18, 1.05, 0.1);
+  const frontWallSegments = [
+    [-3.1, 1.4], [-0.325, 1.75], [3.375, 0.85],
+  ] as const;
+  frontWallSegments.forEach(([x, width]) => {
+    const segment = mesh(new THREE.BoxGeometry(width, 2.64, 0.18), plaster, "small-villa-first-floor-front-wall");
+    segment.position.set(x, 1.8, 3.01);
+    group.add(segment);
+    cutawayShell.push(segment);
+  });
+  const windowBreast = mesh(new THREE.BoxGeometry(2.4, 0.58, 0.18), plaster, "small-villa-front-window-breast");
+  windowBreast.position.set(1.75, 0.77, 3.01);
+  const windowHeader = mesh(new THREE.BoxGeometry(2.4, 0.84, 0.18), plaster, "small-villa-front-window-header");
+  windowHeader.position.set(1.75, 2.68, 3.01);
+  const doorHeader = mesh(new THREE.BoxGeometry(1.2, 0.56, 0.18), plaster, "small-villa-front-door-header");
+  doorHeader.position.set(-1.8, 2.82, 3.01);
+  group.add(windowBreast, windowHeader, doorHeader);
+  cutawayShell.push(windowBreast, windowHeader, doorHeader);
+
+  const secondFloorPieces = [
+    [0.725, 6.05, 0, 6.02],
+    [-3.025, 1.45, 2.62, 0.78],
+    [-3.025, 1.45, -2.57, 0.88],
+  ] as const;
+  secondFloorPieces.forEach(([x, width, z, depth]) => {
+    const floorPiece = mesh(new THREE.BoxGeometry(width, 0.18, depth), woodFloor, "small-villa-second-floor-slab");
+    floorPiece.position.set(x, 3.16, z);
+    group.add(floorPiece);
+  });
+  const upstairsLanding = mesh(new THREE.BoxGeometry(1.45, 0.18, 0.52), woodFloor, "small-villa-upstairs-landing");
+  upstairsLanding.position.set(-3.025, 3.16, 1.97);
+  const upstairsHallway = mesh(new THREE.BoxGeometry(2.4, 0.035, 0.72), sofaFabric, "small-villa-upstairs-hallway");
+  upstairsHallway.position.set(-1.72, 3.2675, 1.72);
+  group.add(upstairsLanding, upstairsHallway);
+  const secondRearWall = mesh(new THREE.BoxGeometry(7.8, 2.2, 0.18), plaster, "small-villa-second-floor-rear-wall");
+  secondRearWall.position.set(0, 4.35, -3.01);
+  group.add(secondRearWall);
+  for (const [x, width] of [[-3.37, 1.06], [-0.9, 1.52], [1.35, 0.62], [3.37, 1.06]] as const) {
+    const frontPier = mesh(new THREE.BoxGeometry(width, 2.2, 0.18), plaster, "small-villa-second-floor-front-wall");
+    frontPier.position.set(x, 4.35, 3.01);
+    group.add(frontPier);
+    cutawayShell.push(frontPier);
+  }
+  for (const x of [-2.25, 0.45, 2.25]) {
+    const breast = mesh(new THREE.BoxGeometry(1.18, 0.575, 0.18), plaster, "small-villa-second-window-breast");
+    breast.position.set(x, 3.5375, 3.01);
+    const header = mesh(new THREE.BoxGeometry(1.18, 0.575, 0.18), plaster, "small-villa-second-window-header");
+    header.position.set(x, 5.1625, 3.01);
+    group.add(breast, header);
+    cutawayShell.push(breast, header);
+  }
+  for (const side of [-1, 1]) {
+    const sideWall = mesh(new THREE.BoxGeometry(0.18, 2.2, 6.02), plaster, "small-villa-second-floor-side-wall");
+    sideWall.position.set(side * 3.81, 4.35, 0);
+    group.add(sideWall);
+    if (side === 1) cutawayShell.push(sideWall);
+  }
+
+  const roofWidth = 8.25;
+  const roofDepth = 6.75;
+  const roofEaveY = 5.5;
+  const roofRidgeY = 6.95;
+  const roof = mesh(createGableRoofGeometry(roofWidth, roofDepth, roofEaveY, roofRidgeY), roofMaterial, "small-villa-gable-roof");
+  group.add(roof);
+  cutawayShell.push(roof);
+
+  const doorPivot = new THREE.Group();
+  doorPivot.name = "small-villa-front-door-pivot";
+  doorPivot.position.set(-2.4, 0.48, 3.11);
+  const door = mesh(new THREE.BoxGeometry(1.18, 2.04, 0.1), timber, "small-villa-front-door");
+  door.position.set(0.59, 1.02, 0);
+  const doorGlass = mesh(new THREE.BoxGeometry(0.46, 0.72, 0.035), glass, "small-villa-door-glass");
+  doorGlass.position.set(0.59, 1.28, 0.066);
+  const doorHandle = mesh(new THREE.BoxGeometry(0.07, 0.34, 0.08), stone, "small-villa-door-handle");
+  doorHandle.position.set(1.0, 0.96, 0.1);
+  doorPivot.add(door, doorGlass, doorHandle);
+  const porchRoof = mesh(new THREE.BoxGeometry(2.7, 0.18, 1.45), roofMaterial, "small-villa-porch-roof");
+  porchRoof.position.set(-1.8, 2.9, 3.46);
+  const porchStep = mesh(new THREE.BoxGeometry(2.9, 0.24, 1.2), stone, "small-villa-porch-step");
+  porchStep.position.set(-1.8, 0.4, 3.45);
+  const approachStepMiddle = mesh(new THREE.BoxGeometry(2.42, 0.2, 0.56), stone, "small-villa-approach-step");
+  approachStepMiddle.position.set(-1.8, 0.2, 4.15);
+  const approachStepGround = mesh(new THREE.BoxGeometry(1.98, 0.12, 0.56), stone, "small-villa-approach-step");
+  approachStepGround.position.set(-1.8, 0.06, 4.48);
+  const porchLamp = mesh(new THREE.BoxGeometry(0.42, 0.18, 0.24), porchLightMaterial, "small-villa-porch-lamp");
+  porchLamp.position.set(-1.8, 2.63, 3.82);
+  const porchLight = new THREE.PointLight(0xffbd68, 0, 8.5, 1.85);
+  porchLight.name = "small-villa-night-light";
+  porchLight.position.set(-1.8, 2.42, 3.94);
+  group.add(doorPivot, porchRoof, porchLamp, porchLight, porchStep, approachStepMiddle, approachStepGround);
+  cutawayShell.push(doorPivot, porchRoof, porchLamp, porchLight);
+  for (const x of [-2.75, -0.85]) {
+    const post = mesh(new THREE.BoxGeometry(0.16, 2.42, 0.16), timber, "small-villa-porch-post");
+    post.position.set(x, 1.66, 3.87);
+    group.add(post);
+    cutawayShell.push(post);
+  }
+
+  const windowGeometry = new THREE.BoxGeometry(1.18, 1.05, 0.06);
   const frontWindows = [
-    [1.55, 1.62], [2.65, 1.62], [-1.35, 4.12], [1.05, 4.12], [2.25, 4.12],
+    [1.15, 1.65], [2.35, 1.65], [-2.25, 4.35], [0.45, 4.35], [2.25, 4.35],
   ] as const;
   frontWindows.forEach(([x, y]) => {
     const window = mesh(windowGeometry, glass, "small-villa-window");
-    window.position.set(x, y, y > 3 ? 2.2 : 2.62);
+    window.position.set(x, y, 3.12);
     const sill = mesh(new THREE.BoxGeometry(1.38, 0.1, 0.18), stone, "small-villa-window-sill");
     sill.position.set(x, y - 0.58, window.position.z + 0.06);
     group.add(window, sill);
+    cutawayShell.push(window, sill);
   });
   for (const side of [-1, 1]) {
     const sideWindow = mesh(windowGeometry, glass, "small-villa-side-window");
     sideWindow.rotation.y = Math.PI * 0.5;
-    sideWindow.position.set(side * 3.4, 1.7, -0.4);
+    sideWindow.position.set(side * 3.92, 1.7, -0.45);
     group.add(sideWindow);
+    if (side === 1) cutawayShell.push(sideWindow);
   }
 
+  const livingRoom = new THREE.Group();
+  livingRoom.name = "small-villa-living-room";
+  const sofaBase = mesh(new THREE.BoxGeometry(2.1, 0.34, 0.82), sofaFabric, "small-villa-sofa");
+  sofaBase.position.set(1.65, 0.66, 1.7);
+  const sofaBack = mesh(new THREE.BoxGeometry(2.1, 0.72, 0.18), sofaFabric, "small-villa-sofa-back");
+  sofaBack.position.set(1.65, 1.0, 2.02);
+  livingRoom.add(sofaBase, sofaBack);
+  for (const x of [0.98, 1.65, 2.32]) {
+    const cushion = mesh(new THREE.BoxGeometry(0.58, 0.16, 0.52), cushionMaterial, "small-villa-sofa-cushion");
+    cushion.position.set(x, 0.91, 1.64);
+    livingRoom.add(cushion);
+  }
+  const coffeeTable = mesh(new THREE.BoxGeometry(1.4, 0.12, 0.68), timber, "small-villa-coffee-table");
+  coffeeTable.position.set(1.65, 0.76, 0.62);
+  livingRoom.add(coffeeTable);
+  for (const x of [1.05, 2.25]) {
+    for (const z of [0.38, 0.86]) {
+      const leg = mesh(new THREE.BoxGeometry(0.08, 0.42, 0.08), dark, "small-villa-coffee-table-leg");
+      leg.position.set(x, 0.54, z);
+      livingRoom.add(leg);
+    }
+  }
+  const tvStand = mesh(new THREE.BoxGeometry(2.0, 0.42, 0.45), timber, "small-villa-tv-stand");
+  tvStand.position.set(1.65, 0.69, -0.15);
+  const tv = mesh(new THREE.BoxGeometry(1.65, 0.94, 0.09), dark, "small-villa-television");
+  tv.position.set(1.65, 1.38, -0.34);
+  const tvScreen = mesh(new THREE.BoxGeometry(1.48, 0.78, 0.025), glass, "small-villa-television-screen");
+  tvScreen.position.set(1.65, 1.38, -0.397);
+  livingRoom.add(tvStand, tv, tvScreen);
+  group.add(livingRoom);
+
+  const diningKitchen = new THREE.Group();
+  diningKitchen.name = "small-villa-dining-kitchen";
+  const counter = mesh(new THREE.BoxGeometry(2.65, 0.86, 0.62), kitchenMaterial, "small-villa-kitchen-counter");
+  counter.position.set(1.08, 0.91, -2.58);
+  const counterTop = mesh(new THREE.BoxGeometry(2.75, 0.1, 0.7), counterMaterial, "small-villa-kitchen-countertop");
+  counterTop.position.set(1.08, 1.39, -2.58);
+  const stove = mesh(new THREE.BoxGeometry(0.72, 0.08, 0.56), dark, "small-villa-stove");
+  stove.position.set(1.78, 1.47, -2.56);
+  diningKitchen.add(counter, counterTop, stove);
+  for (const x of [1.54, 1.78, 2.02, 2.26]) {
+    const burner = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.025, 8), applianceMaterial, "small-villa-stove-burner");
+    burner.position.set(x, 1.525, -2.56 + (Math.round(x * 10) % 2) * 0.24 - 0.12);
+    diningKitchen.add(burner);
+  }
+  const fridge = mesh(new THREE.BoxGeometry(0.78, 1.95, 0.72), applianceMaterial, "small-villa-refrigerator");
+  fridge.position.set(3.1, 1.46, -2.53);
+  const fridgeHandle = mesh(new THREE.BoxGeometry(0.05, 0.58, 0.08), dark, "small-villa-refrigerator-handle");
+  fridgeHandle.position.set(2.83, 1.55, -2.13);
+  diningKitchen.add(fridge, fridgeHandle);
+  const diningTable = mesh(new THREE.BoxGeometry(1.55, 0.14, 1.05), timber, "small-villa-dining-table");
+  diningTable.position.set(-0.45, 1.02, -1.45);
+  diningKitchen.add(diningTable);
+  for (const [x, z, rotation] of [[-1.42, -1.45, 0], [0.52, -1.45, 0], [-0.45, -2.2, Math.PI * 0.5], [-0.45, -0.7, Math.PI * 0.5]] as const) {
+    const chair = mesh(new THREE.BoxGeometry(0.48, 0.62, 0.48), sofaFabric, "small-villa-dining-chair");
+    chair.position.set(x, 0.76, z);
+    chair.rotation.y = rotation;
+    diningKitchen.add(chair);
+  }
+  group.add(diningKitchen);
+
+  const staircase = new THREE.Group();
+  staircase.name = "small-villa-staircase";
+  const stairStartY = 0.48;
+  const stairTopY = 3.25;
+  const stairCount = 12;
+  const stairRun = 3.65;
+  for (let index = 0; index < stairCount; index += 1) {
+    const topY = stairStartY + (stairTopY - stairStartY) * (index + 1) / stairCount;
+    const stair = mesh(new THREE.BoxGeometry(0.92, 0.16, stairRun / stairCount + 0.025), stone, "small-villa-stair-step");
+    stair.position.set(-3.0, topY - 0.08, -1.78 + stairRun * (index + 0.5) / stairCount);
+    staircase.add(stair);
+  }
+  staircase.add(beamBetween(
+    new THREE.Vector3(-2.5, 1.2, -1.75),
+    new THREE.Vector3(-2.5, 3.85, 1.75),
+    0.035,
+    0.035,
+    dark,
+    "small-villa-stair-handrail",
+  ));
+  group.add(staircase);
+
+  const secondFloorInterior = new THREE.Group();
+  secondFloorInterior.name = "small-villa-second-floor-interior";
+  const bathroomSideWall = mesh(new THREE.BoxGeometry(0.12, 2.05, 2.25), interiorWall, "small-villa-bathroom-side-wall");
+  bathroomSideWall.position.set(-1.2, 4.28, -1.775);
+  const bathroomFrontLeft = mesh(new THREE.BoxGeometry(1.06, 2.05, 0.12), interiorWall, "small-villa-bathroom-front-wall");
+  bathroomFrontLeft.position.set(-3.28, 4.28, -0.65);
+  const bathroomFrontRight = mesh(new THREE.BoxGeometry(0.55, 2.05, 0.12), interiorWall, "small-villa-bathroom-front-wall");
+  bathroomFrontRight.position.set(-1.475, 4.28, -0.65);
+  const bathroomDoorHeader = mesh(new THREE.BoxGeometry(1.0, 0.28, 0.12), interiorWall, "small-villa-bathroom-door-header");
+  bathroomDoorHeader.position.set(-2.25, 5.165, -0.65);
+  secondFloorInterior.add(bathroomSideWall, bathroomFrontLeft, bathroomFrontRight, bathroomDoorHeader);
+  cutawayShell.push(bathroomSideWall, bathroomFrontLeft, bathroomFrontRight, bathroomDoorHeader);
+  const bedFrame = mesh(new THREE.BoxGeometry(2.15, 0.28, 1.62), timber, "small-villa-bed-frame");
+  bedFrame.position.set(1.75, 3.48, -1.0);
+  const mattress = mesh(new THREE.BoxGeometry(2.02, 0.25, 1.5), bedding, "small-villa-bed");
+  mattress.position.set(1.75, 3.73, -0.94);
+  const headboard = mesh(new THREE.BoxGeometry(2.15, 0.92, 0.14), timber, "small-villa-bed-headboard");
+  headboard.position.set(1.75, 3.95, -1.75);
+  secondFloorInterior.add(bedFrame, mattress, headboard);
+  for (const x of [0.4, 3.1]) {
+    const nightstand = mesh(new THREE.BoxGeometry(0.52, 0.56, 0.48), timber, "small-villa-nightstand");
+    nightstand.position.set(x, 3.52, -1.45);
+    secondFloorInterior.add(nightstand);
+  }
+  const wardrobe = mesh(new THREE.BoxGeometry(0.58, 1.88, 1.45), timber, "small-villa-wardrobe");
+  wardrobe.position.set(3.38, 4.2, 1.55);
+  secondFloorInterior.add(wardrobe);
+  const toiletBase = mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.42, 8), porcelain, "small-villa-toilet");
+  toiletBase.position.set(-3.05, 3.48, -2.18);
+  const toiletTank = mesh(new THREE.BoxGeometry(0.62, 0.68, 0.28), porcelain, "small-villa-toilet-tank");
+  toiletTank.position.set(-3.05, 3.78, -2.52);
+  const sink = mesh(new THREE.BoxGeometry(0.72, 0.22, 0.52), porcelain, "small-villa-bathroom-sink");
+  sink.position.set(-1.62, 4.05, -2.42);
+  const showerTray = mesh(new THREE.BoxGeometry(0.95, 0.12, 0.95), porcelain, "small-villa-shower-tray");
+  showerTray.position.set(-2.82, 3.32, -1.17);
+  const showerPanel = mesh(new THREE.BoxGeometry(0.06, 1.72, 0.95), showerGlass, "small-villa-shower-screen");
+  showerPanel.position.set(-2.29, 4.15, -1.17);
+  secondFloorInterior.add(toiletBase, toiletTank, sink, showerTray, showerPanel);
+  group.add(secondFloorInterior);
+
   const terrace = mesh(new THREE.BoxGeometry(3.25, 0.18, 1.02), stone, "small-villa-terrace");
-  terrace.position.set(1.55, 3.02, -2.52);
+  terrace.position.set(1.55, 3.18, -3.42);
   const terraceRail = mesh(new THREE.BoxGeometry(3.25, 0.62, 0.1), dark, "small-villa-terrace-rail");
-  terraceRail.position.set(1.55, 3.38, -2.98);
+  terraceRail.position.set(1.55, 3.54, -3.88);
   group.add(terrace, terraceRail);
   for (const x of [0.05, 0.8, 1.55, 2.3, 3.05]) {
     const railPost = mesh(new THREE.BoxGeometry(0.06, 0.6, 0.08), dark, "small-villa-terrace-post");
-    railPost.position.set(x, 3.38, -2.93);
+    railPost.position.set(x, 3.54, -3.83);
     group.add(railPost);
   }
 
-  const chimney = mesh(new THREE.BoxGeometry(0.62, 1.65, 0.72), stone, "small-villa-chimney");
-  chimney.position.set(2.05, 5.65, -0.85);
+  const chimneyX = 2.35;
+  const chimneyZ = -0.9;
+  const chimneyRoofY = roofRidgeY - (roofRidgeY - roofEaveY) * Math.abs(chimneyX) / (roofWidth * 0.5);
+  const chimney = mesh(new THREE.BoxGeometry(0.68, 1.42, 0.78), stone, "small-villa-chimney");
+  chimney.position.set(chimneyX, chimneyRoofY + 0.65, chimneyZ);
+  const chimneyFlashing = mesh(new THREE.BoxGeometry(1.02, 0.14, 1.12), dark, "small-villa-chimney-flashing");
+  chimneyFlashing.position.set(chimneyX, chimneyRoofY + 0.04, chimneyZ);
   const chimneyCap = mesh(new THREE.BoxGeometry(0.82, 0.14, 0.92), dark, "small-villa-chimney-cap");
-  chimneyCap.position.set(2.05, 6.5, -0.85);
-  group.add(chimney, chimneyCap);
+  chimneyCap.position.set(chimneyX, chimneyRoofY + 1.39, chimneyZ);
+  group.add(chimney, chimneyFlashing, chimneyCap);
+  cutawayShell.push(chimney, chimneyFlashing, chimneyCap);
 
-  for (const x of [-2.75, 2.75]) {
+  for (const x of [-3.25, 3.25]) {
     const planter = mesh(new THREE.BoxGeometry(1.0, 0.46, 0.58), stone, "small-villa-flower-box");
-    planter.position.set(x, 0.62, 2.85);
+    planter.position.set(x, 0.62, 3.35);
     const shrub = mesh(new THREE.DodecahedronGeometry(0.38, 0), green, "small-villa-shrub");
-    shrub.position.set(x, 1.03, 2.85);
+    shrub.position.set(x, 1.03, 3.35);
     shrub.scale.set(1.1, 0.8, 0.72);
     group.add(planter, shrub);
   }
@@ -984,7 +1713,32 @@ export function buildLowPolySmallVilla(): SmallVillaModel {
     modelType: "small-villa",
     generatedLocally: true,
     floorCount: 2,
-    occupantAnchor: new THREE.Vector3(-1.05, 0.52, 3.15),
+    occupantAnchor: new THREE.Vector3(-1.8, 0.5, 3.52),
+    floorLevels: [0.48, 3.25],
+    roomAnchors: {
+      entrance: new THREE.Vector3(-1.8, 0.5, 2.75),
+      livingRoom: new THREE.Vector3(1.65, 0.5, 1.0),
+      diningKitchen: new THREE.Vector3(0.35, 0.5, -1.75),
+      stairs: new THREE.Vector3(-3.0, 0.5, -1.75),
+      bedroom: new THREE.Vector3(1.75, 3.3, -0.8),
+      bathroom: new THREE.Vector3(-2.55, 3.3, -1.8),
+    },
+    setDoorOpen(open: boolean) {
+      doorPivot.rotation.y = open ? -1.12 : 0;
+    },
+    setInteriorCutaway(cutaway: boolean) {
+      cutawayShell.forEach((object) => { object.visible = !cutaway; });
+    },
+    setPowered(powered: boolean) {
+      glass.color.setHex(powered ? 0xffd38c : 0x75a7b5);
+      glass.emissive.setHex(powered ? 0xffa746 : 0x193744);
+      glass.emissiveIntensity = powered ? 2.75 : 0.08;
+      porchLightMaterial.emissiveIntensity = powered ? 3.8 : 0.14;
+      porchLight.intensity = powered ? 4.4 : 0;
+    },
   };
+  group.userData.setDoorOpen(false);
+  group.userData.setInteriorCutaway(false);
+  group.userData.setPowered(false);
   return group;
 }
