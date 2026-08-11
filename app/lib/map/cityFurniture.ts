@@ -87,9 +87,15 @@ type HighRiseResidentialModel = THREE.Group & {
     apartmentCount: number;
     elevatorCount: number;
     emergencyStairCount: number;
+    elevatorDoorFacing: "interior";
+    observationGlazingFacing: "exterior";
     floorLevels: number[];
     elevatorFloors: number[];
+    elevatorTargetFloors: number[];
+    elevatorAutoEnabled: boolean;
     setElevatorFloors: (floors: [number, number]) => void;
+    setElevatorAuto: (enabled: boolean) => void;
+    updateElevators: (deltaSeconds: number) => void;
     setInteriorCutaway: (cutaway: boolean) => void;
     setPowered: (powered: boolean) => void;
   };
@@ -104,6 +110,23 @@ type SmallVillaModel = THREE.Group & {
     floorLevels: number[];
     roomAnchors: Record<"entrance" | "livingRoom" | "diningKitchen" | "stairs" | "bedroom" | "bathroom", THREE.Vector3>;
     setDoorOpen: (open: boolean) => void;
+    setInteriorCutaway: (cutaway: boolean) => void;
+    setPowered: (powered: boolean) => void;
+  };
+};
+
+type OfficeCampusModel = THREE.Group & {
+  userData: {
+    modelType: "office-campus";
+    generatedLocally: true;
+    floorCount: number;
+    wingCount: number;
+    bridgeCount: number;
+    workstationCount: number;
+    meetingRoomCount: number;
+    elevatorCount: number;
+    emergencyStairCount: number;
+    siteSize: THREE.Vector3;
     setInteriorCutaway: (cutaway: boolean) => void;
     setPowered: (powered: boolean) => void;
   };
@@ -1201,7 +1224,7 @@ export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
 
   const elevatorCoreHeight = bodyHeight - 0.25;
   const elevatorCoreBack = mesh(new THREE.BoxGeometry(3.0, elevatorCoreHeight, 0.16), dark, "high-rise-elevator-core-back");
-  elevatorCoreBack.position.set(0, bodyCenterY, -0.25);
+  elevatorCoreBack.position.set(0, bodyCenterY, 0.16);
   const elevatorCoreGlazing = mesh(new THREE.BoxGeometry(2.84, elevatorCoreHeight, 0.08), coreGlass, "high-rise-elevator-core-glazing");
   elevatorCoreGlazing.position.set(0, bodyCenterY, 2.22);
   group.add(elevatorCoreBack, elevatorCoreGlazing);
@@ -1217,23 +1240,29 @@ export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
     const level = floorLevels[floor];
     for (const x of [-0.72, 0.72]) {
       const elevatorDoor = mesh(new THREE.BoxGeometry(1.05, 1.34, 0.06), elevatorMaterial, "high-rise-elevator-door");
-      elevatorDoor.position.set(x, level + 0.67, 2.17);
+      elevatorDoor.position.set(x, level + 0.67, 0.28);
       const seam = mesh(new THREE.BoxGeometry(0.025, 1.28, 0.025), dark, "high-rise-elevator-door-seam");
-      seam.position.set(x, level + 0.67, 2.215);
+      seam.position.set(x, level + 0.67, 0.235);
       const floorIndicator = mesh(new THREE.BoxGeometry(0.22, 0.18, 0.035), warmLight, "high-rise-elevator-floor-indicator");
-      floorIndicator.position.set(x, level + 1.48, 2.22);
+      floorIndicator.position.set(x, level + 1.48, 0.22);
       group.add(elevatorDoor, seam, floorIndicator);
       cutawayShell.push(elevatorDoor, seam);
     }
   }
 
   const elevatorCabins: THREE.Group[] = [];
+  const elevatorStatusMaterials: THREE.MeshStandardMaterial[] = [];
   for (const [index, x] of [-0.72, 0.72].entries()) {
     const cabin = new THREE.Group();
     cabin.name = "high-rise-elevator-cabin";
     cabin.userData.elevatorIndex = index;
-    const cabinBack = mesh(new THREE.BoxGeometry(1.02, 1.42, 0.08), cabinMaterial, "high-rise-elevator-cabin-back");
-    cabinBack.position.set(0, 0.72, -0.78);
+    const leftCabinDoor = mesh(new THREE.BoxGeometry(0.49, 1.42, 0.06), cabinMaterial, "high-rise-elevator-cabin-inner-door");
+    leftCabinDoor.position.set(-0.255, 0.72, -0.8);
+    leftCabinDoor.userData.doorSide = "left";
+    leftCabinDoor.userData.facing = "interior";
+    const rightCabinDoor = leftCabinDoor.clone();
+    rightCabinDoor.position.x = 0.255;
+    rightCabinDoor.userData = { doorSide: "right", facing: "interior" };
     const cabinFloor = mesh(new THREE.BoxGeometry(1.02, 0.1, 1.45), elevatorMaterial, "high-rise-elevator-cabin-floor");
     cabinFloor.position.set(0, 0.05, -0.08);
     const cabinRoof = mesh(new THREE.BoxGeometry(1.02, 0.1, 1.45), elevatorMaterial, "high-rise-elevator-cabin-roof");
@@ -1245,11 +1274,34 @@ export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
     }
     const cabinLamp = mesh(new THREE.BoxGeometry(0.5, 0.04, 0.42), warmLight, "high-rise-elevator-cabin-lamp");
     cabinLamp.position.set(0, 1.38, -0.05);
-    cabin.add(cabinBack, cabinFloor, cabinRoof, cabinLamp);
+    const statusMaterial = new THREE.MeshStandardMaterial({
+      color: index === 0 ? 0x65d9ff : 0xffcf66,
+      emissive: index === 0 ? 0x25bde9 : 0xf0a52c,
+      emissiveIntensity: 0.4,
+      roughness: 0.24,
+      toneMapped: false,
+    });
+    const statusLight = mesh(new THREE.BoxGeometry(0.38, 0.12, 0.04), statusMaterial, "high-rise-elevator-motion-light");
+    statusLight.position.set(0, 1.19, 0.67);
+    cabin.add(leftCabinDoor, rightCabinDoor, cabinFloor, cabinRoof, cabinLamp, statusLight);
     cabin.position.set(x, floorLevels[index === 0 ? 3 : 12], 1.25);
     group.add(cabin);
     elevatorCabins.push(cabin);
+    elevatorStatusMaterials.push(statusMaterial);
   }
+
+  const elevatorRoutes = [
+    [4, 12, 18, 7, 1, 15, 9, 3],
+    [13, 3, 17, 8, 1, 11, 6, 18],
+  ];
+  const elevatorMotion = elevatorCabins.map((cabin, index) => ({
+    cabin,
+    route: elevatorRoutes[index],
+    routeIndex: 0,
+    targetFloor: index === 0 ? 4 : 13,
+    waitRemaining: 0.9 + index * 1.7,
+    phase: index * Math.PI,
+  }));
 
   const stairDivider = mesh(new THREE.BoxGeometry(0.14, elevatorCoreHeight, 4.45), brick, "high-rise-emergency-stair-divider");
   stairDivider.position.set(3.72, bodyCenterY, -0.2);
@@ -1330,14 +1382,56 @@ export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
     apartmentCount: floorCount * 4,
     elevatorCount: 2,
     emergencyStairCount: 1,
+    elevatorDoorFacing: "interior",
+    observationGlazingFacing: "exterior",
     floorLevels,
     elevatorFloors: [4, 13],
+    elevatorTargetFloors: [4, 13],
+    elevatorAutoEnabled: true,
     setElevatorFloors(floors: [number, number]) {
       const normalized = floors.map((floor) => THREE.MathUtils.clamp(Math.round(floor), 1, floorCount));
       elevatorCabins.forEach((cabin, index) => {
         cabin.position.y = floorLevels[normalized[index] - 1];
+        elevatorMotion[index].targetFloor = normalized[index];
+        elevatorMotion[index].waitRemaining = 0.9 + index * 0.8;
+        const routeIndex = elevatorMotion[index].route.indexOf(normalized[index]);
+        if (routeIndex >= 0) elevatorMotion[index].routeIndex = routeIndex;
       });
       group.userData.elevatorFloors = normalized;
+      group.userData.elevatorTargetFloors = [...normalized];
+    },
+    setElevatorAuto(enabled: boolean) {
+      group.userData.elevatorAutoEnabled = enabled;
+      if (!enabled) elevatorStatusMaterials.forEach((material) => { material.emissiveIntensity = 0.35; });
+    },
+    updateElevators(deltaSeconds: number) {
+      if (!group.userData.elevatorAutoEnabled) return;
+      const dt = THREE.MathUtils.clamp(deltaSeconds, 0, 0.1);
+      elevatorMotion.forEach((motion, index) => {
+        motion.phase += dt;
+        if (motion.waitRemaining > 0) {
+          motion.waitRemaining = Math.max(0, motion.waitRemaining - dt);
+          elevatorStatusMaterials[index].emissiveIntensity = 0.65;
+          return;
+        }
+        const currentTargetY = floorLevels[motion.targetFloor - 1];
+        if (Math.abs(motion.cabin.position.y - currentTargetY) < 0.001) {
+          motion.routeIndex = (motion.routeIndex + 1) % motion.route.length;
+          motion.targetFloor = motion.route[motion.routeIndex];
+          group.userData.elevatorTargetFloors[index] = motion.targetFloor;
+        }
+        const targetY = floorLevels[motion.targetFloor - 1];
+        const distance = targetY - motion.cabin.position.y;
+        const step = Math.min(Math.abs(distance), 3.15 * dt);
+        motion.cabin.position.y += Math.sign(distance) * step;
+        elevatorStatusMaterials[index].emissiveIntensity = 3.2 + Math.sin(motion.phase * 7) * 0.7;
+        if (Math.abs(targetY - motion.cabin.position.y) < 0.001) {
+          motion.cabin.position.y = targetY;
+          group.userData.elevatorFloors[index] = motion.targetFloor;
+          motion.waitRemaining = 2.2 + index * 0.55;
+          elevatorStatusMaterials[index].emissiveIntensity = 0.9;
+        }
+      });
     },
     setInteriorCutaway(cutaway: boolean) {
       cutawayShell.forEach((object) => { object.visible = !cutaway; });
@@ -1353,6 +1447,7 @@ export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
     },
   };
   group.userData.setElevatorFloors([4, 13]);
+  group.userData.setElevatorAuto(true);
   group.userData.setInteriorCutaway(false);
   group.userData.setPowered(false);
   return group;
@@ -1738,6 +1833,386 @@ export function buildLowPolySmallVilla(): SmallVillaModel {
     },
   };
   group.userData.setDoorOpen(false);
+  group.userData.setInteriorCutaway(false);
+  group.userData.setPowered(false);
+  return group;
+}
+
+export function buildLowPolyOfficeCampus(): OfficeCampusModel {
+  const group = new THREE.Group() as OfficeCampusModel;
+  group.name = "city-office-campus-lowpoly";
+  const cutawayShell: THREE.Object3D[] = [];
+
+  const concrete = new THREE.MeshStandardMaterial({ color: 0xd9d5c8, roughness: 0.88 });
+  const paleConcrete = new THREE.MeshStandardMaterial({ color: 0xeee8db, roughness: 0.84 });
+  const stone = new THREE.MeshStandardMaterial({ color: 0x85847d, roughness: 0.94 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x303a3d, roughness: 0.66, metalness: 0.28 });
+  const bronze = new THREE.MeshStandardMaterial({ color: 0xa26945, roughness: 0.58, metalness: 0.42 });
+  const timber = new THREE.MeshStandardMaterial({ color: 0x8a664b, roughness: 0.82 });
+  const paving = new THREE.MeshStandardMaterial({ color: 0xbab7ae, roughness: 0.96 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x72a6b1,
+    emissive: 0x163945,
+    emissiveIntensity: 0.08,
+    roughness: 0.24,
+    metalness: 0.08,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const atriumGlass = glass.clone();
+  atriumGlass.color.setHex(0x91bdc4);
+  atriumGlass.opacity = 0.46;
+  const warmGlass = new THREE.MeshStandardMaterial({
+    color: 0xf0c788,
+    emissive: 0xffa33b,
+    emissiveIntensity: 0.12,
+    roughness: 0.28,
+    transparent: true,
+    opacity: 0.7,
+    depthWrite: false,
+  });
+  const green = new THREE.MeshStandardMaterial({ color: 0x416c49, roughness: 0.94 });
+  const greenLight = new THREE.MeshStandardMaterial({ color: 0x66875a, roughness: 0.94 });
+  const solar = new THREE.MeshStandardMaterial({ color: 0x294e62, roughness: 0.34, metalness: 0.34 });
+  const carpet = new THREE.MeshStandardMaterial({ color: 0x446b73, roughness: 0.96 });
+  const carpetAccent = new THREE.MeshStandardMaterial({ color: 0xb76b4c, roughness: 0.94 });
+  const fabric = new THREE.MeshStandardMaterial({ color: 0x667b65, roughness: 0.98 });
+  const porcelain = new THREE.MeshStandardMaterial({ color: 0xe7e8e3, roughness: 0.54 });
+
+  const siteBase = mesh(new THREE.BoxGeometry(30, 0.28, 17), stone, "office-campus-site-base");
+  siteBase.position.y = 0.14;
+  const buildingPad = mesh(new THREE.BoxGeometry(26.4, 0.16, 11.4), paving, "office-campus-building-pad");
+  buildingPad.position.set(0, 0.3, -0.35);
+  const arrivalPlaza = mesh(new THREE.BoxGeometry(14, 0.14, 4.4), paving, "office-campus-arrival-plaza");
+  arrivalPlaza.position.set(0, 0.35, 6.25);
+  group.add(siteBase, buildingPad, arrivalPlaza);
+
+  for (let index = 0; index < 7; index += 1) {
+    const joint = mesh(new THREE.BoxGeometry(0.045, 0.025, 4.25), stone, "office-campus-plaza-joint");
+    joint.position.set(-6 + index * 2, 0.435, 6.25);
+    group.add(joint);
+  }
+
+  const floorPitch = 1.9;
+  const wingDefinitions = [
+    { centerX: -7, floors: 6, name: "west" },
+    { centerX: 7, floors: 5, name: "east" },
+  ] as const;
+  const windowGeometry = new THREE.BoxGeometry(1.62, 1.24, 0.08);
+  const deskGeometry = new THREE.BoxGeometry(1.05, 0.08, 0.55);
+  const screenGeometry = new THREE.BoxGeometry(0.4, 0.28, 0.04);
+  let workstationCount = 0;
+  let meetingRoomCount = 0;
+
+  wingDefinitions.forEach((wing, wingIndex) => {
+    const height = wing.floors * floorPitch + 0.42;
+    const centerY = 0.38 + height * 0.5;
+    const rearWall = mesh(new THREE.BoxGeometry(10.6, height, 0.22), concrete, "office-campus-rear-wall");
+    rearWall.position.set(wing.centerX, centerY, -5.05);
+    const outerWall = mesh(new THREE.BoxGeometry(0.22, height, 10), paleConcrete, "office-campus-outer-wall");
+    outerWall.position.set(wing.centerX + (wingIndex === 0 ? -5.19 : 5.19), centerY, 0);
+    const innerCore = mesh(new THREE.BoxGeometry(1.42, height, 3.6), bronze, "office-campus-service-core");
+    innerCore.position.set(wing.centerX + (wingIndex === 0 ? 4.28 : -4.28), centerY, -2.75);
+    group.add(rearWall, outerWall, innerCore);
+
+    for (let floor = 0; floor < wing.floors; floor += 1) {
+      const level = 0.46 + floor * floorPitch;
+      const slab = mesh(new THREE.BoxGeometry(10.35, 0.14, 9.72), paleConcrete, "office-campus-floor-slab");
+      slab.position.set(wing.centerX, level, 0);
+      const frontSpandrel = mesh(new THREE.BoxGeometry(10.55, 0.27, 0.18), bronze, "office-campus-front-spandrel");
+      frontSpandrel.position.set(wing.centerX, level + 0.15, 4.98);
+      const rearSpandrel = frontSpandrel.clone();
+      rearSpandrel.position.z = -4.98;
+      group.add(slab, frontSpandrel, rearSpandrel);
+      cutawayShell.push(frontSpandrel);
+
+      for (const localX of [-4.05, -2.05, 0, 2.05, 4.05]) {
+        const frontWindow = mesh(windowGeometry, glass, "office-campus-curtain-window");
+        frontWindow.position.set(wing.centerX + localX, level + 0.92, 5.03);
+        const rearWindow = frontWindow.clone();
+        rearWindow.position.z = -5.03;
+        group.add(frontWindow, rearWindow);
+        cutawayShell.push(frontWindow);
+      }
+
+      if (floor < 3) {
+        for (const localX of [-3.35, -1.12, 1.12, 3.35]) {
+          const desk = mesh(deskGeometry, timber, "office-campus-workstation-desk");
+          desk.position.set(wing.centerX + localX, level + 0.76, 2.05 - floor * 0.38);
+          const screen = mesh(screenGeometry, dark, "office-campus-workstation-screen");
+          screen.position.set(desk.position.x, level + 0.98, desk.position.z - 0.12);
+          const chair = mesh(new THREE.BoxGeometry(0.42, 0.5, 0.42), bronze, "office-campus-workstation-chair");
+          chair.position.set(desk.position.x, level + 0.66, desk.position.z + 0.62);
+          group.add(desk, screen, chair);
+          workstationCount += 1;
+        }
+      }
+
+      for (const localX of [-2.45, 0, 2.45]) {
+        const ceilingLight = mesh(new THREE.BoxGeometry(1.25, 0.04, 0.34), warmGlass, "office-campus-ceiling-light");
+        ceilingLight.position.set(wing.centerX + localX, level + 1.72, 0.8);
+        group.add(ceilingLight);
+      }
+
+      if ([1, 3, wing.floors - 1].includes(floor)) {
+        const meetingX = wing.centerX + (wingIndex === 0 ? -1.25 : 1.25);
+        const meetingZ = -1.65;
+        const meetingFloor = mesh(new THREE.BoxGeometry(3.25, 0.035, 2.4), carpetAccent, "office-campus-meeting-room-floor");
+        meetingFloor.position.set(meetingX, level + 0.1, meetingZ);
+        const meetingWall = mesh(new THREE.BoxGeometry(3.25, 1.48, 0.05), atriumGlass, "office-campus-meeting-room-glass-wall");
+        meetingWall.position.set(meetingX, level + 0.84, meetingZ + 1.18);
+        const meetingSide = mesh(new THREE.BoxGeometry(0.05, 1.48, 2.4), atriumGlass, "office-campus-meeting-room-glass-wall");
+        meetingSide.position.set(meetingX + (wingIndex === 0 ? 1.6 : -1.6), level + 0.84, meetingZ);
+        const meetingTable = mesh(new THREE.BoxGeometry(2.1, 0.12, 0.88), timber, "office-campus-meeting-table");
+        meetingTable.position.set(meetingX, level + 0.74, meetingZ);
+        group.add(meetingFloor, meetingWall, meetingSide, meetingTable);
+        for (const zOffset of [-0.68, 0.68]) {
+          for (const xOffset of [-0.65, 0, 0.65]) {
+            const chair = mesh(new THREE.BoxGeometry(0.38, 0.48, 0.38), fabric, "office-campus-meeting-chair");
+            chair.position.set(meetingX + xOffset, level + 0.54, meetingZ + zOffset);
+            group.add(chair);
+          }
+        }
+        meetingRoomCount += 1;
+      }
+
+      const elevatorDoor = mesh(new THREE.BoxGeometry(0.82, 1.42, 0.06), dark, "office-campus-elevator-door");
+      elevatorDoor.position.set(wing.centerX + (wingIndex === 0 ? 4.28 : -4.28), level + 0.75, -0.91);
+      const elevatorIndicator = mesh(new THREE.BoxGeometry(0.22, 0.16, 0.04), warmGlass, "office-campus-elevator-indicator");
+      elevatorIndicator.position.set(elevatorDoor.position.x, level + 1.55, -0.87);
+      group.add(elevatorDoor, elevatorIndicator);
+    }
+
+    for (const localX of [-5.05, -3.05, -1.02, 1.02, 3.05, 5.05]) {
+      const fin = mesh(new THREE.BoxGeometry(0.12, height - 0.2, 0.42), bronze, "office-campus-solar-fin");
+      fin.position.set(wing.centerX + localX, centerY, 5.2);
+      group.add(fin);
+      cutawayShell.push(fin);
+    }
+
+    const roof = mesh(new THREE.BoxGeometry(10.85, 0.22, 10.15), dark, "office-campus-flat-roof");
+    roof.position.set(wing.centerX, 0.5 + wing.floors * floorPitch, 0);
+    group.add(roof);
+
+    const emergencyStair = new THREE.Group();
+    emergencyStair.name = "office-campus-emergency-stair";
+    const stairX = wing.centerX + (wingIndex === 0 ? -4.25 : 4.25);
+    for (let storey = 0; storey < wing.floors - 1; storey += 1) {
+      const baseY = 0.48 + storey * floorPitch;
+      for (let stepIndex = 0; stepIndex < 6; stepIndex += 1) {
+        const step = mesh(new THREE.BoxGeometry(0.82, 0.12, 0.42), stone, "office-campus-emergency-stair-step");
+        step.position.set(stairX, baseY + 0.16 + stepIndex * floorPitch / 6, -3.9 + stepIndex * 0.48);
+        emergencyStair.add(step);
+      }
+    }
+    group.add(emergencyStair);
+  });
+
+  const atriumHeight = 10.1;
+  const atriumFront = mesh(new THREE.BoxGeometry(3.45, atriumHeight, 0.08), atriumGlass, "office-campus-atrium-glazing");
+  atriumFront.position.set(0, 5.45, 5.02);
+  const atriumRear = atriumFront.clone();
+  atriumRear.position.z = -5.02;
+  const atriumRoof = mesh(new THREE.BoxGeometry(3.6, 0.12, 10.1), atriumGlass, "office-campus-atrium-skylight");
+  atriumRoof.position.set(0, 10.53, 0);
+  group.add(atriumFront, atriumRear, atriumRoof);
+  cutawayShell.push(atriumFront);
+  for (const x of [-1.65, 1.65]) {
+    const mullion = mesh(new THREE.BoxGeometry(0.14, atriumHeight, 0.18), dark, "office-campus-atrium-mullion");
+    mullion.position.set(x, 5.45, 5.08);
+    const rearMullion = mullion.clone();
+    rearMullion.position.z = -5.08;
+    group.add(mullion, rearMullion);
+    cutawayShell.push(mullion);
+  }
+  for (const y of [2.25, 4.15, 6.05, 7.95, 9.85]) {
+    const atriumRail = mesh(new THREE.BoxGeometry(3.4, 0.12, 0.16), dark, "office-campus-atrium-horizontal-frame");
+    atriumRail.position.set(0, y, 5.08);
+    group.add(atriumRail);
+  }
+
+  for (const [index, y] of [4.28, 8.08].entries()) {
+    const bridgeFloor = mesh(new THREE.BoxGeometry(3.9, 0.15, 3.35), paleConcrete, "office-campus-skybridge");
+    bridgeFloor.position.set(0, y, -0.35 + index * 0.55);
+    const bridgeGlassFront = mesh(new THREE.BoxGeometry(3.75, 0.78, 0.07), atriumGlass, "office-campus-skybridge-glazing");
+    bridgeGlassFront.position.set(0, y + 0.46, 1.29 + index * 0.55);
+    const bridgeGlassRear = bridgeGlassFront.clone();
+    bridgeGlassRear.position.z = -1.99 + index * 0.55;
+    group.add(bridgeFloor, bridgeGlassFront, bridgeGlassRear);
+  }
+
+  const lobbyFloor = mesh(new THREE.BoxGeometry(3.25, 0.12, 9.55), timber, "office-campus-lobby-floor");
+  lobbyFloor.position.set(0, 0.49, 0);
+  const reception = mesh(new THREE.BoxGeometry(2.15, 0.78, 0.72), bronze, "office-campus-reception-desk");
+  reception.position.set(0, 0.91, 1.7);
+  const entranceLeft = mesh(new THREE.BoxGeometry(1.48, 2.15, 0.08), warmGlass, "office-campus-entrance-door");
+  entranceLeft.position.set(-0.78, 1.58, 5.15);
+  const entranceRight = entranceLeft.clone();
+  entranceRight.position.x = 0.78;
+  const entranceCanopy = mesh(new THREE.BoxGeometry(7.2, 0.22, 2.25), dark, "office-campus-entrance-canopy");
+  entranceCanopy.position.set(0, 3.0, 6.05);
+  group.add(lobbyFloor, reception, entranceLeft, entranceRight, entranceCanopy);
+  cutawayShell.push(entranceLeft, entranceRight);
+  for (const x of [-3.15, 3.15]) {
+    const canopyPost = mesh(new THREE.BoxGeometry(0.18, 2.55, 0.18), bronze, "office-campus-canopy-post");
+    canopyPost.position.set(x, 1.7, 6.72);
+    group.add(canopyPost);
+    cutawayShell.push(canopyPost);
+  }
+
+  for (const x of [-1.05, -0.35, 0.35, 1.05]) {
+    const turnstile = mesh(new THREE.BoxGeometry(0.22, 0.86, 0.72), dark, "office-campus-lobby-turnstile");
+    turnstile.position.set(x, 0.94, 3.05);
+    const gate = mesh(new THREE.BoxGeometry(0.42, 0.04, 0.5), atriumGlass, "office-campus-lobby-turnstile-gate");
+    gate.position.set(x + 0.25, 1.05, 3.05);
+    group.add(turnstile, gate);
+  }
+  for (const x of [-0.78, 0.78]) {
+    const lobbySofa = mesh(new THREE.BoxGeometry(1.15, 0.62, 0.68), fabric, "office-campus-lobby-sofa");
+    lobbySofa.position.set(x, 0.73, -3.35);
+    group.add(lobbySofa);
+  }
+  const lobbyTable = mesh(new THREE.CylinderGeometry(0.48, 0.55, 0.38, 10), timber, "office-campus-lobby-table");
+  lobbyTable.position.set(0, 0.68, -2.35);
+  group.add(lobbyTable);
+
+  for (let stepIndex = 0; stepIndex < 10; stepIndex += 1) {
+    const atriumStep = mesh(new THREE.BoxGeometry(2.45, 0.19, 0.42), paleConcrete, "office-campus-atrium-stair-step");
+    atriumStep.position.set(0, 0.58 + stepIndex * 0.19, -0.8 - stepIndex * 0.4);
+    group.add(atriumStep);
+  }
+  group.add(
+    beamBetween(new THREE.Vector3(-1.28, 1.1, -0.6), new THREE.Vector3(-1.28, 2.95, -4.35), 0.035, 0.035, dark, "office-campus-atrium-stair-handrail"),
+    beamBetween(new THREE.Vector3(1.28, 1.1, -0.6), new THREE.Vector3(1.28, 2.95, -4.35), 0.035, 0.035, dark, "office-campus-atrium-stair-handrail"),
+  );
+
+  const cafeFloor = mesh(new THREE.BoxGeometry(7.8, 0.04, 3.75), carpet, "office-campus-cafe-floor");
+  cafeFloor.position.set(7, 0.55, 2.65);
+  const cafeCounter = mesh(new THREE.BoxGeometry(4.5, 0.92, 0.75), bronze, "office-campus-cafe-counter");
+  cafeCounter.position.set(7, 1.02, 3.8);
+  const kitchenette = mesh(new THREE.BoxGeometry(3.2, 1.5, 0.58), paleConcrete, "office-campus-kitchenette");
+  kitchenette.position.set(9.7, 1.28, 2.45);
+  group.add(cafeFloor, cafeCounter, kitchenette);
+  for (const [x, z] of [[4.6, 1.55], [6.3, 1.55], [8, 1.55], [9.7, 1.55]] as const) {
+    const table = mesh(new THREE.CylinderGeometry(0.46, 0.5, 0.08, 10), timber, "office-campus-cafe-table");
+    table.position.set(x, 0.94, z);
+    group.add(table);
+    for (const offset of [-0.68, 0.68]) {
+      const seat = mesh(new THREE.CylinderGeometry(0.25, 0.27, 0.42, 8), fabric, "office-campus-cafe-seat");
+      seat.position.set(x + offset, 0.76, z);
+      group.add(seat);
+    }
+  }
+
+  for (const wingX of [-7, 7]) {
+    const loungeRug = mesh(new THREE.BoxGeometry(3.4, 0.035, 2.25), carpetAccent, "office-campus-collaboration-rug");
+    loungeRug.position.set(wingX, 4.36, 2.55);
+    const sofaA = mesh(new THREE.BoxGeometry(1.5, 0.6, 0.65), fabric, "office-campus-collaboration-sofa");
+    sofaA.position.set(wingX - 0.8, 4.68, 2.55);
+    const sofaB = sofaA.clone();
+    sofaB.position.x = wingX + 0.8;
+    group.add(loungeRug, sofaA, sofaB);
+    for (const side of [-1, 1]) {
+      const phoneBooth = mesh(new THREE.BoxGeometry(0.9, 1.55, 0.9), atriumGlass, "office-campus-phone-room");
+      phoneBooth.position.set(wingX + side * 3.75, 6.95, 2.55);
+      const phoneDesk = mesh(new THREE.BoxGeometry(0.62, 0.08, 0.38), timber, "office-campus-phone-room-desk");
+      phoneDesk.position.set(phoneBooth.position.x, 6.62, 2.55);
+      group.add(phoneBooth, phoneDesk);
+    }
+  }
+
+  for (const wingX of [-7, 7]) {
+    const restroomWall = mesh(new THREE.BoxGeometry(3.1, 1.55, 0.08), paleConcrete, "office-campus-restroom-wall");
+    restroomWall.position.set(wingX, 1.25, -4.15);
+    group.add(restroomWall);
+    for (const xOffset of [-0.75, 0.75]) {
+      const sink = mesh(new THREE.BoxGeometry(0.6, 0.18, 0.42), porcelain, "office-campus-restroom-sink");
+      sink.position.set(wingX + xOffset, 0.95, -3.85);
+      group.add(sink);
+    }
+  }
+
+  for (const x of [-10.8, -8.6, 8.6, 10.8]) {
+    const planter = mesh(new THREE.BoxGeometry(1.55, 0.48, 1.25), stone, "office-campus-landscape-planter");
+    planter.position.set(x, 0.62, 6.2);
+    const shrub = mesh(new THREE.DodecahedronGeometry(0.62, 0), Math.abs(x) > 10 ? green : greenLight, "office-campus-landscape-shrub");
+    shrub.position.set(x, 1.22, 6.2);
+    shrub.scale.set(1.12, 0.78, 0.92);
+    group.add(planter, shrub);
+  }
+  for (const x of [-5.25, 5.25]) {
+    const benchSeat = mesh(new THREE.BoxGeometry(2.4, 0.16, 0.58), timber, "office-campus-plaza-bench");
+    benchSeat.position.set(x, 0.72, 7.1);
+    const benchBase = mesh(new THREE.BoxGeometry(1.7, 0.48, 0.38), stone, "office-campus-plaza-bench-base");
+    benchBase.position.set(x, 0.48, 7.1);
+    group.add(benchSeat, benchBase);
+  }
+
+  const roofTerrace = mesh(new THREE.BoxGeometry(8.8, 0.12, 7.7), timber, "office-campus-roof-terrace");
+  roofTerrace.position.set(7, 10.08, 0);
+  group.add(roofTerrace);
+  for (const x of [3.7, 7, 10.3]) {
+    const terracePlanter = mesh(new THREE.BoxGeometry(1.35, 0.44, 0.78), stone, "office-campus-roof-planter");
+    terracePlanter.position.set(x, 10.34, -3.05);
+    const terraceShrub = mesh(new THREE.DodecahedronGeometry(0.42, 0), green, "office-campus-roof-shrub");
+    terraceShrub.position.set(x, 10.78, -3.05);
+    group.add(terracePlanter, terraceShrub);
+  }
+
+  for (let index = 0; index < 6; index += 1) {
+    const panel = mesh(new THREE.BoxGeometry(1.45, 0.1, 2.3), solar, "office-campus-solar-panel");
+    panel.position.set(-10 + (index % 3) * 2.8, 12.22, -2.3 + Math.floor(index / 3) * 3.1);
+    panel.rotation.x = -0.18;
+    group.add(panel);
+  }
+  const mechanicalRoom = mesh(new THREE.BoxGeometry(3.6, 1.15, 3.1), bronze, "office-campus-mechanical-room");
+  mechanicalRoom.position.set(-6.4, 12.1, 0.2);
+  group.add(mechanicalRoom);
+  for (const x of [-8.2, -4.6]) {
+    const hvac = mesh(new THREE.BoxGeometry(1.2, 0.72, 1.1), stone, "office-campus-hvac-unit");
+    hvac.position.set(x, 12.0, 3.15);
+    group.add(hvac);
+  }
+
+  const loadingDock = mesh(new THREE.BoxGeometry(5.8, 0.76, 1.0), dark, "office-campus-loading-dock");
+  loadingDock.position.set(7.2, 0.76, -5.72);
+  const loadingCanopy = mesh(new THREE.BoxGeometry(6.4, 0.18, 1.75), bronze, "office-campus-loading-canopy");
+  loadingCanopy.position.set(7.2, 2.45, -5.65);
+  const serviceRamp = mesh(new THREE.BoxGeometry(7.2, 0.12, 2.25), paving, "office-campus-service-ramp");
+  serviceRamp.position.set(7.2, 0.38, -7.08);
+  group.add(loadingDock, loadingCanopy, serviceRamp);
+
+  const lobbyLight = new THREE.PointLight(0xffbe69, 0, 16, 1.8);
+  lobbyLight.name = "office-campus-lobby-light";
+  lobbyLight.position.set(0, 3.0, 3.8);
+  group.add(lobbyLight);
+
+  group.userData = {
+    modelType: "office-campus",
+    generatedLocally: true,
+    floorCount: 6,
+    wingCount: 2,
+    bridgeCount: 2,
+    workstationCount,
+    meetingRoomCount,
+    elevatorCount: 2,
+    emergencyStairCount: 2,
+    siteSize: new THREE.Vector3(30, 12.62, 17),
+    setInteriorCutaway(cutaway: boolean) {
+      cutawayShell.forEach((object) => { object.visible = !cutaway; });
+    },
+    setPowered(powered: boolean) {
+      glass.color.setHex(powered ? 0xf0c37b : 0x72a6b1);
+      glass.emissive.setHex(powered ? 0xff9f35 : 0x163945);
+      glass.emissiveIntensity = powered ? 2.35 : 0.08;
+      atriumGlass.emissive.setHex(powered ? 0xffa23a : 0x163945);
+      atriumGlass.emissiveIntensity = powered ? 1.6 : 0.08;
+      warmGlass.emissiveIntensity = powered ? 3.1 : 0.12;
+      lobbyLight.intensity = powered ? 5.2 : 0;
+    },
+  };
   group.userData.setInteriorCutaway(false);
   group.userData.setPowered(false);
   return group;

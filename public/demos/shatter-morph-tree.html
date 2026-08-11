@@ -133,7 +133,7 @@
       <span id="count"></span>
     </div>
   </section>
-  <div class="legend">拖拽旋转 · 滚轮缩放 · R 修复 · Space 炸裂</div>
+  <div class="legend">拖拽旋转 · 滚轮缩放 · R 修复 · Space 炸裂 · 兔子 1.70 m 比例参考</div>
 
   <script type="importmap">
     {
@@ -147,6 +147,7 @@
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { buildRabbitScaleReference } from "./rabbit-scale-reference.js";
 
     const NORMAL_TREE_URL = "/models/forest/tree_normal_large_redwood_a.glb";
     const SHATTER_TREE_URL = "/models/forest/tree_large_redwood_a.glb";
@@ -200,6 +201,10 @@
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
+    const rabbitReference = buildRabbitScaleReference();
+    rabbitReference.position.set(4.5, 0, 3.5);
+    rabbitReference.rotation.y = -0.45;
+    scene.add(rabbitReference);
 
     const shatterBtn = document.getElementById("shatter");
     const repairBtn = document.getElementById("repair");

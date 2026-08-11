@@ -140,6 +140,12 @@ button { color: inherit; }
 .play-entry-button { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 44px; margin-top: 10px; padding: 0 15px; border: 1px solid rgba(61,94,42,.35); background: rgba(71,111,40,.1); color: var(--green-dark); font-size: 12px; letter-spacing: .05em; cursor: pointer; }
 .play-entry-button:hover { background: rgba(71,111,40,.18); }
 .play-entry-button span { font-size: 16px; }
+.model-showcase-entry { display: flex; align-items: center; justify-content: space-between; min-height: 54px; margin-top: 8px; padding: 9px 14px; border: 1px solid color-mix(in srgb, var(--green) 38%, transparent); background: rgba(255,255,255,.45); color: var(--green-dark); text-decoration: none; transition: background 160ms ease, transform 160ms ease, border-color 160ms ease; }
+.model-showcase-entry:hover { transform: translateY(-1px); border-color: var(--green); background: rgba(255,255,255,.72); }
+.model-showcase-entry span { display: grid; gap: 3px; }
+.model-showcase-entry b { font-size: 11px; letter-spacing: .06em; }
+.model-showcase-entry small { color: var(--muted); font-size: 8px; letter-spacing: .04em; }
+.model-showcase-entry i { font-size: 17px; font-style: normal; }
 .file-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
 .file-actions button { height: 32px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; }
 .file-actions button:hover { color: var(--ink); background: rgba(255,255,255,.5); }

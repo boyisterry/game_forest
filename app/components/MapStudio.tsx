@@ -501,6 +501,14 @@ export function MapStudio() {
           {t.playEntry} <span>→</span>
         </button>
 
+        <a className="model-showcase-entry" href="/demos">
+          <span>
+            <b>{locale === "zh" ? "模型展示区" : "Model showcase"}</b>
+            <small>{locale === "zh" ? "街道装饰 · 居民建筑 · 医院 · 游乐园" : "Street · Residential · Hospital · Amusement park"}</small>
+          </span>
+          <i>↗</i>
+        </a>
+
         <div className="file-actions">
           <button type="button" onClick={exportMap}>{t.exportJson}</button>
           <button type="button" onClick={() => importRef.current?.click()}>{t.importMap}</button>

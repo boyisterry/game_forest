@@ -98,7 +98,7 @@
     </div>
     <div class="state" id="state">状态：正常森林 · idle</div>
   </div>
-  <div class="hint">拖拽旋转 · 滚轮缩放</div>
+  <div class="hint">拖拽旋转 · 滚轮缩放 · 兔子 1.70 m 比例参考</div>
 
   <script type="importmap">
     {
@@ -111,6 +111,7 @@
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { buildRabbitScaleReference } from "./rabbit-scale-reference.js";
 
     const SHARD_COUNT = 7;
     const TREE_COUNT = 6;
@@ -150,6 +151,10 @@
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
+    const rabbitReference = buildRabbitScaleReference();
+    rabbitReference.position.set(4.5, 0, 3.5);
+    rabbitReference.rotation.y = -0.45;
+    scene.add(rabbitReference);
 
     const bark = new THREE.MeshStandardMaterial({ color: 0x5a3b24, roughness: 0.92 });
     const leaf = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.78 });

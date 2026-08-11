@@ -7,6 +7,7 @@ import {
   buildLowPolyHotDogKiosk,
   buildLowPolyHighRiseResidential,
   buildLowPolyNewsstand,
+  buildLowPolyOfficeCampus,
   buildLowPolyPhoneBooth,
   buildLowPolyRoadsidePlanter,
   buildLowPolyResidentialBuilding,
@@ -231,6 +232,8 @@ test("generates an 18-storey residential tower with two elevators and an emergen
   assert.equal(tower.userData.apartmentCount, 72);
   assert.equal(tower.userData.elevatorCount, 2);
   assert.equal(tower.userData.emergencyStairCount, 1);
+  assert.equal(tower.userData.elevatorDoorFacing, "interior");
+  assert.equal(tower.userData.observationGlazingFacing, "exterior");
   assert.equal(tower.userData.floorLevels.length, 18);
   assert.ok(tower.userData.floorLevels.every((level, index, levels) => index === 0 || level > levels[index - 1]));
   assert.equal(tower.children.filter((child) => child.name === "high-rise-floor-slab").length, 18);
@@ -244,12 +247,35 @@ test("generates an 18-storey residential tower with two elevators and an emergen
   assert.equal(emergencyStair.children.filter((child) => child.name === "high-rise-emergency-stair-step").length, 204);
   assert.equal(emergencyStair.children.filter((child) => child.name === "high-rise-emergency-stair-landing").length, 17);
   const cabins = tower.children.filter((child) => child.name === "high-rise-elevator-cabin");
+  const landingDoors = tower.children.filter((child) => child.name === "high-rise-elevator-door");
+  const observationGlazing = tower.getObjectByName("high-rise-elevator-core-glazing");
+  assert.ok(landingDoors.every((door) => door.position.z < 0.5));
+  assert.ok(landingDoors.every((door) => door.position.z < observationGlazing.position.z));
+  assert.equal(cabins.flatMap((cabin) => cabin.children.filter((child) => child.name === "high-rise-elevator-cabin-inner-door")).length, 4);
+  assert.ok(cabins.every((cabin) => cabin.children
+    .filter((child) => child.name === "high-rise-elevator-cabin-inner-door")
+    .every((door) => door.position.z < 0 && door.userData.facing === "interior")));
   tower.userData.setElevatorFloors([18, 1]);
   assert.deepEqual(tower.userData.elevatorFloors, [18, 1]);
   assert.equal(cabins[0].position.y, tower.userData.floorLevels[17]);
   assert.equal(cabins[1].position.y, tower.userData.floorLevels[0]);
   tower.userData.setElevatorFloors([99, -4]);
   assert.deepEqual(tower.userData.elevatorFloors, [18, 1]);
+  assert.equal(tower.userData.elevatorAutoEnabled, true);
+  assert.equal(tower.children.filter((child) => child.name === "high-rise-elevator-cabin")
+    .flatMap((cabin) => cabin.children.filter((child) => child.name === "high-rise-elevator-motion-light")).length, 2);
+  tower.userData.setElevatorAuto(false);
+  const pausedPositions = cabins.map((cabin) => cabin.position.y);
+  for (let frame = 0; frame < 80; frame += 1) tower.userData.updateElevators(0.05);
+  assert.deepEqual(cabins.map((cabin) => cabin.position.y), pausedPositions);
+  tower.userData.setElevatorAuto(true);
+  for (let frame = 0; frame < 80; frame += 1) tower.userData.updateElevators(0.05);
+  assert.ok(cabins.some((cabin, index) => cabin.position.y !== pausedPositions[index]));
+  assert.notDeepEqual(tower.userData.elevatorTargetFloors, [18, 1]);
+  tower.userData.setElevatorAuto(false);
+  const frozenPositions = cabins.map((cabin) => cabin.position.y);
+  for (let frame = 0; frame < 40; frame += 1) tower.userData.updateElevators(0.05);
+  assert.deepEqual(cabins.map((cabin) => cabin.position.y), frozenPositions);
   tower.userData.setInteriorCutaway(true);
   assert.equal(tower.getObjectByName("high-rise-elevator-core-glazing").visible, false);
   assert.equal(emergencyStair.visible, true);
@@ -345,6 +371,48 @@ test("generates an enterable furnished two-storey villa with a sealed chimney co
   assert.ok(metrics.faceCount > 400);
 });
 
+test("generates a broad furnished office campus with two wings, atrium and shared amenities", () => {
+  const office = buildLowPolyOfficeCampus();
+  assert.equal(office.name, "city-office-campus-lowpoly");
+  assert.equal(office.userData.generatedLocally, true);
+  assert.equal(office.userData.floorCount, 6);
+  assert.equal(office.userData.wingCount, 2);
+  assert.equal(office.userData.bridgeCount, 2);
+  assert.equal(office.userData.workstationCount, 24);
+  assert.equal(office.userData.meetingRoomCount, 6);
+  assert.equal(office.userData.elevatorCount, 2);
+  assert.equal(office.userData.emergencyStairCount, 2);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-floor-slab").length, 11);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-skybridge").length, 2);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-workstation-desk").length, 24);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-meeting-room-floor").length, 6);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-elevator-door").length, 11);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-emergency-stair").length, 2);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-solar-panel").length, 6);
+  assert.ok(office.getObjectByName("office-campus-atrium-glazing"));
+  assert.ok(office.getObjectByName("office-campus-reception-desk"));
+  assert.ok(office.getObjectByName("office-campus-lobby-turnstile"));
+  assert.ok(office.getObjectByName("office-campus-atrium-stair-step"));
+  assert.ok(office.getObjectByName("office-campus-cafe-counter"));
+  assert.ok(office.getObjectByName("office-campus-phone-room"));
+  assert.ok(office.getObjectByName("office-campus-loading-dock"));
+  const frontWindow = office.getObjectByName("office-campus-curtain-window");
+  office.userData.setInteriorCutaway(true);
+  assert.equal(frontWindow.visible, false);
+  office.userData.setInteriorCutaway(false);
+  assert.equal(frontWindow.visible, true);
+  office.userData.setPowered(true);
+  assert.ok(frontWindow.material.emissiveIntensity > 2);
+  assert.ok(office.getObjectByName("office-campus-lobby-light").intensity > 5);
+  office.userData.setPowered(false);
+  assert.equal(office.getObjectByName("office-campus-lobby-light").intensity, 0);
+  const metrics = measureModelGeometry(office);
+  assert.ok(metrics.size.x >= 30);
+  assert.ok(metrics.size.z >= 17);
+  assert.ok(metrics.size.x > metrics.size.y * 2);
+  assert.ok(metrics.faceCount > 3_000);
+});
+
 test("creates separate normal and shattered versions from real low-poly triangles", () => {
   const lamp = buildLowPolyStreetLight();
   const pair = createFurnitureShatterPair(lamp, { seed: 31, trianglesPerShard: 4 });
@@ -384,6 +452,7 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /buildLowPolyFoodTruck/);
   assert.match(source, /buildLowPolyHotDogKiosk/);
   assert.match(source, /buildLowPolyNewsstand/);
+  assert.match(source, /buildLowPolyOfficeCampus/);
   assert.match(source, /buildLowPolyPhoneBooth/);
   assert.match(source, /buildLowPolyRoadsidePlanter/);
   assert.match(source, /buildLowPolyResidentialBuilding/);
@@ -403,7 +472,14 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /查看别墅内部/);
   assert.match(source, /恢复别墅外观/);
   assert.match(source, /查看高层内部/);
-  assert.match(source, /调度电梯至 18 \/ 1 层/);
+  assert.match(source, /setHighRiseElevatorAuto/);
+  assert.match(source, /setOfficeInteriorCutaway/);
+  assert.match(source, /highRise\.userData\.updateElevators\(dt\)/);
+  assert.match(source, /关闭电梯自动运行/);
+  assert.match(source, /开启电梯自动运行/);
+  assert.match(source, /查看办公楼内部/);
+  assert.match(source, /恢复办公楼外观/);
+  assert.match(source, /new THREE\.Vector3\(0, 0\.42, 44\)/);
   assert.match(source, /createFurnitureShatterPair/);
   assert.match(source, /ShatterMorphController/);
   assert.match(source, /破碎所有装饰/);
@@ -411,8 +487,8 @@ test("demo uses the forest normal tree and contains no third-party model or API 
 
 test("every showcase card exposes expandable model data", async () => {
   const source = await readFile(new URL("../app/demos/city-street-furniture/CityFurnitureDemo.tsx", import.meta.url), "utf8");
-  assert.equal(source.match(/number: "MODEL \d{2}"/g)?.length, 11);
-  assert.equal(source.match(/stats: \[/g)?.length, 11);
+  assert.equal(source.match(/number: "MODEL \d{2}"/g)?.length, 12);
+  assert.equal(source.match(/stats: \[/g)?.length, 12);
   assert.match(source, /aria-expanded=\{expanded\}/);
   assert.match(source, /aria-controls=\{`model-data-\$\{model\.id\}`\}/);
   assert.match(source, /查看参数 \+/);
@@ -420,4 +496,41 @@ test("every showcase card exposes expandable model data", async () => {
   assert.match(source, /模型大小（宽 × 高 × 深）/);
   assert.match(source, /模型面数/);
   assert.match(source, /measureModelGeometry/);
+});
+
+test("showcase list reveals a partial next row and scrolls vertically", async () => {
+  const css = await readFile(new URL("../app/demos/city-street-furniture/CityFurnitureDemo.module.css", import.meta.url), "utf8");
+  const modelCardsRule = css.match(/\.modelCards \{[^}]+\}/)?.[0] ?? "";
+  assert.match(modelCardsRule, /height: 148px/);
+  assert.match(modelCardsRule, /grid-template-columns: repeat\(5/);
+  assert.match(modelCardsRule, /grid-auto-rows: max-content/);
+  assert.match(modelCardsRule, /overflow-y: auto/);
+  assert.match(modelCardsRule, /overflow-x: hidden/);
+  assert.match(css, /height: 112px/);
+  assert.match(css, /grid-template-columns: repeat\(2/);
+  assert.doesNotMatch(css, /\.modelCards \{[^}]*display: flex/);
+});
+
+test("showcase card names and summaries reserve space without overlapping rows", async () => {
+  const css = await readFile(new URL("../app/demos/city-street-furniture/CityFurnitureDemo.module.css", import.meta.url), "utf8");
+  assert.match(css, /\.modelCard \{[^}]*min-height: 123px/);
+  assert.match(css, /\.modelFocusButton \{[^}]*min-height: 94px/);
+  assert.match(css, /\.modelCard strong \{[^}]*min-height: 32px/);
+  assert.match(css, /\.modelCard small \{[^}]*min-height: 22px/);
+  assert.match(css, /-webkit-line-clamp: 2/);
+  assert.match(css, /\.expandButton \{[^}]*flex: 0 0 28px/);
+});
+
+test("the upper-left operation panel can be collapsed accessibly", async () => {
+  const source = await readFile(new URL("../app/demos/city-street-furniture/CityFurnitureDemo.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/demos/city-street-furniture/CityFurnitureDemo.module.css", import.meta.url), "utf8");
+  assert.match(source, /operationsCollapsed/);
+  assert.match(source, /aria-expanded=\{!operationsCollapsed\}/);
+  assert.match(source, /aria-controls="city-demo-operations"/);
+  assert.match(source, /id="city-demo-operations"/);
+  assert.match(source, /hidden=\{operationsCollapsed\}/);
+  assert.match(source, /展开操作 ↓/);
+  assert.match(source, /收起操作 ↑/);
+  assert.match(css, /\.header\.collapsed/);
+  assert.match(css, /\.headerContent\[hidden\]/);
 });

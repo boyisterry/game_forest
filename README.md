@@ -61,9 +61,11 @@ npm run dev
 打开：
 
 - 实际地图：<http://localhost:3000/>
+- 城市模型分类入口（街道装饰 / 居民建筑 / 医院）：<http://localhost:3000/demos>
 - 单树碎裂与修复 Demo：<http://localhost:3000/demos/shatter-morph-tree.html>
 - 石头磨碎与重组 Demo：<http://localhost:3000/demos/stone-grind.html>
-- 城市树木、路灯、红绿灯、流动餐车、街边亭、长条花坛、居民楼与小别墅正常/破碎双版本展厅：<http://localhost:3000/demos/city-street-furniture>
+- 城市树木、街道设施、住宅与宽体总部办公园区正常/破碎双版本展厅：<http://localhost:3000/demos/city-street-furniture>
+- 综合医院院区外观、内饰与正常/破碎双版本展厅：<http://localhost:3000/demos/hospital-campus>
 
 执行构建和全部测试：
 

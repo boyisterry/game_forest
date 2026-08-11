@@ -1,0 +1,55 @@
+.shell { --ink: #24333b; --accent: #d44a4a; position: relative; width: 100vw; height: 100vh; overflow: hidden; color: var(--ink); background: #bfdce5; }
+.canvasHost { position: absolute; inset: 0; }
+.canvasHost canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.header { position: absolute; z-index: 3; top: 22px; left: 24px; width: min(510px, calc(100vw - 48px)); padding: 19px 20px; border: 1px solid rgba(34, 57, 68, .16); background: rgba(251, 248, 238, .92); box-shadow: 0 22px 62px rgba(31, 55, 66, .18); backdrop-filter: blur(18px); transition: width .2s ease, padding .2s ease; }
+.header::before { content: ""; position: absolute; left: 0; top: 0; width: 5px; height: 100%; background: linear-gradient(#e05151 0 33%, #efb74e 33% 66%, #4b9ca3 66%); }
+.header.collapsed { width: min(395px, calc(100vw - 48px)); padding: 12px 14px 12px 18px; }
+.headerTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.eyebrow { margin: 0 0 6px; color: var(--accent); font-size: 9px; font-weight: 900; letter-spacing: .17em; }
+.header h1 { margin: 0; font-family: "Songti SC", "STSong", Georgia, serif; font-size: 28px; font-weight: 700; letter-spacing: .06em; }
+.header.collapsed .eyebrow { display: none; }
+.header.collapsed h1 { overflow: hidden; padding-top: 3px; font-size: 18px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.header [hidden] { display: none; }
+.collapseButton { min-height: 30px; flex: 0 0 auto; padding: 0 10px; border: 1px solid rgba(38, 61, 70, .18); background: #f3eddd; color: #596b70; font-size: 9px; font-weight: 800; cursor: pointer; }
+.collapseButton:hover { border-color: rgba(212, 74, 74, .45); background: #fff; color: #b63f3f; }
+.collapseButton:focus-visible, .actions button:focus-visible, .facilityCard:focus-visible { outline: 2px solid #d44a4a; outline-offset: 2px; }
+.intro { margin: 10px 0 13px; color: #66777b; font-size: 11px; line-height: 1.62; }
+.actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.actions button { min-height: 34px; padding: 0 12px; border: 1px solid rgba(38, 61, 70, .17); background: #f1eddf; color: #2b4149; font-size: 10px; font-weight: 750; cursor: pointer; }
+.actions button:hover { background: #fff; }
+.actions button.active { border-color: #315f72; background: #315f72; color: #fff; }
+.actions button.paused { border-color: #b24b42; background: #bf5148; color: #fff; }
+.backLink { position: absolute; z-index: 3; top: 22px; right: 22px; padding: 9px 12px; border: 1px solid rgba(31, 59, 68, .14); background: rgba(251, 248, 238, .88); color: #53696f; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-decoration: none; backdrop-filter: blur(12px); }
+.backLink:hover { background: #fff; color: #b63f3f; }
+.status { position: absolute; z-index: 3; top: 65px; right: 22px; display: flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid rgba(31, 59, 68, .12); background: rgba(251, 248, 238, .82); color: #65787d; font-size: 8px; font-weight: 800; letter-spacing: .09em; backdrop-filter: blur(12px); }
+.status span { width: 6px; height: 6px; border-radius: 50%; background: #55a967; box-shadow: 0 0 0 3px rgba(85, 169, 103, .16); }
+.metrics { position: absolute; z-index: 3; right: 22px; bottom: 168px; display: grid; gap: 2px; min-width: 282px; padding: 11px 13px; border: 1px solid rgba(31, 59, 68, .13); background: rgba(251, 248, 238, .86); backdrop-filter: blur(12px); }
+.metrics span { color: var(--accent); font-size: 7px; font-weight: 900; letter-spacing: .15em; }
+.metrics strong { font-size: 12px; }
+.metrics small { color: #6e8084; font-size: 8px; }
+.facilityRail { position: absolute; z-index: 3; left: 0; bottom: 16px; display: flex; width: 100vw; gap: 8px; padding: 4px 24px 8px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-color: rgba(51, 80, 88, .34) transparent; }
+.facilityCard { flex: 0 0 218px; min-height: 132px; padding: 13px 14px; border: 1px solid rgba(34, 59, 67, .15); background: rgba(250, 247, 237, .91); color: #2d4249; text-align: left; box-shadow: 0 14px 42px rgba(30, 52, 61, .14); backdrop-filter: blur(14px); cursor: pointer; scroll-snap-align: start; transition: transform .18s ease, border-color .18s ease, background .18s ease; }
+.facilityCard:hover, .facilityCard.selected { border-color: rgba(212, 74, 74, .68); background: rgba(255, 253, 247, .98); transform: translateY(-3px); }
+.facilityCard.selected { box-shadow: inset 0 3px #d44a4a, 0 14px 42px rgba(30, 52, 61, .16); }
+.facilityCard span { display: block; margin-bottom: 5px; color: var(--accent); font-size: 8px; font-weight: 900; letter-spacing: .14em; }
+.facilityCard strong { display: block; font-size: 14px; }
+.facilityCard small { display: block; margin-top: 5px; color: #687b80; font-size: 9px; line-height: 1.45; }
+.facilityCard em { display: block; margin-top: 9px; padding-top: 8px; border-top: 1px solid rgba(40, 66, 74, .1); color: #556b72; font-size: 8px; font-style: normal; line-height: 1.45; }
+.night { --ink: #e9e8df; --accent: #ff7d73; }
+.night .header, .night .backLink, .night .status, .night .metrics, .night .facilityCard { border-color: rgba(149, 187, 211, .2); background: rgba(15, 25, 45, .84); color: #e9edf1; }
+.night .intro, .night .facilityCard small, .night .facilityCard em, .night .metrics small, .night .status, .night .backLink { color: #aebfcc; }
+.night .collapseButton, .night .actions button { border-color: rgba(149, 187, 211, .22); background: rgba(36, 53, 74, .85); color: #d7e2e8; }
+.night .facilityCard:hover, .night .facilityCard.selected { background: rgba(28, 42, 66, .94); }
+.night .status span { background: #ffd26e; box-shadow: 0 0 10px #ffd26e; }
+@media (max-width: 760px) {
+  .header { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 13px 14px 13px 18px; }
+  .header h1 { font-size: 21px; }
+  .intro { display: none; }
+  .backLink { top: auto; right: 12px; bottom: 164px; }
+  .status, .metrics { display: none; }
+  .facilityRail { bottom: 8px; gap: 7px; padding-inline: 12px; }
+  .facilityCard { flex-basis: 195px; min-height: 142px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .header, .facilityCard { transition: none; }
+}

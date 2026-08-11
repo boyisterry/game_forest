@@ -1,0 +1,44 @@
+.shell { position: relative; width: 100vw; height: 100vh; overflow: hidden; color: #20323a; background: #dcecf0; }
+.canvasHost { position: absolute; inset: 0; }
+.canvasHost canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.header { position: absolute; z-index: 3; top: 22px; left: 24px; width: min(480px, calc(100vw - 48px)); padding: 18px 20px; border: 1px solid rgba(31,59,68,.15); background: rgba(248,251,250,.91); box-shadow: 0 18px 54px rgba(36,59,69,.16); backdrop-filter: blur(16px); transition: width .2s ease, padding .2s ease; }
+.header.collapsed { width: min(400px, calc(100vw - 48px)); padding: 12px 14px; }
+.headerTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.eyebrow { margin: 0 0 6px; color: #b74f43; font-size: 9px; font-weight: 800; letter-spacing: .17em; }
+.header h1 { margin: 0; font-family: "Songti SC", "STSong", Georgia, serif; font-size: 25px; font-weight: 650; letter-spacing: .04em; }
+.header.collapsed .eyebrow { display: none; }
+.header.collapsed h1 { padding-top: 3px; overflow: hidden; font-size: 17px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.header [hidden] { display: none; }
+.collapseButton { min-height: 30px; flex: 0 0 auto; padding: 0 10px; border: 1px solid rgba(38,67,80,.17); background: #edf2f1; color: #526a73; font-size: 9px; font-weight: 800; cursor: pointer; }
+.collapseButton:hover { border-color: rgba(183,79,67,.45); background: #fff; color: #a24036; }
+.collapseButton:focus-visible { outline: 2px solid #b74f43; outline-offset: 2px; }
+.intro { margin: 9px 0 13px; color: #65777e; font-size: 11px; line-height: 1.58; }
+.actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.actions button { min-height: 34px; padding: 0 12px; border: 1px solid rgba(38,67,80,.17); background: #edf2f1; color: #29414c; font-size: 10px; font-weight: 700; cursor: pointer; }
+.actions button:hover { background: #fff; }
+.actions button.active { border-color: #3d727a; background: #3d727a; color: #fff; }
+.actions button.danger { border-color: #923d35; background: #a8463d; color: #fff; }
+.backLink { position: absolute; z-index: 3; top: 22px; right: 22px; padding: 9px 12px; border: 1px solid rgba(31,59,68,.14); background: rgba(248,251,250,.84); color: #526a73; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-decoration: none; backdrop-filter: blur(12px); }
+.backLink:hover { background: #fff; color: #a24036; }
+.status { position: absolute; z-index: 3; top: 65px; right: 22px; padding: 8px 11px; border: 1px solid rgba(31,59,68,.12); background: rgba(248,251,250,.78); color: #65777e; font-size: 9px; letter-spacing: .05em; backdrop-filter: blur(12px); }
+.zoneCards { position: absolute; z-index: 3; left: 50%; bottom: 20px; display: grid; width: min(1180px, calc(100vw - 48px)); grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; transform: translateX(-50%); }
+.zoneCard { min-height: 142px; padding: 13px 15px; border: 1px solid rgba(32,59,68,.15); background: rgba(247,250,249,.9); color: #2d4149; text-align: left; box-shadow: 0 13px 38px rgba(35,58,66,.13); backdrop-filter: blur(14px); cursor: pointer; }
+.zoneCard:hover, .zoneCard.selected { border-color: rgba(183,79,67,.62); background: rgba(255,255,255,.97); transform: translateY(-2px); }
+.zoneCard:focus-visible { outline: 2px solid #b74f43; outline-offset: 2px; }
+.zoneCard span { display: block; margin-bottom: 4px; color: #b74f43; font-size: 8px; font-weight: 800; letter-spacing: .14em; }
+.zoneCard strong { display: block; font-size: 13px; }
+.zoneCard small { display: block; margin-top: 4px; color: #718087; font-size: 9px; line-height: 1.4; }
+.zoneCard ul { display: grid; gap: 3px; margin: 9px 0 0; padding: 8px 0 0 14px; border-top: 1px solid rgba(32,59,68,.1); color: #586d75; font-size: 8px; line-height: 1.4; }
+.metrics { position: absolute; z-index: 3; right: 22px; bottom: 180px; display: grid; gap: 2px; min-width: 250px; padding: 10px 12px; border: 1px solid rgba(31,59,68,.13); background: rgba(248,251,250,.84); backdrop-filter: blur(12px); }
+.metrics span { color: #b74f43; font-size: 7px; font-weight: 800; letter-spacing: .14em; }
+.metrics strong { font-size: 11px; }
+.metrics small { color: #6d7f86; font-size: 8px; }
+@media (max-width: 760px) {
+  .header { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 13px 14px; }
+  .intro { display: none; }
+  .header h1 { font-size: 20px; }
+  .backLink { top: auto; right: 12px; bottom: 178px; }
+  .status, .metrics { display: none; }
+  .zoneCards { bottom: 12px; width: calc(100vw - 24px); grid-template-columns: repeat(4, 190px); overflow-x: auto; }
+  .zoneCard { min-height: 150px; }
+}
