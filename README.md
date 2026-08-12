@@ -64,7 +64,8 @@ npm run dev
 - 城市模型分类入口（街道装饰 / 居民建筑 / 医院）：<http://localhost:3000/demos>
 - 单树碎裂与修复 Demo：<http://localhost:3000/demos/shatter-morph-tree.html>
 - 石头磨碎与重组 Demo：<http://localhost:3000/demos/stone-grind.html>
-- 城市树木、街道设施、住宅与宽体总部办公园区正常/破碎双版本展厅：<http://localhost:3000/demos/city-street-furniture>
+- 城市树木与街道设施正常/破碎双版本展厅：<http://localhost:3000/demos/city-street-furniture>
+- 居民楼、别墅、高层住宅与宽体办公园区展厅：<http://localhost:3000/demos/residential-buildings>
 - 综合医院院区外观、内饰与正常/破碎双版本展厅：<http://localhost:3000/demos/hospital-campus>
 
 执行构建和全部测试：

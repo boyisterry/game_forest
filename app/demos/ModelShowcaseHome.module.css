@@ -26,6 +26,11 @@
 .amusement::after { left: 50%; bottom: 10px; width: 7px; height: 132px; background: #3c5961; box-shadow: -48px 40px 0 -1px #3c5961, 48px 40px 0 -1px #3c5961; transform: translateX(-50%); }
 .amusement i { position: absolute; z-index: 2; left: 50%; bottom: 67px; width: 116px; height: 4px; background: #d4544a; transform: translateX(-50%) rotate(45deg); }
 .amusement i::before { content: ""; position: absolute; inset: 0; background: #d4544a; transform: rotate(90deg); }
+.school { background: linear-gradient(#c5dce0 0 70%, #6f9466 70%); }
+.school::before { left: 48px; right: 48px; bottom: 0; height: 116px; background: #eee5d2; border-top: 13px solid #984b40; box-shadow: inset 0 -16px #cdbfa7; }
+.school::after { left: 72px; bottom: 28px; width: 26px; height: 38px; background: #5e8d9b; box-shadow: 52px 0 #5e8d9b, 104px 0 #5e8d9b, 156px 0 #5e8d9b, 208px 0 #5e8d9b, 26px -48px #5e8d9b, 78px -48px #5e8d9b, 130px -48px #5e8d9b, 182px -48px #5e8d9b; }
+.school i { position: absolute; z-index: 2; left: 50%; bottom: 0; width: 38px; height: 57px; background: #294f63; transform: translateX(-50%); }
+.school i::before { content: ""; position: absolute; left: 50%; top: -28px; width: 60px; height: 60px; border: 5px solid #eee5d2; border-radius: 50%; background: #294f63; transform: translateX(-50%); }
 .card h2 { margin: 0; font-family: "Songti SC", "STSong", Georgia, serif; font-size: 27px; font-weight: 650; }
 .card p { margin: 8px 0 0; color: #6d7d83; font-size: 11px; line-height: 1.6; }
 .tags { align-self: end; display: flex; flex-wrap: wrap; gap: 5px; margin-top: 24px; }

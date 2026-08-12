@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { buildLowPolyHospitalCampus, type HospitalZone } from "../../lib/map/hospitalCampus";
 import { createFurnitureShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
-import { buildLowPolyRabbitScaleReference } from "../../lib/map/rabbitScaleReference";
+import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import styles from "./HospitalCampusDemo.module.css";
 
 type Focus = "all" | HospitalZone;
@@ -19,12 +20,7 @@ const FOCUS = {
   inpatient: { target: new THREE.Vector3(0, 7.3, -11.5), camera: new THREE.Vector3(28, 22, 23.5) },
 } as const;
 
-const RABBIT_REFERENCE_POSITION: Record<Focus, THREE.Vector3> = {
-  all: new THREE.Vector3(6, 0.44, 2.5),
-  outpatient: new THREE.Vector3(-9, 0.44, 8.8),
-  emergency: new THREE.Vector3(21.5, 0.44, 9.2),
-  inpatient: new THREE.Vector3(6, 0.44, -4.2),
-};
+const HOSPITAL_RIDER_FOREGROUND = new THREE.Vector3(0, 0.46, 22.5);
 
 const ZONE_CARDS: Array<{
   id: Focus;
@@ -81,6 +77,7 @@ export function HospitalCampusDemo() {
   const [focus, setFocus] = useState<Focus>("all");
   const [operationsCollapsed, setOperationsCollapsed] = useState(false);
   const [metrics, setMetrics] = useState<HospitalMetrics | null>(null);
+  const [referenceReady, setReferenceReady] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -133,10 +130,23 @@ export function HospitalCampusDemo() {
     fill.position.set(28, 15, -20);
     scene.add(hemi, sun, fill);
 
-    const rabbitReference = buildLowPolyRabbitScaleReference();
-    rabbitReference.position.copy(RABBIT_REFERENCE_POSITION.all);
-    rabbitReference.rotation.y = -0.5;
-    scene.add(rabbitReference);
+    const riderAnchor = new THREE.Group();
+    riderAnchor.name = "game-rabbit-rider-reference-anchor";
+    riderAnchor.position.copy(HOSPITAL_RIDER_FOREGROUND);
+    riderAnchor.rotation.y = Math.atan2(
+      FOCUS.all.camera.x - riderAnchor.position.x,
+      FOCUS.all.camera.z - riderAnchor.position.z,
+    );
+    scene.add(riderAnchor);
+
+    let disposed = false;
+    new GLTFLoader().loadAsync(RABBIT_RIDER_URL)
+      .then((gltf) => {
+        if (disposed) return;
+        riderAnchor.add(prepareRabbitRiderReference(gltf.scene));
+        setReferenceReady(true);
+      })
+      .catch(() => setReferenceReady(false));
 
     const hospital = buildLowPolyHospitalCampus();
     const normalMetrics = measureModelGeometry(hospital);
@@ -167,7 +177,6 @@ export function HospitalCampusDemo() {
     const focusZone = (next: Focus) => {
       desiredTarget.copy(FOCUS[next].target);
       desiredCamera.copy(FOCUS[next].camera);
-      rabbitReference.position.copy(RABBIT_REFERENCE_POSITION[next]);
       focusBlend = 1;
     };
     apiRef.current = {
@@ -210,6 +219,7 @@ export function HospitalCampusDemo() {
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     return () => {
+      disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
       controls.dispose();
@@ -282,7 +292,7 @@ export function HospitalCampusDemo() {
       </header>
 
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}>正常 / 破碎双版本 · {shattered ? "破碎态" : cutaway ? "内饰剖面" : "完整外观"} · 兔子 1.70 m 比例参考</div>
+      <div className={styles.status}>正常 / 破碎双版本 · {shattered ? "破碎态" : cutaway ? "内饰剖面" : "完整外观"} · {referenceReady ? "现有骑车兔子约 2.40 m 参考" : "骑车兔子加载中"}</div>
 
       <nav className={styles.zoneCards} aria-label="选择医院功能分区">
         {ZONE_CARDS.map((zone) => (

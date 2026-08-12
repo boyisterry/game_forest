@@ -130,7 +130,7 @@
       <span id="count"></span>
     </div>
   </section>
-  <div class="legend">拖拽旋转 · 滚轮缩放 · R 重组 · Space 磨碎 · 兔子 1.70 m 比例参考</div>
+  <div class="legend">拖拽旋转 · 滚轮缩放 · R 重组 · Space 磨碎 · 现有骑车兔子约 2.40 m 参考</div>
 
   <script type="importmap">
     {
@@ -143,7 +143,7 @@
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-    import { buildRabbitScaleReference } from "./rabbit-scale-reference.js";
+    import { loadRabbitRiderReference } from "./rabbit-scale-reference.js";
 
     const FRAGMENT_COUNT = 92;
     const DUST_COUNT = 360;
@@ -296,7 +296,7 @@
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
-    const rabbitReference = buildRabbitScaleReference();
+    const rabbitReference = await loadRabbitRiderReference();
     rabbitReference.position.set(4.2, 0, 2.8);
     rabbitReference.rotation.y = -0.4;
     scene.add(rabbitReference);

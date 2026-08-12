@@ -25,7 +25,7 @@ import {
   type ModelGeometryMetrics,
 } from "../../lib/map/cityFurnitureShatter";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
-import { buildLowPolyRabbitScaleReference } from "../../lib/map/rabbitScaleReference";
+import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import styles from "./CityFurnitureDemo.module.css";
 
 const TREE_URL = "/models/forest/tree_normal_medium_redwood_a.glb";
@@ -33,6 +33,7 @@ const SHATTER_TREE_URL = "/models/forest/tree_medium_redwood_a.glb";
 const APARTMENT_SHOWCASE_SCALE = 1.5;
 const VILLA_SHOWCASE_SCALE = 1.3;
 const HIGH_RISE_SHOWCASE_SCALE = 1.05;
+export type ShowcaseCategory = "street" | "residential";
 const MODEL_FOCUS = {
   all: { target: new THREE.Vector3(5, 11, 17), camera: new THREE.Vector3(75, 46, 105) },
   tree: { target: new THREE.Vector3(-12, 5.7, -6), camera: new THREE.Vector3(-3, 10, 15) },
@@ -49,25 +50,22 @@ const MODEL_FOCUS = {
   office: { target: new THREE.Vector3(0, 7.2, 44), camera: new THREE.Vector3(31, 22, 73) },
 } as const;
 
-const RABBIT_REFERENCE_POSITION: Record<keyof typeof MODEL_FOCUS, THREE.Vector3> = {
-  all: new THREE.Vector3(10, 0.42, 35),
-  tree: new THREE.Vector3(-8.5, 0.42, -3),
-  lamp: new THREE.Vector3(-1, 0.42, -3),
-  signal: new THREE.Vector3(8, 0.42, -3),
-  phone: new THREE.Vector3(15.5, 0.42, -3),
-  truck: new THREE.Vector3(-8, 0.42, 9),
-  hotdog: new THREE.Vector3(-0.5, 0.42, 9),
-  newsstand: new THREE.Vector3(7.2, 0.42, 9),
-  planter: new THREE.Vector3(15, 0.42, 9),
-  apartment: new THREE.Vector3(-0.5, 0.42, 13.5),
-  villa: new THREE.Vector3(14, 0.42, 14),
-  highrise: new THREE.Vector3(30, 0.42, 13.5),
-  office: new THREE.Vector3(12, 0.42, 35),
+const CATEGORY_OVERVIEW: Record<ShowcaseCategory, { target: THREE.Vector3; camera: THREE.Vector3 }> = {
+  street: { target: new THREE.Vector3(0, 3.6, 0), camera: new THREE.Vector3(35, 22, 42) },
+  residential: { target: new THREE.Vector3(5, 11, 28), camera: new THREE.Vector3(58, 35, 78) },
+};
+
+const CATEGORY_RIDER_FOREGROUND: Record<ShowcaseCategory, THREE.Vector3> = {
+  street: new THREE.Vector3(0, 0.46, 14),
+  residential: new THREE.Vector3(0, 0.46, 52),
 };
 
 type Focus = keyof typeof MODEL_FOCUS;
 type ModelFocus = Exclude<Focus, "all">;
 type ModelCardMetrics = ModelGeometryMetrics & { shatteredFaceCount: number };
+
+const STREET_MODELS = new Set<ModelFocus>(["tree", "lamp", "signal", "phone", "truck", "hotdog", "newsstand", "planter"]);
+const RESIDENTIAL_MODELS = new Set<ModelFocus>(["apartment", "villa", "highrise", "office"]);
 
 const MODEL_CARDS: Array<{
   id: ModelFocus;
@@ -253,7 +251,7 @@ function addPedestal(scene: THREE.Scene, x: number, z: number, accent: number, r
   scene.add(base, ring);
 }
 
-export function CityFurnitureDemo() {
+export function CityFurnitureDemo({ category = "street" }: { category?: ShowcaseCategory }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<DemoApi | null>(null);
   const [night, setNight] = useState(false);
@@ -273,6 +271,8 @@ export function CityFurnitureDemo() {
   const [expandedCard, setExpandedCard] = useState<ModelFocus | null>(null);
   const [modelMetrics, setModelMetrics] = useState<Partial<Record<ModelFocus, ModelCardMetrics>>>({});
   const [treeLoaded, setTreeLoaded] = useState(false);
+  const [referenceReady, setReferenceReady] = useState(false);
+  const visibleCards = MODEL_CARDS.filter((model) => (category === "street" ? STREET_MODELS : RESIDENTIAL_MODELS).has(model.id));
 
   useEffect(() => {
     const host = hostRef.current;
@@ -285,7 +285,7 @@ export function CityFurnitureDemo() {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
-    renderer.domElement.setAttribute("aria-label", "城市树木、街道设施、住宅与宽体办公园区低模展示场景");
+    renderer.domElement.setAttribute("aria-label", category === "street" ? "城市街道装饰低模展示场景" : "居民建筑低模展示场景");
     renderer.domElement.tabIndex = 0;
     host.appendChild(renderer.domElement);
 
@@ -293,9 +293,9 @@ export function CityFurnitureDemo() {
     scene.background = new THREE.Color(0xd9edf5);
     scene.fog = new THREE.Fog(0xd9edf5, 70, 155);
     const camera = new THREE.PerspectiveCamera(39, host.clientWidth / Math.max(host.clientHeight, 1), 0.1, 210);
-    camera.position.copy(MODEL_FOCUS.all.camera);
+    camera.position.copy(CATEGORY_OVERVIEW[category].camera);
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.copy(MODEL_FOCUS.all.target);
+    controls.target.copy(CATEGORY_OVERVIEW[category].target);
     controls.enableDamping = true;
     controls.dampingFactor = 0.065;
     controls.minDistance = 7;
@@ -310,18 +310,21 @@ export function CityFurnitureDemo() {
     ground.position.y = -0.01;
     ground.receiveShadow = true;
     scene.add(ground);
-    addPedestal(scene, -12, -6, 0x648456);
-    addPedestal(scene, -4, -6, 0xb66a3d);
-    addPedestal(scene, 4, -6, 0xd0a93e);
-    addPedestal(scene, 12, -6, 0xb83d34, 2.8);
-    addPedestal(scene, -12, 6, 0x3f8c88);
-    addPedestal(scene, -4, 6, 0xe5b83e, 2.8);
-    addPedestal(scene, 4, 6, 0x3f6f61, 2.8);
-    addPedestal(scene, 12, 6, 0x8b7558);
-    addPedestal(scene, -7, 18, 0x9f6550, 5.8);
-    addPedestal(scene, 7, 18, 0x8f4437, 5.7);
-    addPedestal(scene, 24, 20, 0x476a73, 7.2);
-    addPedestal(scene, 0, 44, 0xa26945, 17);
+    if (category === "street") {
+      addPedestal(scene, -12, -6, 0x648456);
+      addPedestal(scene, -4, -6, 0xb66a3d);
+      addPedestal(scene, 4, -6, 0xd0a93e);
+      addPedestal(scene, 12, -6, 0xb83d34, 2.8);
+      addPedestal(scene, -12, 6, 0x3f8c88);
+      addPedestal(scene, -4, 6, 0xe5b83e, 2.8);
+      addPedestal(scene, 4, 6, 0x3f6f61, 2.8);
+      addPedestal(scene, 12, 6, 0x8b7558);
+    } else {
+      addPedestal(scene, -7, 18, 0x9f6550, 5.8);
+      addPedestal(scene, 7, 18, 0x8f4437, 5.7);
+      addPedestal(scene, 24, 20, 0x476a73, 7.2);
+      addPedestal(scene, 0, 44, 0xa26945, 17);
+    }
 
     const hemi = new THREE.HemisphereLight(0xf4fbff, 0x59665a, 1.9);
     const sun = new THREE.DirectionalLight(0xfff0cf, 4.2);
@@ -337,10 +340,14 @@ export function CityFurnitureDemo() {
     fill.position.set(16, 10, -12);
     scene.add(hemi, sun, fill);
 
-    const rabbitReference = buildLowPolyRabbitScaleReference();
-    rabbitReference.position.copy(RABBIT_REFERENCE_POSITION.all);
-    rabbitReference.rotation.y = -0.45;
-    scene.add(rabbitReference);
+    const riderAnchor = new THREE.Group();
+    riderAnchor.name = "game-rabbit-rider-reference-anchor";
+    riderAnchor.position.copy(CATEGORY_RIDER_FOREGROUND[category]);
+    riderAnchor.rotation.y = Math.atan2(
+      CATEGORY_OVERVIEW[category].camera.x - riderAnchor.position.x,
+      CATEGORY_OVERVIEW[category].camera.z - riderAnchor.position.z,
+    );
+    scene.add(riderAnchor);
 
     const shatterPairs: FurnitureShatterPair[] = [];
     const shatterMorph = new ShatterMorphController(0);
@@ -370,32 +377,39 @@ export function CityFurnitureDemo() {
       return pair;
     };
 
-    const streetLight = buildLowPolyStreetLight();
-    addPairedDecoration("lamp", streetLight, new THREE.Vector3(-4.8, 0.42, -6), -0.2, 31);
-    const trafficLight = buildLowPolyTrafficLight();
-    addPairedDecoration("signal", trafficLight, new THREE.Vector3(3, 0.42, -6), -0.12, 67);
-    const foodTruck = buildLowPolyFoodTruck();
-    addPairedDecoration("truck", foodTruck, new THREE.Vector3(-12, 0.42, 6), -0.12, 103);
-    const hotDogKiosk = buildLowPolyHotDogKiosk();
-    addPairedDecoration("hotdog", hotDogKiosk, new THREE.Vector3(-4, 0.42, 6), -0.08, 149);
-    const newsstand = buildLowPolyNewsstand();
-    addPairedDecoration("newsstand", newsstand, new THREE.Vector3(4, 0.42, 6), -0.08, 191);
-    const phoneBooth = buildLowPolyPhoneBooth();
-    addPairedDecoration("phone", phoneBooth, new THREE.Vector3(12, 0.42, -6), -0.08, 233);
-    const planter = buildLowPolyRoadsidePlanter();
-    addPairedDecoration("planter", planter, new THREE.Vector3(12, 0.42, 6), -0.08, 257);
-    const apartment = buildLowPolyResidentialBuilding();
-    addPairedDecoration("apartment", apartment, new THREE.Vector3(-7, 0.42, 18), -0.06, 293, APARTMENT_SHOWCASE_SCALE);
-    const villa = buildLowPolySmallVilla();
-    addPairedDecoration("villa", villa, new THREE.Vector3(7, 0.42, 18), 0.08, 331, VILLA_SHOWCASE_SCALE);
-    const highRise = buildLowPolyHighRiseResidential();
-    addPairedDecoration("highrise", highRise, new THREE.Vector3(24, 0.42, 20), -0.05, 367, HIGH_RISE_SHOWCASE_SCALE, 8);
-    const office = buildLowPolyOfficeCampus();
-    addPairedDecoration("office", office, new THREE.Vector3(0, 0.42, 44), 0, 401, 1, 12);
+    const streetLight = category === "street" ? buildLowPolyStreetLight() : null;
+    if (streetLight) addPairedDecoration("lamp", streetLight, new THREE.Vector3(-4.8, 0.42, -6), -0.2, 31);
+    const trafficLight = category === "street" ? buildLowPolyTrafficLight() : null;
+    if (trafficLight) addPairedDecoration("signal", trafficLight, new THREE.Vector3(3, 0.42, -6), -0.12, 67);
+    const foodTruck = category === "street" ? buildLowPolyFoodTruck() : null;
+    if (foodTruck) addPairedDecoration("truck", foodTruck, new THREE.Vector3(-12, 0.42, 6), -0.12, 103);
+    const hotDogKiosk = category === "street" ? buildLowPolyHotDogKiosk() : null;
+    if (hotDogKiosk) addPairedDecoration("hotdog", hotDogKiosk, new THREE.Vector3(-4, 0.42, 6), -0.08, 149);
+    const newsstand = category === "street" ? buildLowPolyNewsstand() : null;
+    if (newsstand) addPairedDecoration("newsstand", newsstand, new THREE.Vector3(4, 0.42, 6), -0.08, 191);
+    const phoneBooth = category === "street" ? buildLowPolyPhoneBooth() : null;
+    if (phoneBooth) addPairedDecoration("phone", phoneBooth, new THREE.Vector3(12, 0.42, -6), -0.08, 233);
+    const planter = category === "street" ? buildLowPolyRoadsidePlanter() : null;
+    if (planter) addPairedDecoration("planter", planter, new THREE.Vector3(12, 0.42, 6), -0.08, 257);
+    const apartment = category === "residential" ? buildLowPolyResidentialBuilding() : null;
+    if (apartment) addPairedDecoration("apartment", apartment, new THREE.Vector3(-7, 0.42, 18), -0.06, 293, APARTMENT_SHOWCASE_SCALE);
+    const villa = category === "residential" ? buildLowPolySmallVilla() : null;
+    if (villa) addPairedDecoration("villa", villa, new THREE.Vector3(7, 0.42, 18), 0.08, 331, VILLA_SHOWCASE_SCALE);
+    const highRise = category === "residential" ? buildLowPolyHighRiseResidential() : null;
+    if (highRise) addPairedDecoration("highrise", highRise, new THREE.Vector3(24, 0.42, 20), -0.05, 367, HIGH_RISE_SHOWCASE_SCALE, 8);
+    const office = category === "residential" ? buildLowPolyOfficeCampus() : null;
+    if (office) addPairedDecoration("office", office, new THREE.Vector3(0, 0.42, 44), 0, 401, 1, 12);
     setModelMetrics(initialMetrics);
 
     let disposed = false;
     const loader = new GLTFLoader();
+    loader.loadAsync(RABBIT_RIDER_URL)
+      .then((gltf) => {
+        if (disposed) return;
+        riderAnchor.add(prepareRabbitRiderReference(gltf.scene));
+        setReferenceReady(true);
+      })
+      .catch(() => setReferenceReady(false));
     const prepareTree = (tree: THREE.Group, name: string) => {
       const container = new THREE.Group();
       container.name = name;
@@ -418,7 +432,7 @@ export function CityFurnitureDemo() {
       container.add(tree);
       return container;
     };
-    Promise.all([loader.loadAsync(TREE_URL), loader.loadAsync(SHATTER_TREE_URL)])
+    if (category === "street") Promise.all([loader.loadAsync(TREE_URL), loader.loadAsync(SHATTER_TREE_URL)])
       .then(([normalGltf, shatteredGltf]) => {
         if (disposed) return;
         const normalTree = prepareTree(normalGltf.scene, "forest-normal-tree-showcase");
@@ -450,9 +464,10 @@ export function CityFurnitureDemo() {
       .catch(() => {
         if (!disposed) setTreeLoaded(false);
       });
+    else setTreeLoaded(true);
 
-    const desiredTarget = MODEL_FOCUS.all.target.clone();
-    const desiredCamera = MODEL_FOCUS.all.camera.clone();
+    const desiredTarget = CATEGORY_OVERVIEW[category].target.clone();
+    const desiredCamera = CATEGORY_OVERVIEW[category].camera.clone();
     let rotating = false;
     let interacting = false;
     let focusBlend = 0;
@@ -465,61 +480,60 @@ export function CityFurnitureDemo() {
       sun.intensity = on ? 0.42 : 4.2;
       fill.intensity = on ? 0.28 : 0.7;
       renderer.toneMappingExposure = on ? 0.88 : 1.08;
-      streetLight.userData.setPowered(on);
-      foodTruck.userData.setLights(on);
-      hotDogKiosk.userData.setPowered(on);
-      newsstand.userData.setPowered(on);
-      phoneBooth.userData.setPowered(on);
-      apartment.userData.setPowered(on);
-      villa.userData.setPowered(on);
-      highRise.userData.setPowered(on);
-      office.userData.setPowered(on);
+      streetLight?.userData.setPowered(on);
+      foodTruck?.userData.setLights(on);
+      hotDogKiosk?.userData.setPowered(on);
+      newsstand?.userData.setPowered(on);
+      phoneBooth?.userData.setPowered(on);
+      apartment?.userData.setPowered(on);
+      villa?.userData.setPowered(on);
+      highRise?.userData.setPowered(on);
+      office?.userData.setPowered(on);
     };
     const focusModel = (next: Focus) => {
-      desiredTarget.copy(MODEL_FOCUS[next].target);
-      desiredCamera.copy(MODEL_FOCUS[next].camera);
-      rabbitReference.position.copy(RABBIT_REFERENCE_POSITION[next]);
+      desiredTarget.copy(next === "all" ? CATEGORY_OVERVIEW[category].target : MODEL_FOCUS[next].target);
+      desiredCamera.copy(next === "all" ? CATEGORY_OVERVIEW[category].camera : MODEL_FOCUS[next].camera);
       focusBlend = 1;
     };
     apiRef.current = {
       setNight: setNightMode,
-      setPhase: (next) => trafficLight.userData.setPhase(next),
-      setServingOpen: (open) => foodTruck.userData.setServingOpen(open),
+      setPhase: (next) => trafficLight?.userData.setPhase(next),
+      setServingOpen: (open) => foodTruck?.userData.setServingOpen(open),
       setKiosksOpen: (open) => {
-        hotDogKiosk.userData.setServingOpen(open);
-        newsstand.userData.setOpen(open);
-        phoneBooth.userData.setDoorOpen(open);
+        hotDogKiosk?.userData.setServingOpen(open);
+        newsstand?.userData.setOpen(open);
+        phoneBooth?.userData.setDoorOpen(open);
       },
-      setApartmentDoorOpen: (open) => apartment.userData.setDoorOpen(open),
-      setVillaDoorOpen: (open) => villa.userData.setDoorOpen(open),
-      setVillaInteriorCutaway: (cutaway) => villa.userData.setInteriorCutaway(cutaway),
-      setHighRiseInteriorCutaway: (cutaway) => highRise.userData.setInteriorCutaway(cutaway),
-      setHighRiseElevatorAuto: (enabled) => highRise.userData.setElevatorAuto(enabled),
-      setOfficeInteriorCutaway: (cutaway) => office.userData.setInteriorCutaway(cutaway),
+      setApartmentDoorOpen: (open) => apartment?.userData.setDoorOpen(open),
+      setVillaDoorOpen: (open) => villa?.userData.setDoorOpen(open),
+      setVillaInteriorCutaway: (cutaway) => villa?.userData.setInteriorCutaway(cutaway),
+      setHighRiseInteriorCutaway: (cutaway) => highRise?.userData.setInteriorCutaway(cutaway),
+      setHighRiseElevatorAuto: (enabled) => highRise?.userData.setElevatorAuto(enabled),
+      setOfficeInteriorCutaway: (cutaway) => office?.userData.setInteriorCutaway(cutaway),
       setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.75; },
       focus: focusModel,
     };
     setNightMode(false);
-    trafficLight.userData.setPhase("red");
-    foodTruck.userData.setServingOpen(true);
-    hotDogKiosk.userData.setServingOpen(true);
-    newsstand.userData.setOpen(true);
-    phoneBooth.userData.setDoorOpen(true);
-    apartment.userData.setDoorOpen(true);
-    villa.userData.setDoorOpen(true);
-    villa.userData.setInteriorCutaway(false);
-    highRise.userData.setInteriorCutaway(false);
-    highRise.userData.setElevatorFloors([4, 13]);
-    highRise.userData.setElevatorAuto(true);
-    office.userData.setInteriorCutaway(false);
+    trafficLight?.userData.setPhase("red");
+    foodTruck?.userData.setServingOpen(true);
+    hotDogKiosk?.userData.setServingOpen(true);
+    newsstand?.userData.setOpen(true);
+    phoneBooth?.userData.setDoorOpen(true);
+    apartment?.userData.setDoorOpen(true);
+    villa?.userData.setDoorOpen(true);
+    villa?.userData.setInteriorCutaway(false);
+    highRise?.userData.setInteriorCutaway(false);
+    highRise?.userData.setElevatorFloors([4, 13]);
+    highRise?.userData.setElevatorAuto(true);
+    office?.userData.setInteriorCutaway(false);
 
     const clock = new THREE.Clock();
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
-      highRise.userData.updateElevators(dt);
+      highRise?.userData.updateElevators(dt);
       if (shatterMorph.update(dt)) {
         const amount = shatterMorph.getAmount();
         shatterPairs.forEach((pair) => pair.setAmount(amount));
@@ -558,22 +572,7 @@ export function CityFurnitureDemo() {
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, []);
-
-  useEffect(() => {
-    const applyCategoryFocus = () => {
-      const next: Focus = window.location.hash === "#residential"
-        ? "apartment"
-        : window.location.hash === "#street"
-          ? "tree"
-          : "all";
-      setFocus(next);
-      apiRef.current?.focus(next);
-    };
-    applyCategoryFocus();
-    window.addEventListener("hashchange", applyCategoryFocus);
-    return () => window.removeEventListener("hashchange", applyCategoryFocus);
-  }, []);
+  }, [category]);
 
   const toggleNight = () => {
     const next = !night;
@@ -653,8 +652,8 @@ export function CityFurnitureDemo() {
       <header className={`${styles.header} ${operationsCollapsed ? styles.collapsed : ""}`}>
         <div className={styles.headerTop}>
           <div className={styles.headerTitle}>
-            <p className={styles.eyebrow}>CITY FURNITURE / LOW-POLY STUDY</p>
-            <h1>城市街道设施 · 独立模型展厅</h1>
+            <p className={styles.eyebrow}>{category === "street" ? "CITY FURNITURE / LOW-POLY STUDY" : "RESIDENTIAL ARCHITECTURE / LOW-POLY STUDY"}</p>
+            <h1>{category === "street" ? "城市街道装饰 · 独立模型展厅" : "居民建筑 · 独立模型展厅"}</h1>
           </div>
           <button
             type="button"
@@ -667,28 +666,35 @@ export function CityFurnitureDemo() {
           </button>
         </div>
         <div id="city-demo-operations" className={styles.headerContent} hidden={operationsCollapsed}>
-          <p className={styles.intro}>十二种城市装饰与建筑均配有正常与破碎版本；新增宽体办公园区包含完整办公内饰、中庭与建筑后勤系统。</p>
+          <p className={styles.intro}>{category === "street"
+            ? "本展厅仅展示行道树、路灯、信号灯、餐车、街边亭、电话亭与花坛；居民楼与其他建筑已移至居民建筑展厅。"
+            : "本展厅集中展示社区居民楼、坡顶别墅、18 层高层住宅及宽体办公园区，并保留完整内饰与建筑交互。"}</p>
           <div className={styles.actions}>
-            <button type="button" className={shattered ? styles.danger : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复所有装饰" : "破碎所有装饰"}</button>
+            <button type="button" className={shattered ? styles.danger : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复全部模型" : "破碎全部模型"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换晴天" : "查看夜间灯光"}</button>
-            <button type="button" onClick={cyclePhase}>信号灯：{phase === "red" ? "红灯" : phase === "green" ? "绿灯" : "黄灯"}</button>
-            <button type="button" className={servingOpen ? styles.active : ""} onClick={toggleServing}>{servingOpen ? "收起餐车窗口" : "打开餐车窗口"}</button>
-            <button type="button" className={kiosksOpen ? styles.active : ""} onClick={toggleKiosks}>{kiosksOpen ? "关闭三个亭子" : "打开三个亭子"}</button>
-            <button type="button" className={apartmentDoorOpen ? styles.active : ""} aria-pressed={apartmentDoorOpen} onClick={toggleApartmentDoor}>{apartmentDoorOpen ? "关闭居民楼入口门" : "打开居民楼入口门"}</button>
-            <button type="button" className={villaDoorOpen ? styles.active : ""} aria-pressed={villaDoorOpen} onClick={toggleVillaDoor}>{villaDoorOpen ? "关闭别墅入口门" : "打开别墅入口门"}</button>
-            <button type="button" className={villaInteriorCutaway ? styles.active : ""} aria-pressed={villaInteriorCutaway} onClick={toggleVillaInterior}>{villaInteriorCutaway ? "恢复别墅外观" : "查看别墅内部"}</button>
-            <button type="button" className={highRiseInteriorCutaway ? styles.active : ""} aria-pressed={highRiseInteriorCutaway} onClick={toggleHighRiseInterior}>{highRiseInteriorCutaway ? "恢复高层外观" : "查看高层内部"}</button>
-            <button type="button" className={highRiseElevatorAuto ? styles.active : ""} aria-pressed={highRiseElevatorAuto} onClick={toggleHighRiseElevatorAuto}>{highRiseElevatorAuto ? "关闭电梯自动运行" : "开启电梯自动运行"}</button>
-            <button type="button" className={officeInteriorCutaway ? styles.active : ""} aria-pressed={officeInteriorCutaway} onClick={toggleOfficeInterior}>{officeInteriorCutaway ? "恢复办公楼外观" : "查看办公楼内部"}</button>
+            {category === "street" ? <>
+              <button type="button" onClick={cyclePhase}>信号灯：{phase === "red" ? "红灯" : phase === "green" ? "绿灯" : "黄灯"}</button>
+              <button type="button" className={servingOpen ? styles.active : ""} onClick={toggleServing}>{servingOpen ? "收起餐车窗口" : "打开餐车窗口"}</button>
+              <button type="button" className={kiosksOpen ? styles.active : ""} onClick={toggleKiosks}>{kiosksOpen ? "关闭三个亭子" : "打开三个亭子"}</button>
+            </> : <>
+              <button type="button" className={apartmentDoorOpen ? styles.active : ""} aria-pressed={apartmentDoorOpen} onClick={toggleApartmentDoor}>{apartmentDoorOpen ? "关闭居民楼入口门" : "打开居民楼入口门"}</button>
+              <button type="button" className={villaDoorOpen ? styles.active : ""} aria-pressed={villaDoorOpen} onClick={toggleVillaDoor}>{villaDoorOpen ? "关闭别墅入口门" : "打开别墅入口门"}</button>
+              <button type="button" className={villaInteriorCutaway ? styles.active : ""} aria-pressed={villaInteriorCutaway} onClick={toggleVillaInterior}>{villaInteriorCutaway ? "恢复别墅外观" : "查看别墅内部"}</button>
+              <button type="button" className={highRiseInteriorCutaway ? styles.active : ""} aria-pressed={highRiseInteriorCutaway} onClick={toggleHighRiseInterior}>{highRiseInteriorCutaway ? "恢复高层外观" : "查看高层内部"}</button>
+              <button type="button" className={highRiseElevatorAuto ? styles.active : ""} aria-pressed={highRiseElevatorAuto} onClick={toggleHighRiseElevatorAuto}>{highRiseElevatorAuto ? "关闭电梯自动运行" : "开启电梯自动运行"}</button>
+              <button type="button" className={officeInteriorCutaway ? styles.active : ""} aria-pressed={officeInteriorCutaway} onClick={toggleOfficeInterior}>{officeInteriorCutaway ? "恢复办公楼外观" : "查看办公楼内部"}</button>
+            </>}
             <button type="button" className={autoRotate ? styles.active : ""} onClick={toggleRotate}>{autoRotate ? "停止旋转" : "自动旋转"}</button>
             <button type="button" onClick={() => chooseFocus("all")}>全景</button>
           </div>
         </div>
       </header>
-      <div className={styles.status}>{treeLoaded ? `12 / 12 双版本已就绪 · ${shattered ? "破碎态" : "正常态"} · 兔子 1.70 m 比例参考` : "正在载入树木双版本…"}</div>
+      <div className={styles.status}>{treeLoaded
+        ? `${visibleCards.length} / ${visibleCards.length} 双版本已就绪 · ${shattered ? "破碎态" : "正常态"} · ${referenceReady ? "现有骑车兔子约 2.40 m 参考" : "骑车兔子加载中"}`
+        : "正在载入树木双版本…"}</div>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
       <nav className={styles.modelCards} aria-label="选择展示模型">
-        {MODEL_CARDS.map((model) => {
+        {visibleCards.map((model) => {
           const expanded = expandedCard === model.id;
           const metrics = modelMetrics[model.id];
           return (

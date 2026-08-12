@@ -168,11 +168,12 @@ test("exposes the hospital showroom and three-category model archive", async () 
   assert.match(archiveSource, /街道装饰/);
   assert.match(archiveSource, /居民建筑/);
   assert.match(archiveSource, /医院/);
-  assert.match(archiveSource, /\/demos\/city-street-furniture#street/);
-  assert.match(archiveSource, /\/demos\/city-street-furniture#residential/);
+  assert.match(archiveSource, /\/demos\/city-street-furniture/);
+  assert.match(archiveSource, /\/demos\/residential-buildings/);
   assert.match(archiveSource, /\/demos\/hospital-campus/);
   assert.match(studioSource, /模型展示区/);
   assert.match(studioSource, /街道装饰 · 居民建筑 · 医院/);
-  assert.match(cityDemoSource, /window\.location\.hash === "#residential"/);
+  assert.match(cityDemoSource, /category === "street"/);
+  assert.match(cityDemoSource, /category === "residential"/);
   assert.match(cityDemoSource, /返回模型分类/);
 });

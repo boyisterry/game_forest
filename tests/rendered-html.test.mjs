@@ -29,6 +29,7 @@ test("server-renders the forest and city map workshop", async () => {
   assert.match(html, /tufts/);
   assert.match(html, /stones/);
   assert.match(html, /Tune the forest, then hit Play/);
+  assert.match(html, /href="\/demos"[^>]*>.*City model showcase/s);
   assert.match(html, /DEEP FOREST CANOPY/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/);
 });

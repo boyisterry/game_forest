@@ -14,16 +14,16 @@ const RABBIT_RIDER_URL = "/models/rabbit-rider.glb";
 type Focus = AmusementFacility;
 
 const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3 }> = {
-  overview: { target: new THREE.Vector3(0, 6, -1), camera: new THREE.Vector3(84, 58, 100) },
-  coaster: { target: new THREE.Vector3(-23, 8, -25), camera: new THREE.Vector3(-3, 26, 16) },
-  carousel: { target: new THREE.Vector3(-25, 3.5, 17), camera: new THREE.Vector3(-9, 12, 37) },
-  pirate: { target: new THREE.Vector3(-8, 4.5, 18), camera: new THREE.Vector3(9, 14, 37) },
-  playground: { target: new THREE.Vector3(-11, 4, -5), camera: new THREE.Vector3(4, 12, 16) },
-  circus: { target: new THREE.Vector3(-31, 5.5, -5), camera: new THREE.Vector3(-13, 17, 16) },
-  shooting: { target: new THREE.Vector3(8.5, 3, -5), camera: new THREE.Vector3(21, 10, 15) },
-  karting: { target: new THREE.Vector3(28, 2.5, -23), camera: new THREE.Vector3(48, 17, 6) },
-  ferris: { target: new THREE.Vector3(24, 10, 16), camera: new THREE.Vector3(46, 24, 42) },
-  "drop-tower": { target: new THREE.Vector3(25, 10, -5), camera: new THREE.Vector3(44, 25, 25) },
+  overview: { target: new THREE.Vector3(0, 9, -2), camera: new THREE.Vector3(136, 88, 158) },
+  coaster: { target: new THREE.Vector3(-39, 14, -38), camera: new THREE.Vector3(-5, 42, 27) },
+  carousel: { target: new THREE.Vector3(-38, 6, 17), camera: new THREE.Vector3(-10, 22, 49) },
+  pirate: { target: new THREE.Vector3(-10, 7, 17), camera: new THREE.Vector3(21, 24, 49) },
+  playground: { target: new THREE.Vector3(-24, 6, -10), camera: new THREE.Vector3(2, 20, 25) },
+  circus: { target: new THREE.Vector3(-56, 8, -10), camera: new THREE.Vector3(-27, 27, 25) },
+  shooting: { target: new THREE.Vector3(12, 4, -10), camera: new THREE.Vector3(34, 16, 22) },
+  karting: { target: new THREE.Vector3(45, 3, -36), camera: new THREE.Vector3(79, 29, 21) },
+  ferris: { target: new THREE.Vector3(53, 18, 14), camera: new THREE.Vector3(94, 46, 66) },
+  "drop-tower": { target: new THREE.Vector3(69, 17, -8), camera: new THREE.Vector3(101, 42, 37) },
 };
 
 const FACILITY_CARDS: Array<{
@@ -35,27 +35,27 @@ const FACILITY_CARDS: Array<{
 }> = [
   { id: "overview", number: "PARK 00", title: "全园总览", summary: "12 项设施 · 都市天际线 · 环形游园动线", detail: "入口广场、中央喷泉、主题商街与四大游乐分区" },
   { id: "coaster", number: "THRILL 01", title: "云际过山车", summary: "双轨道 · 4 节列车 · 高低落差", detail: "沿城市天际线连续穿梭的主力刺激项目" },
-  { id: "ferris", number: "ICON 02", title: "星环摩天轮", summary: "14 座彩色轿厢 · 持续运行", detail: "保持水平的观景轿厢与夜间轮廓灯" },
-  { id: "carousel", number: "FAMILY 03", title: "皇家旋转木马", summary: "12 匹木马 · 双层灯带", detail: "上下起伏的木马与经典锥顶华盖" },
+  { id: "ferris", number: "ICON 02", title: "星环摩天轮", summary: "12 座六人轿厢 · 约 37 m 高", detail: "每厢两排共 6 座，保持水平并配置夜间轮廓灯" },
+  { id: "carousel", number: "FAMILY 03", title: "皇家旋转木马", summary: "12 匹大型木马 · 约 19 m 直径", detail: "木马长度超过主角骑行模型，上下起伏并配置锥顶华盖" },
   { id: "pirate", number: "THRILL 04", title: "风暴海盗船", summary: "悬吊摆臂 · 船帆与桅杆", detail: "真实枢轴结构带来大角度往复摆动" },
   { id: "playground", number: "KIDS 05", title: "彩虹翻斗乐", summary: "玻璃馆 · 攀爬塔 · 连通滑筒", detail: "全天候室内儿童攀爬与探索空间" },
   { id: "circus", number: "SHOW 06", title: "大帐篷马戏团", summary: "16 边帐篷 · 演出入口 · 旗塔", detail: "乐园表演中心与家庭秀场" },
   { id: "shooting", number: "GAME 07", title: "西部射击游戏场", summary: "7 组升降靶 · 开放柜台", detail: "交错移动的目标组成轻竞技体验" },
   { id: "karting", number: "RACE 08", title: "极速卡丁车场", summary: "封闭赛道 · 6 台赛车 · 维修区", detail: "多弯城市赛道与持续巡回赛车" },
-  { id: "drop-tower", number: "THRILL 09", title: "天空坠落塔", summary: "20 米塔柱 · 旋转座舱", detail: "高空停留与快速升降的地标设施" },
+  { id: "drop-tower", number: "THRILL 09", title: "天空坠落塔", summary: "约 39 m 高 · 旋转座舱", detail: "高空停留与快速升降的地标设施" },
 ];
 
 const RIDER_POSITIONS: Record<Focus, THREE.Vector3> = {
-  overview: new THREE.Vector3(5, 0.46, 26),
-  coaster: new THREE.Vector3(-14, 0.46, -19),
-  carousel: new THREE.Vector3(-18, 0.46, 17),
-  pirate: new THREE.Vector3(-1, 0.46, 18),
-  playground: new THREE.Vector3(-3, 0.46, 1),
-  circus: new THREE.Vector3(-22, 0.46, 1),
-  shooting: new THREE.Vector3(16, 0.46, 0),
-  karting: new THREE.Vector3(21, 0.46, -17),
-  ferris: new THREE.Vector3(14, 0.46, 17),
-  "drop-tower": new THREE.Vector3(18, 0.46, 1),
+  overview: new THREE.Vector3(7, 0.46, 45),
+  coaster: new THREE.Vector3(-17, 0.46, -24),
+  carousel: new THREE.Vector3(-25, 0.46, 17),
+  pirate: new THREE.Vector3(3, 0.46, 17),
+  playground: new THREE.Vector3(-12, 0.46, -2),
+  circus: new THREE.Vector3(-43, 0.46, -1),
+  shooting: new THREE.Vector3(23, 0.46, -1),
+  karting: new THREE.Vector3(25, 0.46, -20),
+  ferris: new THREE.Vector3(34, 0.46, 14),
+  "drop-tower": new THREE.Vector3(58, 0.46, 0),
 };
 
 type DemoApi = {
@@ -94,8 +94,8 @@ export function AmusementParkDemo() {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xbfdce5);
-    scene.fog = new THREE.Fog(0xbfdce5, 105, 195);
-    const camera = new THREE.PerspectiveCamera(37, host.clientWidth / Math.max(host.clientHeight, 1), 0.1, 240);
+    scene.fog = new THREE.Fog(0xbfdce5, 155, 310);
+    const camera = new THREE.PerspectiveCamera(37, host.clientWidth / Math.max(host.clientHeight, 1), 0.1, 360);
     camera.position.copy(FOCUS.overview.camera);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -103,11 +103,11 @@ export function AmusementParkDemo() {
     controls.enableDamping = true;
     controls.dampingFactor = 0.065;
     controls.minDistance = 11;
-    controls.maxDistance = 175;
+    controls.maxDistance = 285;
     controls.maxPolarAngle = Math.PI * 0.49;
 
     const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(105, 64),
+      new THREE.CircleGeometry(150, 64),
       new THREE.MeshStandardMaterial({ color: 0x87a985, roughness: 0.98 }),
     );
     ground.rotation.x = -Math.PI * 0.5;
@@ -120,11 +120,11 @@ export function AmusementParkDemo() {
     sun.position.set(-42, 58, 36);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -72;
-    sun.shadow.camera.right = 72;
-    sun.shadow.camera.top = 62;
-    sun.shadow.camera.bottom = -55;
-    sun.shadow.camera.far = 180;
+    sun.shadow.camera.left = -105;
+    sun.shadow.camera.right = 105;
+    sun.shadow.camera.top = 92;
+    sun.shadow.camera.bottom = -82;
+    sun.shadow.camera.far = 240;
     const fill = new THREE.DirectionalLight(0x88b9d2, 0.72);
     fill.position.set(45, 22, -36);
     scene.add(hemi, sun, fill);
@@ -213,7 +213,7 @@ export function AmusementParkDemo() {
     const setNightMode = (on: boolean) => {
       const color = on ? 0x101b36 : 0xbfdce5;
       scene.background = new THREE.Color(color);
-      scene.fog = new THREE.Fog(color, on ? 88 : 105, on ? 170 : 195);
+      scene.fog = new THREE.Fog(color, on ? 135 : 155, on ? 280 : 310);
       hemi.intensity = on ? 0.46 : 2.15;
       sun.intensity = on ? 0.28 : 4.8;
       fill.intensity = on ? 0.25 : 0.72;
@@ -315,7 +315,7 @@ export function AmusementParkDemo() {
           </button>
         </div>
         <div hidden={collapsed}>
-          <p className={styles.intro}>独立城市模型展示区，以中央大道串联四个游乐片区；园林树木、花坛、餐车和路灯均复用项目现有饰品模型，并放置游戏主角兔子骑车作为统一尺度参考。</p>
+          <p className={styles.intro}>独立城市模型展示区，以中央大道串联四个游乐片区，并设置连续周界保护围栏与受控主入口；园林树木、花坛、餐车和路灯均复用项目现有饰品模型，并放置游戏主角兔子骑车作为统一尺度参考。</p>
           <div className={styles.actions}>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮夜景"}</button>
             <button type="button" className={!motion ? styles.paused : ""} aria-pressed={!motion} onClick={toggleMotion}>{motion ? "暂停所有设施" : "启动所有设施"}</button>

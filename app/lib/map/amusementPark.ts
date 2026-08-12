@@ -26,6 +26,10 @@ export type AmusementParkModel = THREE.Group & {
     streetLightCount: number;
     planterCount: number;
     foodTruckCount: number;
+    fenceSegmentCount: number;
+    scaleReferenceLengthMeters: number;
+    ferrisCabinCapacity: number;
+    rideScaleStandard: "rabbit-rider";
     siteSize: THREE.Vector3;
     setPowered: (powered: boolean) => void;
     setMotionEnabled: (enabled: boolean) => void;
@@ -73,7 +77,6 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const park = new THREE.Group() as AmusementParkModel;
   park.name = "city-amusement-park-lowpoly";
 
-  const concrete = new THREE.MeshStandardMaterial({ color: 0xbdb9aa, roughness: 0.96 });
   const paving = new THREE.MeshStandardMaterial({ color: 0xe2d3b6, roughness: 0.93 });
   const road = new THREE.MeshStandardMaterial({ color: 0x4f555b, roughness: 0.98 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x26333d, roughness: 0.64, metalness: 0.34 });
@@ -96,6 +99,18 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     roughness: 0.22,
     metalness: 0.16,
   });
+  const ferrisCabinGlass = new THREE.MeshPhysicalMaterial({
+    color: 0x9bd8e2,
+    emissive: 0x214d5a,
+    emissiveIntensity: 0.08,
+    roughness: 0.12,
+    metalness: 0.04,
+    transmission: 0.46,
+    transparent: true,
+    opacity: 0.56,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
   const bulbMaterials = [0xff4d59, 0xffc857, 0x5ed2c7, 0x6ba9ff, 0xd886ff].map((color) => new THREE.MeshStandardMaterial({
     color,
     emissive: color,
@@ -112,27 +127,70 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const reusedStreetLights: ReturnType<typeof buildLowPolyStreetLight>[] = [];
   const reusedFoodTrucks: ReturnType<typeof buildLowPolyFoodTruck>[] = [];
 
-  const site = parkMesh(new THREE.BoxGeometry(112, 0.4, 82), grass, "amusement-park-site-base", "overview");
+  const site = parkMesh(new THREE.BoxGeometry(180, 0.4, 130), grass, "amusement-park-site-base", "overview");
   site.position.y = 0.2;
   park.add(site);
 
-  const promenade = parkMesh(new THREE.BoxGeometry(94, 0.12, 7.5), paving, "amusement-park-main-promenade", "overview");
-  promenade.position.set(0, 0.46, 24);
+  // Full-height protective perimeter. The city-facing south edge leaves one
+  // controlled opening aligned with the grand entrance and ticket booths.
+  const protectionFence = new THREE.Group();
+  protectionFence.name = "amusement-park-protection-fence";
+  park.add(protectionFence);
+  const addProtectionFenceSegment = (length: number, x: number, z: number, alongX: boolean) => {
+    const segment = new THREE.Group();
+    segment.name = "amusement-park-protection-fence-segment";
+    segment.position.set(x, 0, z);
+    segment.userData.controlledPerimeter = true;
+    protectionFence.add(segment);
+    const base = parkMesh(
+      new THREE.BoxGeometry(alongX ? length : 0.55, 0.58, alongX ? 0.55 : length),
+      ivory,
+      "amusement-park-fence-masonry-base",
+      "overview",
+    );
+    base.position.y = 0.69;
+    segment.add(base);
+    for (const height of [1.2, 3.0]) {
+      const rail = parkMesh(
+        new THREE.BoxGeometry(alongX ? length : 0.16, 0.16, alongX ? 0.16 : length),
+        dark,
+        "amusement-park-fence-horizontal-rail",
+        "overview",
+      );
+      rail.position.y = height;
+      segment.add(rail);
+    }
+    const posts = Math.ceil(length / 2.7);
+    for (let index = 0; index <= posts; index += 1) {
+      const offset = -length * 0.5 + index / posts * length;
+      const post = parkMesh(new THREE.BoxGeometry(0.14, 2.55, 0.14), dark, "amusement-park-fence-post", "overview");
+      post.position.set(alongX ? offset : 0, 1.87, alongX ? 0 : offset);
+      segment.add(post);
+    }
+  };
+  addProtectionFenceSegment(178, 0, -64, true);
+  addProtectionFenceSegment(128, -89, 0, false);
+  addProtectionFenceSegment(128, 89, 0, false);
+  addProtectionFenceSegment(68, -55, 64, true);
+  addProtectionFenceSegment(68, 55, 64, true);
+
+  const promenade = parkMesh(new THREE.BoxGeometry(154, 0.12, 9.5), paving, "amusement-park-main-promenade", "overview");
+  promenade.position.set(0, 0.46, 42);
   park.add(promenade);
-  const centralWalk = parkMesh(new THREE.BoxGeometry(8, 0.13, 56), paving, "amusement-park-central-walk", "overview");
-  centralWalk.position.set(0, 0.47, 2);
+  const centralWalk = parkMesh(new THREE.BoxGeometry(10, 0.13, 98), paving, "amusement-park-central-walk", "overview");
+  centralWalk.position.set(0, 0.47, 4);
   park.add(centralWalk);
-  for (const z of [-24, -6, 10]) {
-    const crossWalk = parkMesh(new THREE.BoxGeometry(88, 0.11, 4.4), paving, "amusement-park-cross-walk", "overview");
+  for (const z of [-38, -12, 16]) {
+    const crossWalk = parkMesh(new THREE.BoxGeometry(160, 0.11, 5.4), paving, "amusement-park-cross-walk", "overview");
     crossWalk.position.set(0, 0.47, z);
     park.add(crossWalk);
   }
 
   const perimeterRoads = [
-    { size: [108, 4] as const, position: [0, 38] as const },
-    { size: [108, 4] as const, position: [0, -38] as const },
-    { size: [4, 72] as const, position: [-52, 0] as const },
-    { size: [4, 72] as const, position: [52, 0] as const },
+    { size: [176, 5] as const, position: [0, 61] as const },
+    { size: [176, 5] as const, position: [0, -61] as const },
+    { size: [5, 118] as const, position: [-86, 0] as const },
+    { size: [5, 118] as const, position: [86, 0] as const },
   ];
   perimeterRoads.forEach(({ size, position }) => {
     const lane = parkMesh(new THREE.BoxGeometry(size[0], 0.1, size[1]), road, "amusement-park-perimeter-road", "overview");
@@ -158,16 +216,17 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     treeAnchors.push(anchor);
     park.add(anchor);
   };
-  for (let x = -45; x <= 45; x += 10) {
-    addTreeAnchor(x, 31.5, 0.82);
-    if (Math.abs(x) > 6) addTreeAnchor(x, 17.4, 0.68);
+  for (let x = -76; x <= 76; x += 12) {
+    addTreeAnchor(x, 49.5, 0.9);
+    if (Math.abs(x) > 10) addTreeAnchor(x, 33.5, 0.76);
   }
-  for (const [x, z] of [[-47, 9], [-47, -11], [-47, -28], [47, 9], [47, -7], [47, -29]] as const) addTreeAnchor(x, z, 0.9);
+  for (const [x, z] of [[-81, 20], [-81, -10], [-81, -43], [81, 20], [81, -10], [81, -43]] as const) addTreeAnchor(x, z, 1);
 
   // Grand city-facing entrance and ticket plaza.
   const entrance = new THREE.Group();
   entrance.name = "amusement-park-grand-entrance";
-  entrance.position.set(0, 0.5, 34);
+  entrance.position.set(0, 0.5, 55);
+  entrance.scale.setScalar(1.28);
   for (const x of [-8, 8]) {
     const tower = parkMesh(new THREE.CylinderGeometry(1.45, 1.8, 7.4, 10), ivory, "amusement-park-entrance-tower", "overview");
     tower.position.set(x, 3.7, 0);
@@ -199,7 +258,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Central fountain works as the visual anchor for the ring promenade.
   const fountain = new THREE.Group();
   fountain.name = "amusement-park-central-fountain";
-  fountain.position.set(0, 0.5, 14);
+  fountain.position.set(0, 0.5, 39);
+  fountain.scale.setScalar(1.25);
   const basin = parkMesh(new THREE.CylinderGeometry(4.3, 4.5, 0.55, 24), ivory, "amusement-park-fountain-basin", "overview");
   const pool = parkMesh(new THREE.CylinderGeometry(3.8, 3.8, 0.08, 24), water, "amusement-park-fountain-water", "overview");
   pool.position.y = 0.34;
@@ -213,7 +273,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Carousel.
   const carousel = new THREE.Group();
   carousel.name = "amusement-park-carousel";
-  carousel.position.set(-25, 0.5, 17);
+  carousel.position.set(-38, 0.5, 17);
+  carousel.scale.setScalar(1.52);
   const carouselTurntable = new THREE.Group();
   carouselTurntable.name = "amusement-park-carousel-turntable";
   carouselTurntable.position.y = 0.5;
@@ -253,7 +314,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Pirate ship with a true suspended pivot.
   const pirate = new THREE.Group();
   pirate.name = "amusement-park-pirate-ship";
-  pirate.position.set(-8.5, 0.5, 18);
+  pirate.position.set(-10, 0.5, 17);
+  pirate.scale.setScalar(1.58);
   for (const side of [-1, 1]) {
     const left = new THREE.Vector3(side * 4.5, 0.25, -2.8);
     const right = new THREE.Vector3(side * 4.5, 0.25, 2.8);
@@ -286,37 +348,85 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Ferris wheel with cabins that remain upright.
   const ferris = new THREE.Group();
   ferris.name = "amusement-park-ferris-wheel";
-  ferris.position.set(24, 0.5, 16);
-  for (const x of [-3, 3]) {
+  ferris.position.set(53, 0.5, 14);
+  for (const x of [-6.2, 6.2]) {
     ferris.add(
-      beamBetween(new THREE.Vector3(x, 0.2, -2.2), new THREE.Vector3(0, 12.2, -1.2), 0.2, steel, "amusement-park-ferris-support", "ferris"),
-      beamBetween(new THREE.Vector3(x, 0.2, 2.2), new THREE.Vector3(0, 12.2, 1.2), 0.2, steel, "amusement-park-ferris-support", "ferris"),
+      beamBetween(new THREE.Vector3(x, 0.2, -3.8), new THREE.Vector3(0, 19, -1.8), 0.32, steel, "amusement-park-ferris-support", "ferris"),
+      beamBetween(new THREE.Vector3(x, 0.2, 3.8), new THREE.Vector3(0, 19, 1.8), 0.32, steel, "amusement-park-ferris-support", "ferris"),
     );
   }
   const ferrisWheel = new THREE.Group();
   ferrisWheel.name = "amusement-park-ferris-wheel-rotor";
-  ferrisWheel.position.y = 12.2;
-  const rim = parkMesh(new THREE.TorusGeometry(9.4, 0.22, 8, 48), blue, "amusement-park-ferris-rim", "ferris");
+  ferrisWheel.position.y = 19;
+  const ferrisRadius = 16;
+  const rim = parkMesh(new THREE.TorusGeometry(ferrisRadius, 0.32, 8, 64), blue, "amusement-park-ferris-rim", "ferris");
   ferrisWheel.add(rim);
   const cabins: THREE.Group[] = [];
-  for (let i = 0; i < 14; i += 1) {
-    const angle = i / 14 * Math.PI * 2;
-    const spoke = parkMesh(new THREE.CylinderGeometry(0.07, 0.07, 9.2, 6), steel, "amusement-park-ferris-spoke", "ferris");
-    spoke.position.set(Math.cos(angle) * 4.6, Math.sin(angle) * 4.6, 0);
+  for (let i = 0; i < 12; i += 1) {
+    const angle = i / 12 * Math.PI * 2;
+    const spoke = parkMesh(new THREE.CylinderGeometry(0.11, 0.11, ferrisRadius, 6), steel, "amusement-park-ferris-spoke", "ferris");
+    spoke.position.set(Math.cos(angle) * ferrisRadius * 0.5, Math.sin(angle) * ferrisRadius * 0.5, 0);
     spoke.rotation.z = angle - Math.PI * 0.5;
     ferrisWheel.add(spoke);
     const cabin = new THREE.Group();
     cabin.name = "amusement-park-ferris-cabin";
     cabin.userData.angle = angle;
-    cabin.position.set(Math.cos(angle) * 9.4, Math.sin(angle) * 9.4, 0);
-    const cabinBody = parkMesh(new THREE.BoxGeometry(1.65, 1.35, 1.45), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-body", "ferris");
-    cabinBody.position.y = -0.75;
-    const cabinRoof = parkMesh(new THREE.ConeGeometry(1.15, 0.85, 4), ivory, "amusement-park-ferris-cabin-roof", "ferris");
-    cabinRoof.rotation.y = Math.PI * 0.25;
-    cabin.add(cabinBody, cabinRoof);
+    cabin.userData.capacity = 6;
+    cabin.userData.enclosure = "sealed-glass";
+    cabin.position.set(Math.cos(angle) * ferrisRadius, Math.sin(angle) * ferrisRadius, 0);
+    const cabinFloor = parkMesh(new THREE.BoxGeometry(4.8, 0.3, 2.7), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-body", "ferris");
+    cabinFloor.position.y = -0.62;
+    const glassRoof = parkMesh(new THREE.BoxGeometry(4.72, 0.14, 2.62), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-roof", "ferris");
+    glassRoof.position.y = 1.75;
+    cabin.add(cabinFloor, glassRoof);
+
+    // A solid waist-high perimeter protects seated passengers. Four glazed
+    // upper walls and a glazed roof close the cabin without losing the view.
+    for (const z of [-1.28, 1.28]) {
+      const lowerPanel = parkMesh(new THREE.BoxGeometry(4.72, 0.76, 0.16), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-safety-panel", "ferris");
+      lowerPanel.position.set(0, -0.08, z);
+      const glazedWall = parkMesh(new THREE.BoxGeometry(4.5, 1.45, 0.08), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-wall", "ferris");
+      glazedWall.position.set(0, 1.02, z);
+      const handrail = parkMesh(new THREE.CylinderGeometry(0.055, 0.055, 4.55, 6), steel, "amusement-park-ferris-cabin-handrail", "ferris");
+      handrail.rotation.z = Math.PI * 0.5;
+      handrail.position.set(0, 0.36, z * 1.01);
+      cabin.add(lowerPanel, glazedWall, handrail);
+    }
+    for (const x of [-2.32, 2.32]) {
+      const lowerPanel = parkMesh(new THREE.BoxGeometry(0.16, 0.76, 2.42), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-safety-panel", "ferris");
+      lowerPanel.position.set(x, -0.08, 0);
+      const glazedWall = parkMesh(new THREE.BoxGeometry(0.08, 1.45, 2.3), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-wall", "ferris");
+      glazedWall.position.set(x, 1.02, 0);
+      cabin.add(lowerPanel, glazedWall);
+    }
+    for (const x of [-2.25, 2.25]) {
+      for (const z of [-1.15, 1.15]) {
+        const post = parkMesh(new THREE.CylinderGeometry(0.09, 0.09, 2.25, 6), steel, "amusement-park-ferris-cabin-post", "ferris");
+        post.position.set(x, 0.55, z);
+        cabin.add(post);
+      }
+    }
+    for (const z of [-1.32, 1.32]) {
+      const roofRail = parkMesh(new THREE.BoxGeometry(4.95, 0.16, 0.14), steel, "amusement-park-ferris-cabin-roof-frame", "ferris");
+      roofRail.position.set(0, 1.78, z);
+      cabin.add(roofRail);
+    }
+    for (const x of [-2.4, 2.4]) {
+      const roofRail = parkMesh(new THREE.BoxGeometry(0.14, 0.16, 2.55), steel, "amusement-park-ferris-cabin-roof-frame", "ferris");
+      roofRail.position.set(x, 1.78, 0);
+      cabin.add(roofRail);
+    }
+    const doorFrame = parkMesh(new THREE.BoxGeometry(0.12, 1.45, 0.1), steel, "amusement-park-ferris-cabin-door-frame", "ferris");
+    doorFrame.position.set(2.38, 0.98, 0);
+    cabin.add(doorFrame);
+    for (let seat = 0; seat < 6; seat += 1) {
+      const seatPad = parkMesh(new THREE.BoxGeometry(1.15, 0.32, 0.68), pink, "amusement-park-ferris-cabin-seat", "ferris");
+      seatPad.position.set(-1.45 + (seat % 3) * 1.45, -0.2, seat < 3 ? -0.78 : 0.78);
+      cabin.add(seatPad);
+    }
     cabins.push(cabin);
     ferrisWheel.add(cabin);
-    addBulb(ferrisWheel, Math.cos(angle) * 9.4, Math.sin(angle) * 9.4, 0.8, i);
+    addBulb(ferrisWheel, Math.cos(angle) * ferrisRadius, Math.sin(angle) * ferrisRadius, 1.65, i);
   }
   ferris.add(ferrisWheel);
   park.add(ferris);
@@ -324,7 +434,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Circus tent and family show plaza.
   const circus = new THREE.Group();
   circus.name = "amusement-park-circus";
-  circus.position.set(-31, 0.5, -5);
+  circus.position.set(-56, 0.5, -10);
+  circus.scale.setScalar(1.35);
   const circusBody = parkMesh(new THREE.CylinderGeometry(7.2, 7.2, 4.2, 16), ivory, "amusement-park-circus-tent-body", "circus");
   circusBody.position.y = 2.1;
   const circusRoof = parkMesh(new THREE.ConeGeometry(8.2, 7.2, 16), red, "amusement-park-circus-tent-roof", "circus");
@@ -345,7 +456,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Indoor playground / 翻斗乐 pavilion.
   const playground = new THREE.Group();
   playground.name = "amusement-park-indoor-playground";
-  playground.position.set(-11, 0.5, -5);
+  playground.position.set(-24, 0.5, -10);
+  playground.scale.setScalar(1.42);
   const playHall = parkMesh(new THREE.BoxGeometry(13, 6.8, 10), aqua, "amusement-park-playground-hall", "playground");
   playHall.position.y = 3.4;
   const playGlass = parkMesh(new THREE.BoxGeometry(11.5, 4.2, 0.1), glass, "amusement-park-playground-glass-wall", "playground");
@@ -371,7 +483,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Shooting gallery with moving targets.
   const shooting = new THREE.Group();
   shooting.name = "amusement-park-shooting-gallery";
-  shooting.position.set(8.5, 0.5, -5);
+  shooting.position.set(12, 0.5, -10);
+  shooting.scale.setScalar(1.4);
   const gallery = parkMesh(new THREE.BoxGeometry(11, 5.2, 7), timber, "amusement-park-shooting-gallery-building", "shooting");
   gallery.position.y = 2.6;
   const galleryRoof = parkMesh(new THREE.BoxGeometry(12, 0.65, 8), red, "amusement-park-shooting-gallery-roof", "shooting");
@@ -394,7 +507,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Drop tower and rotating observation ring.
   const dropTower = new THREE.Group();
   dropTower.name = "amusement-park-drop-tower";
-  dropTower.position.set(25, 0.5, -5);
+  dropTower.position.set(69, 0.5, -8);
+  dropTower.scale.setScalar(1.7);
   const tower = parkMesh(new THREE.CylinderGeometry(0.7, 1.2, 20, 10), dark, "amusement-park-drop-tower-column", "drop-tower");
   tower.position.y = 10;
   const towerCap = parkMesh(new THREE.ConeGeometry(2.2, 2.8, 10), red, "amusement-park-drop-tower-cap", "drop-tower");
@@ -410,7 +524,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Spinning teacups and bumper car pavilion fill the family district.
   const cups = new THREE.Group();
   cups.name = "amusement-park-spinning-cups";
-  cups.position.set(8, 0.5, 18.5);
+  cups.position.set(18, 0.5, 17);
+  cups.scale.setScalar(1.42);
   const cupBase = parkMesh(new THREE.CylinderGeometry(5.3, 5.5, 0.5, 20), purple, "amusement-park-spinning-cups-base", "overview");
   cups.add(cupBase);
   const cupCars: THREE.Group[] = [];
@@ -430,7 +545,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
 
   const bumper = new THREE.Group();
   bumper.name = "amusement-park-bumper-cars";
-  bumper.position.set(-41, 0.5, 19);
+  bumper.position.set(-68, 0.5, 17);
+  bumper.scale.setScalar(1.38);
   const bumperFloor = parkMesh(new THREE.BoxGeometry(11, 0.45, 8), steel, "amusement-park-bumper-cars-floor", "overview");
   const bumperRoof = parkMesh(new THREE.BoxGeometry(12, 0.55, 9), blue, "amusement-park-bumper-cars-roof", "overview");
   bumperRoof.position.y = 5.8;
@@ -444,7 +560,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   for (let i = 0; i < 5; i += 1) {
     const car = new THREE.Group();
     car.name = "amusement-park-bumper-car";
-    const body = parkMesh(new THREE.BoxGeometry(1.6, 0.55, 1.1), bulbMaterials[i], "amusement-park-bumper-car-body", "overview");
+    const body = parkMesh(new THREE.BoxGeometry(2.15, 0.7, 1.35), bulbMaterials[i], "amusement-park-bumper-car-body", "overview");
     body.position.y = 0.55;
     car.add(body);
     car.userData.phase = i * 1.3;
@@ -457,22 +573,22 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const coaster = new THREE.Group();
   coaster.name = "amusement-park-roller-coaster";
   const coasterCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-45, 4.5, -30),
-    new THREE.Vector3(-35, 8, -32),
-    new THREE.Vector3(-25, 19, -30),
-    new THREE.Vector3(-12, 5, -30),
-    new THREE.Vector3(0, 13, -25),
-    new THREE.Vector3(-8, 4, -18),
-    new THREE.Vector3(-24, 7, -17),
-    new THREE.Vector3(-40, 4.5, -21),
+    new THREE.Vector3(-78, 6, -49),
+    new THREE.Vector3(-62, 13, -52),
+    new THREE.Vector3(-45, 32, -49),
+    new THREE.Vector3(-24, 8, -49),
+    new THREE.Vector3(2, 22, -41),
+    new THREE.Vector3(-10, 6, -27),
+    new THREE.Vector3(-38, 11, -25),
+    new THREE.Vector3(-69, 6, -32),
   ], true, "catmullrom", 0.35);
-  for (const zOffset of [-0.38, 0.38]) {
+  for (const zOffset of [-0.55, 0.55]) {
     const railCurve = new THREE.CatmullRomCurve3(coasterCurve.points.map((point) => point.clone().add(new THREE.Vector3(0, 0, zOffset))), true, "catmullrom", 0.35);
-    coaster.add(parkMesh(new THREE.TubeGeometry(railCurve, 180, 0.18, 6, true), red, "amusement-park-coaster-rail", "coaster"));
+    coaster.add(parkMesh(new THREE.TubeGeometry(railCurve, 220, 0.24, 6, true), red, "amusement-park-coaster-rail", "coaster"));
   }
-  for (let i = 0; i < 36; i += 1) {
-    const point = coasterCurve.getPointAt(i / 36);
-    const support = parkMesh(new THREE.CylinderGeometry(0.12, 0.16, Math.max(0.4, point.y - 0.45), 6), steel, "amusement-park-coaster-support", "coaster");
+  for (let i = 0; i < 48; i += 1) {
+    const point = coasterCurve.getPointAt(i / 48);
+    const support = parkMesh(new THREE.CylinderGeometry(0.18, 0.24, Math.max(0.4, point.y - 0.45), 6), steel, "amusement-park-coaster-support", "coaster");
     support.position.set(point.x, point.y * 0.5 + 0.2, point.z);
     coaster.add(support);
   }
@@ -480,7 +596,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   coasterTrain.name = "amusement-park-coaster-train";
   const coasterCars: THREE.Mesh[] = [];
   for (let i = 0; i < 4; i += 1) {
-    const car = parkMesh(new THREE.BoxGeometry(1.55, 0.75, 1.1), i % 2 ? yellow : blue, "amusement-park-coaster-car", "coaster");
+    const car = parkMesh(new THREE.BoxGeometry(1.55, 1.05, 2.5), i % 2 ? yellow : blue, "amusement-park-coaster-car", "coaster");
     coasterCars.push(car);
     coasterTrain.add(car);
   }
@@ -491,36 +607,36 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const karting = new THREE.Group();
   karting.name = "amusement-park-karting-circuit";
   const kartCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(13, 0.7, -29),
-    new THREE.Vector3(27, 0.7, -34),
-    new THREE.Vector3(43, 0.7, -29),
-    new THREE.Vector3(45, 0.7, -18),
-    new THREE.Vector3(35, 0.7, -12),
-    new THREE.Vector3(19, 0.7, -14),
-    new THREE.Vector3(12, 0.7, -21),
+    new THREE.Vector3(17, 0.7, -45),
+    new THREE.Vector3(38, 0.7, -53),
+    new THREE.Vector3(69, 0.7, -46),
+    new THREE.Vector3(74, 0.7, -29),
+    new THREE.Vector3(57, 0.7, -20),
+    new THREE.Vector3(30, 0.7, -23),
+    new THREE.Vector3(15, 0.7, -33),
   ], true, "catmullrom", 0.35);
-  const kartTrack = parkMesh(new THREE.TubeGeometry(kartCurve, 150, 2.1, 8, true), road, "amusement-park-kart-track", "karting");
+  const kartTrack = parkMesh(new THREE.TubeGeometry(kartCurve, 180, 3.3, 8, true), road, "amusement-park-kart-track", "karting");
   kartTrack.rotation.x = 0;
   karting.add(kartTrack);
-  for (const offset of [-1.45, 1.45]) {
+  for (const offset of [-2.25, 2.25]) {
     const lineCurve = new THREE.CatmullRomCurve3(kartCurve.points.map((point) => point.clone().add(new THREE.Vector3(0, 0.08, offset * 0.25))), true, "catmullrom", 0.35);
-    karting.add(parkMesh(new THREE.TubeGeometry(lineCurve, 150, 0.07, 5, true), ivory, "amusement-park-kart-track-line", "karting"));
+    karting.add(parkMesh(new THREE.TubeGeometry(lineCurve, 180, 0.09, 5, true), ivory, "amusement-park-kart-track-line", "karting"));
   }
   const karts: THREE.Group[] = [];
   for (let i = 0; i < 6; i += 1) {
     const kart = new THREE.Group();
     kart.name = "amusement-park-go-kart";
     kart.userData.phase = i / 6;
-    const body = parkMesh(new THREE.BoxGeometry(1.35, 0.45, 0.82), bulbMaterials[i % bulbMaterials.length], "amusement-park-go-kart-body", "karting");
-    body.position.y = 0.3;
-    const driver = parkMesh(new THREE.SphereGeometry(0.26, 8, 6), ivory, "amusement-park-go-kart-driver", "karting");
-    driver.position.set(-0.15, 0.78, 0);
+    const body = parkMesh(new THREE.BoxGeometry(1.3, 0.62, 2.35), bulbMaterials[i % bulbMaterials.length], "amusement-park-go-kart-body", "karting");
+    body.position.y = 0.4;
+    const driver = parkMesh(new THREE.SphereGeometry(0.35, 8, 6), ivory, "amusement-park-go-kart-driver", "karting");
+    driver.position.set(-0.2, 1.05, 0);
     kart.add(body, driver);
     karts.push(kart);
     karting.add(kart);
   }
-  const kartPit = parkMesh(new THREE.BoxGeometry(10, 3.8, 4), orange, "amusement-park-kart-pit-building", "karting");
-  kartPit.position.set(28, 2.3, -34.5);
+  const kartPit = parkMesh(new THREE.BoxGeometry(18, 5.5, 6), orange, "amusement-park-kart-pit-building", "karting");
+  kartPit.position.set(42, 3.2, -55);
   karting.add(kartPit);
   park.add(karting);
 
@@ -528,24 +644,24 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const city = new THREE.Group();
   city.name = "amusement-park-city-skyline";
   const buildingSpecs = [
-    [-47, 8, 8, 12, blue], [-38, 7, 7, 17, ivory], [-29, 8, 7, 11, pink],
-    [8, 8, 7, 13, aqua], [18, 7, 8, 17, ivory], [29, 9, 7, 12, orange], [40, 7, 8, 20, blue], [48, 6, 7, 14, purple],
+    [-78, 10, 9, 15, blue], [-64, 9, 8, 21, ivory], [-50, 10, 8, 14, pink],
+    [14, 10, 8, 16, aqua], [31, 9, 9, 22, ivory], [48, 11, 8, 15, orange], [65, 9, 9, 25, blue], [79, 8, 8, 18, purple],
   ] as const;
   buildingSpecs.forEach(([x, width, depth, height, material], buildingIndex) => {
     const building = parkMesh(new THREE.BoxGeometry(width, height, depth), material, "amusement-park-city-building", "overview");
-    building.position.set(x, height * 0.5 + 0.45, -35);
+    building.position.set(x, height * 0.5 + 0.45, -57);
     city.add(building);
     const floors = Math.max(3, Math.floor(height / 2.2));
     for (let floor = 0; floor < floors; floor += 1) {
       for (const wx of [-0.28, 0, 0.28]) {
         const window = parkMesh(new THREE.BoxGeometry(width * 0.16, 0.75, 0.08), windowMaterial, "amusement-park-city-window", "overview");
-        window.position.set(x + wx * width, 1.7 + floor * 2.0, -35 + depth * 0.5 + 0.05);
+        window.position.set(x + wx * width, 1.7 + floor * 2.0, -57 + depth * 0.5 + 0.05);
         city.add(window);
       }
     }
     if (buildingIndex % 2 === 0) {
       const roof = parkMesh(new THREE.ConeGeometry(width * 0.24, 2.2, 4), dark, "amusement-park-city-roof", "overview");
-      roof.position.set(x, height + 1.55, -35);
+      roof.position.set(x, height + 1.55, -57);
       roof.rotation.y = Math.PI * 0.25;
       city.add(roof);
     }
@@ -554,20 +670,20 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
 
   // Shops and benches frame the promenade. Common props below reuse the exact
   // city-furniture builders already used by the main model showroom.
-  for (const x of [-42, -34, 34, 42]) {
+  for (const x of [-74, -63, 63, 74]) {
     const shop = parkMesh(new THREE.BoxGeometry(5.6, 3.6, 4), x < 0 ? pink : yellow, "amusement-park-promenade-shop", "overview");
-    shop.position.set(x, 2.3, 26.8);
+    shop.position.set(x, 2.3, 45.5);
     const awning = parkMesh(new THREE.BoxGeometry(6.1, 0.35, 1.5), x < 0 ? ivory : red, "amusement-park-promenade-awning", "overview");
-    awning.position.set(x, 3.8, 24.5);
+    awning.position.set(x, 3.8, 42.9);
     park.add(shop, awning);
   }
-  for (const x of [-18, -10, 10, 18]) {
+  for (const x of [-28, -16, 16, 28]) {
     const bench = parkMesh(new THREE.BoxGeometry(3.2, 0.35, 0.7), timber, "amusement-park-bench", "overview");
-    bench.position.set(x, 1, 27.8);
+    bench.position.set(x, 1, 46.5);
     park.add(bench);
   }
 
-  for (const [x, z, rotation] of [[-24, 28.2, 0], [24, 28.2, Math.PI]] as const) {
+  for (const [x, z, rotation] of [[-39, 47.5, 0], [39, 47.5, Math.PI]] as const) {
     const truck = buildLowPolyFoodTruck();
     truck.position.set(x, 0.5, z);
     truck.rotation.y = rotation;
@@ -579,8 +695,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   }
 
   const planterPositions = [
-    [-30, 19.7, 0], [-16, 19.7, 0], [16, 19.7, 0], [30, 19.7, 0],
-    [-30, 32.2, Math.PI], [-16, 32.2, Math.PI], [16, 32.2, Math.PI], [30, 32.2, Math.PI],
+    [-49, 35.2, 0], [-26, 35.2, 0], [26, 35.2, 0], [49, 35.2, 0],
+    [-49, 51.7, Math.PI], [-26, 51.7, Math.PI], [26, 51.7, Math.PI], [49, 51.7, Math.PI],
   ] as const;
   planterPositions.forEach(([x, z, rotation]) => {
     const planter = buildLowPolyRoadsidePlanter();
@@ -591,8 +707,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     park.add(planter);
   });
 
-  for (let x = -45; x <= 45; x += 10) {
-    for (const [z, rotation] of [[20.4, 0], [30.3, Math.PI]] as const) {
+  for (let x = -70; x <= 70; x += 14) {
+    for (const [z, rotation] of [[34.5, 0], [50.5, Math.PI]] as const) {
       const streetLight = buildLowPolyStreetLight();
       streetLight.position.set(x, 0.5, z);
       streetLight.rotation.y = rotation;
@@ -625,12 +741,18 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     streetLightCount: reusedStreetLights.length,
     planterCount: planterPositions.length,
     foodTruckCount: reusedFoodTrucks.length,
-    siteSize: new THREE.Vector3(112, 23.5, 82),
+    fenceSegmentCount: 5,
+    scaleReferenceLengthMeters: 2.4,
+    ferrisCabinCapacity: 6,
+    rideScaleStandard: "rabbit-rider",
+    siteSize: new THREE.Vector3(180, 39.5, 130),
     setPowered(powered: boolean) {
       animatedBulbs.forEach((material, index) => {
         material.emissiveIntensity = powered ? 2.2 + (index % 3) * 0.35 : (material === windowMaterial ? 0.08 : 0.12);
       });
       windowMaterial.color.setHex(powered ? 0xffc775 : 0x4f8296);
+      ferrisCabinGlass.emissive.setHex(powered ? 0x7b521e : 0x214d5a);
+      ferrisCabinGlass.emissiveIntensity = powered ? 0.48 : 0.08;
       reusedStreetLights.forEach((streetLight) => streetLight.userData.setPowered(powered));
       reusedFoodTrucks.forEach((truck) => truck.userData.setLights(powered));
     },
@@ -659,7 +781,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
 
       const trainProgress = (time * 0.035) % 1;
       coasterCars.forEach((car, index) => {
-        const progress = (trainProgress - index * 0.008 + 1) % 1;
+        const progress = (trainProgress - index * 0.012 + 1) % 1;
         coasterCurve.getPointAt(progress, tempPoint);
         coasterCurve.getTangentAt(progress, tempTangent);
         car.position.copy(tempPoint);

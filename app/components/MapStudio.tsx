@@ -302,6 +302,13 @@ export function MapStudio() {
         </div>
 
         {!playMode && (
+          <a className="showcase-switch" href="/demos" aria-label={locale === "zh" ? "切换到城市模型展示区" : "Switch to the city model showcase"}>
+            <span>{locale === "zh" ? "城市模型展示区" : "City model showcase"}</span>
+            <i aria-hidden="true">↗</i>
+          </a>
+        )}
+
+        {!playMode && (
           <div className="scene-stats" aria-live="polite">
             {settings.mapType === "city" ? (
               <>
@@ -504,7 +511,7 @@ export function MapStudio() {
         <a className="model-showcase-entry" href="/demos">
           <span>
             <b>{locale === "zh" ? "模型展示区" : "Model showcase"}</b>
-            <small>{locale === "zh" ? "街道装饰 · 居民建筑 · 医院 · 游乐园" : "Street · Residential · Hospital · Amusement park"}</small>
+            <small>{locale === "zh" ? "街道装饰 · 居民建筑 · 医院 · 游乐园 · 学校" : "Street · Residential · Hospital · Amusement park · School"}</small>
           </span>
           <i>↗</i>
         </a>

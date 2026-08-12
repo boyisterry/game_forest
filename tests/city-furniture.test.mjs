@@ -474,7 +474,7 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /查看高层内部/);
   assert.match(source, /setHighRiseElevatorAuto/);
   assert.match(source, /setOfficeInteriorCutaway/);
-  assert.match(source, /highRise\.userData\.updateElevators\(dt\)/);
+  assert.match(source, /highRise\?\.userData\.updateElevators\(dt\)/);
   assert.match(source, /关闭电梯自动运行/);
   assert.match(source, /开启电梯自动运行/);
   assert.match(source, /查看办公楼内部/);
@@ -482,7 +482,7 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /new THREE\.Vector3\(0, 0\.42, 44\)/);
   assert.match(source, /createFurnitureShatterPair/);
   assert.match(source, /ShatterMorphController/);
-  assert.match(source, /破碎所有装饰/);
+  assert.match(source, /破碎全部模型/);
 });
 
 test("every showcase card exposes expandable model data", async () => {
