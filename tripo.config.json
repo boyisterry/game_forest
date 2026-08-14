@@ -1,0 +1,30 @@
+{
+  "$schemaVersion": 1,
+  "modelVersion": "v3.1-20260211",
+  "generation": {
+    "geometryQuality": "standard",
+    "textureQuality": "standard",
+    "texture": true,
+    "pbr": true,
+    "faceLimit": 300000,
+    "smartLowPoly": false,
+    "quad": false,
+    "compress": null
+  },
+  "runtime": {
+    "decimationRequired": true,
+    "preserveSourceModel": true,
+    "targetFaceBudgetPolicy": "set-per-asset",
+    "outputSuffix": "-runtime"
+  },
+  "billing": {
+    "requireApprovalForGeometryQuality": [
+      "detailed"
+    ],
+    "requireApprovalForTextureQuality": [
+      "detailed",
+      "extreme"
+    ],
+    "reportEstimatedCreditsBeforeSubmit": true
+  }
+}

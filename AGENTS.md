@@ -17,3 +17,10 @@ The startup update script recreates these as local stubs if missing (`.openai/ho
 
 ### Cloudflare bindings
 D1 (`DB`), R2, and Images bindings are scaffolding only and Miniflare-emulated locally; the map/game does not require them. `db/schema.ts` is intentionally empty and `getDb()` throws unless a `DB` binding is present, but no gameplay code calls it.
+
+### Tripo3D generation defaults
+- Use the project settings in `tripo.config.json` for every new Tripo3D model-generation task.
+- Generate source assets with `geometry_quality=standard` and `texture_quality=standard`. Do not use `detailed` or `extreme` unless the user explicitly approves the additional credit cost for that specific task.
+- Keep textured character assets as PBR GLBs. The source GLB is an archival input, not the runtime asset.
+- Create a separate decimated runtime derivative for the game and preserve the original source GLB. Choose the runtime face budget per asset and camera distance; do not overwrite the source during decimation.
+- State the expected credit cost before submitting any paid Tripo task.

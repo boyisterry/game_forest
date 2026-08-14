@@ -56,6 +56,18 @@ test("generates a traffic light with vehicle, pedestrian and phase controls", ()
   assert.ok(spillLight.distance < 0.84);
 });
 
+test("generates a mirrored traffic-light mast without reversing the signal face", () => {
+  const signal = buildLowPolyTrafficLight(-1);
+  const head = signal.getObjectByName("traffic-light-vehicle-head");
+  const arm = signal.getObjectByName("traffic-light-mast-arm");
+  const lens = signal.getObjectByName("traffic-light-lens");
+
+  assert.equal(signal.userData.armSide, -1);
+  assert.ok(head.position.x < 0, "mirrored signal head should hang to the left of its pole");
+  assert.ok(arm.position.x < 0, "mirrored mast arm should extend toward the junction");
+  assert.ok(lens.position.z > 0, "signal lens should keep facing local +Z");
+});
+
 test("generates a roadside food truck with wheels, service hatch and lighting controls", () => {
   const truck = buildLowPolyFoodTruck();
   assert.equal(truck.name, "city-food-truck-lowpoly");

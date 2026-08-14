@@ -1,0 +1,35 @@
+{
+  "character": "forest-courier-fox",
+  "pose": "T-pose",
+  "task_id": "0bea9a4e-8b48-4a23-926e-9b67cffe9985",
+  "task_type": "multiview_to_model",
+  "model_version": "v3.1-20260211",
+  "geometry_quality": "standard",
+  "face_limit": 300000,
+  "orthographic_projection": true,
+  "texture": true,
+  "pbr": true,
+  "texture_quality": "standard",
+  "texture_alignment": "original_image",
+  "auto_size": true,
+  "smart_low_poly": false,
+  "quad": false,
+  "consumed_credit": 30,
+  "output": {
+    "file": "fox-courier-tpose-source.glb",
+    "size_bytes": 8950384,
+    "vertices": 155110,
+    "triangles": 293802,
+    "meshes": 1,
+    "materials": 1,
+    "textures": 3,
+    "skins": 0,
+    "animations": 0
+  },
+  "input_view_order": [
+    "reference/fox-front.png",
+    "reference/fox-left.png",
+    "reference/fox-back.png",
+    "reference/fox-right.png"
+  ]
+}

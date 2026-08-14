@@ -64,6 +64,10 @@ next-env.d.ts
 /tripo-output/rabbit-tpose-h31/098f6c2c-dce5-4c8c-b231-626e9ea1cd6f/rigged-skeleton/3d6ab703-1702-4edb-b737-140d4cad96ba/
 /assets/
 /tmp/
+# Character source archives keep final PBR/runtime assets in Git; local rigging,
+# retopology, preview and motion-study workspaces are reproducible intermediates.
+/public/models/characters/**/temp/
+/public/models/characters/**/temp1/
 /.superpowers/
 /.worktrees/
 

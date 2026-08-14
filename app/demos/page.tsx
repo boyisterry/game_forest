@@ -3,7 +3,7 @@ import styles from "./ModelShowcaseHome.module.css";
 
 export const metadata: Metadata = {
   title: "城市模型展示区 · 分类入口",
-  description: "按街道装饰、居民建筑、医院、大型游乐园和现代学校浏览项目内原创低模模型。",
+  description: "按街道装饰、居民建筑、医院、大型游乐园、现代学校和商业中心浏览项目内原创低模模型。",
 };
 
 const categories = [
@@ -47,6 +47,14 @@ const categories = [
     visual: "school",
     tags: ["7 栋主体建筑", "完整运动区", "外观 / 剖面 / 夜景"],
   },
+  {
+    number: "COLLECTION 06",
+    title: "大型商业中心",
+    description: "开放街区式商业建筑群，外圈首层临街开店，内部以露天中庭、餐饮街和空中连廊连接。",
+    href: "/demos/shopping-mall",
+    visual: "shopping",
+    tags: ["5 栋商业建筑", "62 个首层商铺", "露天中庭 / 夜景"],
+  },
 ] as const;
 
 export default function ModelShowcaseHome() {
@@ -57,7 +65,7 @@ export default function ModelShowcaseHome() {
           <p className={styles.eyebrow}>FOREST COURIER / MODEL ARCHIVE</p>
           <h1>城市模型展示区</h1>
         </div>
-        <p className={styles.intro}>从街道细节到完整建筑院区、游乐园与现代校园，所有模型均在项目内独立生成，并提供结构参数与可交互状态。</p>
+        <p className={styles.intro}>从街道细节到完整建筑院区、游乐园、现代校园与商业中心，所有模型均在项目内独立生成，并提供结构参数与可交互状态。</p>
         <a className={styles.homeLink} href="/">← 返回地图工坊</a>
       </header>
       <section className={styles.categories} aria-label="模型分类">

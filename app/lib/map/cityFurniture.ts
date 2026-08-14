@@ -242,7 +242,7 @@ function buildSignalLens(
   return [bezel, lens];
 }
 
-export function buildLowPolyTrafficLight(): TrafficLightModel {
+export function buildLowPolyTrafficLight(armSide: 1 | -1 = 1): TrafficLightModel {
   const group = new THREE.Group() as TrafficLightModel;
   group.name = "city-traffic-light-lowpoly";
   const metal = new THREE.MeshStandardMaterial({ color: 0x34464e, roughness: 0.57, metalness: 0.55 });
@@ -252,12 +252,12 @@ export function buildLowPolyTrafficLight(): TrafficLightModel {
   const base = mesh(new THREE.CylinderGeometry(0.48, 0.6, 0.38, 8), metal, "traffic-light-base");
   base.position.y = 0.19;
   const pole = beamBetween(new THREE.Vector3(0, 0.38, 0), new THREE.Vector3(0, 5.35, 0), 0.18, 0.13, metal, "traffic-light-pole");
-  const arm = beamBetween(new THREE.Vector3(0, 5.18, 0), new THREE.Vector3(1.72, 5.18, 0), 0.12, 0.1, metal, "traffic-light-mast-arm");
+  const arm = beamBetween(new THREE.Vector3(0, 5.18, 0), new THREE.Vector3(armSide * 1.72, 5.18, 0), 0.12, 0.1, metal, "traffic-light-mast-arm");
   group.add(base, pole, arm);
 
   const head = new THREE.Group();
   head.name = "traffic-light-vehicle-head";
-  head.position.set(2.08, 4.18, 0);
+  head.position.set(armSide * 2.08, 4.18, 0);
   const backplate = mesh(new THREE.BoxGeometry(1.32, 3.02, 0.2), housingMaterial, "traffic-light-backplate");
   backplate.position.z = -0.02;
   const casing = mesh(new THREE.BoxGeometry(1.04, 2.76, 0.62), housingMaterial, "traffic-light-casing");
@@ -271,7 +271,7 @@ export function buildLowPolyTrafficLight(): TrafficLightModel {
   group.add(head);
 
   const pedestrianHousing = mesh(new THREE.BoxGeometry(0.92, 1.08, 0.44), housingMaterial, "pedestrian-signal-housing");
-  pedestrianHousing.position.set(0.42, 3.1, 0);
+  pedestrianHousing.position.set(armSide * 0.42, 3.1, 0);
   const pedestrianLens = new THREE.MeshStandardMaterial({
     color: 0x5ca77b,
     emissive: 0x52e38d,
@@ -279,14 +279,14 @@ export function buildLowPolyTrafficLight(): TrafficLightModel {
     roughness: 0.34,
   });
   const pedestrianFace = mesh(new THREE.BoxGeometry(0.62, 0.76, 0.08), pedestrianLens, "pedestrian-signal-face");
-  pedestrianFace.position.set(0.42, 3.1, 0.26);
+  pedestrianFace.position.set(armSide * 0.42, 3.1, 0.26);
   const pushButton = mesh(new THREE.BoxGeometry(0.34, 0.48, 0.2), trimMaterial, "pedestrian-crossing-button");
-  pushButton.position.set(0.2, 1.65, 0.2);
+  pushButton.position.set(armSide * 0.2, 1.65, 0.2);
   group.add(pedestrianHousing, pedestrianFace, pushButton);
 
   const statusLight = new THREE.PointLight(0xff160c, 1.1, 0.7, 2);
   statusLight.name = "traffic-signal-status-light";
-  statusLight.position.set(2.08, 5.02, 0.8);
+  statusLight.position.set(armSide * 2.08, 5.02, 0.8);
   group.add(statusLight);
 
   const setPhase = (phase: TrafficPhase) => {
@@ -305,6 +305,7 @@ export function buildLowPolyTrafficLight(): TrafficLightModel {
   group.userData = {
     modelType: "traffic-light",
     generatedLocally: true,
+    armSide,
     setPhase,
   };
   setPhase("red");

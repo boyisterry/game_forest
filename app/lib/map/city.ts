@@ -710,6 +710,15 @@ type FurniturePlacement = {
   heightScale?: number;
 };
 
+export function getCitySignalCornerOrientation(xSide: -1 | 1, zSide: -1 | 1) {
+  // Only the two diagonally highlighted corners change. The upper-right and
+  // lower-left retain their already-correct orientations.
+  if (xSide < 0 && zSide < 0) return { rotationY: Math.PI * 0.5, armSide: -1 as const };
+  if (xSide > 0 && zSide > 0) return { rotationY: -Math.PI * 0.5, armSide: -1 as const };
+  if (xSide > 0) return { rotationY: 0, armSide: -1 as const };
+  return { rotationY: Math.PI, armSide: -1 as const };
+}
+
 /**
  * Batch every mesh in a showroom model into an InstancedMesh. This preserves
  * the exact authored geometry/material hierarchy while keeping a city-wide
@@ -754,6 +763,8 @@ function addInstancedShowroomModel(
   layer.userData.instanceCount = placements.length;
   layer.userData.sourceModel = prototype.name;
   layer.userData.heightScale = placements[0]?.heightScale ?? 1;
+  layer.userData.rotationY = [...new Set(placements.map((placement) => placement.rotationY))];
+  layer.userData.armSide = prototype.userData.armSide ?? 1;
   group.add(layer);
   return sourceMeshes.length;
 }
@@ -865,7 +876,16 @@ function addStreetFurniture(
   lightPlacements.forEach(({ x, z }) => collision.registerStatic({ x, z, r: 0.58 }));
   drawCalls += addShowroomStreetTrees(group, collision, treePlacements, modelPack);
 
-  const signalsByPhase: Record<TrafficPhase, FurniturePlacement[]> = { red: [], yellow: [], green: [] };
+  const signalsByPhase: Record<TrafficPhase, Record<"leftArm" | "rightArm", FurniturePlacement[]>> = {
+    red: { leftArm: [], rightArm: [] },
+    yellow: { leftArm: [], rightArm: [] },
+    green: { leftArm: [], rightArm: [] },
+  };
+  const addCornerSignal = (phase: TrafficPhase, x: number, z: number, xSide: -1 | 1, zSide: -1 | 1) => {
+    const orientation = getCitySignalCornerOrientation(xSide, zSide);
+    const bucket = orientation.armSide < 0 ? "leftArm" : "rightArm";
+    signalsByPhase[phase][bucket].push({ x, z, rotationY: orientation.rotationY, heightScale: 1.25 });
+  };
   for (const vertical of xProfiles) {
     for (const horizontal of zProfiles) {
       if (!roadsIntersect(vertical, horizontal)) continue;
@@ -874,31 +894,39 @@ function addStreetFurniture(
       const verticalHasPriority = vertical.lanesPerDirection >= horizontal.lanesPerDirection;
       const verticalPhase: TrafficPhase = verticalHasPriority ? "green" : "red";
       const horizontalPhase: TrafficPhase = verticalHasPriority ? "red" : "green";
-      // Signals sit on the far-side corner for each incoming right-hand-traffic
-      // approach. The showroom lens faces local +Z, so the pole must be on the
-      // opposite corner from the direction it watches while its arm still
-      // reaches inward over the carriageway.
-      signalsByPhase[verticalPhase].push(
-        { x: vertical.position + xOffset, z: horizontal.position + zOffset, rotationY: Math.PI, heightScale: 1.25 },
-        { x: vertical.position - xOffset, z: horizontal.position - zOffset, rotationY: 0, heightScale: 1.25 },
-      );
-      signalsByPhase[horizontalPhase].push(
-        { x: vertical.position + xOffset, z: horizontal.position - zOffset, rotationY: -Math.PI * 0.5, heightScale: 1.25 },
-        { x: vertical.position - xOffset, z: horizontal.position + zOffset, rotationY: Math.PI * 0.5, heightScale: 1.25 },
-      );
+      // Each signal follows its street corner: the lens faces its approach and
+      // the mast arm extends from the pavement corner toward the junction.
+      addCornerSignal(verticalPhase, vertical.position + xOffset, horizontal.position + zOffset, 1, 1);
+      addCornerSignal(verticalPhase, vertical.position - xOffset, horizontal.position - zOffset, -1, -1);
+      addCornerSignal(horizontalPhase, vertical.position + xOffset, horizontal.position - zOffset, 1, -1);
+      addCornerSignal(horizontalPhase, vertical.position - xOffset, horizontal.position + zOffset, -1, 1);
     }
   }
   for (const phase of ["red", "green"] as const) {
-    if (!signalsByPhase[phase].length) continue;
-    const signal = buildLowPolyTrafficLight();
-    signal.userData.setPhase(phase);
-    drawCalls += addInstancedShowroomModel(group, signal, signalsByPhase[phase], `city-showroom-traffic-lights-${phase}`);
-    signalsByPhase[phase].forEach(({ x, z }) => collision.registerStatic({ x, z, r: 0.64 }));
+    const phaseLayer = new THREE.Group();
+    phaseLayer.name = `city-showroom-traffic-lights-${phase}`;
+    for (const [bucket, armSide] of [["leftArm", -1], ["rightArm", 1]] as const) {
+      const signal = buildLowPolyTrafficLight(armSide);
+      signal.userData.setPhase(phase);
+      drawCalls += addInstancedShowroomModel(
+        phaseLayer,
+        signal,
+        signalsByPhase[phase][bucket],
+        `${phaseLayer.name}-${bucket}`,
+      );
+    }
+    const phasePlacements = [...signalsByPhase[phase].leftArm, ...signalsByPhase[phase].rightArm];
+    phaseLayer.userData.instanceCount = phasePlacements.length;
+    phaseLayer.userData.sourceModel = "city-traffic-light-lowpoly";
+    phaseLayer.userData.heightScale = 1.25;
+    group.add(phaseLayer);
+    phasePlacements.forEach(({ x, z }) => collision.registerStatic({ x, z, r: 0.64 }));
   }
+  const signalCount = (phase: TrafficPhase) => signalsByPhase[phase].leftArm.length + signalsByPhase[phase].rightArm.length;
   return {
     streetLights: lightPlacements.length,
     streetTrees: treePlacements.length,
-    trafficLights: signalsByPhase.red.length + signalsByPhase.green.length,
+    trafficLights: signalCount("red") + signalCount("green"),
     drawCalls,
   };
 }
@@ -913,14 +941,36 @@ function addDeliveryStops(
 ) {
   const points: Array<{ x: number; z: number }> = [];
   const markers = new THREE.Group();
+  markers.name = "city-delivery-stop-markers";
+  const safeCandidates: Array<{ point: THREE.Vector3; horizontal: boolean; profile: CityRoadProfile }> = [];
+  for (let index = 1; index < road.length - 1; index += 1) {
+    const point = road[index];
+    const previous = road[index - 1];
+    const next = road[index + 1];
+    const dx = Math.abs(next.x - previous.x);
+    const dz = Math.abs(next.z - previous.z);
+    if (dx < dz * 3 && dz < dx * 3) continue;
+    const horizontal = dx > dz;
+    const profile = horizontal ? nearestRoad(point.z, zProfiles).profile : nearestRoad(point.x, xProfiles).profile;
+    const crossingRoads = horizontal
+      ? xProfiles.filter((crossing) => roadsIntersect(profile, crossing))
+      : zProfiles.filter((crossing) => roadsIntersect(profile, crossing));
+    const along = horizontal ? point.x : point.z;
+    const clearOfJunction = crossingRoads.every((crossing) =>
+      Math.abs(along - crossing.position) > crossing.streetOuter + 8);
+    if (clearOfJunction) safeCandidates.push({ point, horizontal, profile });
+  }
+  markers.userData.safeCandidateCount = safeCandidates.length;
   for (let i = 0; i < count; i += 1) {
-    const index = Math.floor(((i + 0.55) / count) * (road.length - 1));
-    const p = road[index];
-    const previous = road[Math.max(0, index - 1)];
-    const next = road[Math.min(road.length - 1, index + 1)];
+    const candidateIndex = Math.min(
+      safeCandidates.length - 1,
+      Math.floor(((i + 0.5) / count) * safeCandidates.length),
+    );
+    const candidate = safeCandidates[candidateIndex];
+    if (!candidate) break;
+    const p = candidate.point;
     const side = i % 2 === 0 ? 1 : -1;
-    const horizontal = Math.abs(next.x - previous.x) > Math.abs(next.z - previous.z);
-    const profile = horizontal ? nearestRoad(p.z, zProfiles).profile : nearestRoad(p.x, xProfiles).profile;
+    const { horizontal, profile } = candidate;
     const offset = profile.streetOuter + profile.sidewalkWidth * 0.5;
     const x = p.x + (horizontal ? 0 : side * offset);
     const z = p.z + (horizontal ? side * offset : 0);

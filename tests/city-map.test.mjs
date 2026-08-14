@@ -6,6 +6,7 @@ import {
   clampToCity,
   getCityRoadProfiles,
   getCityRoadWidthRange,
+  getCitySignalCornerOrientation,
   sampleCitySurface,
   CITY_COAST_RAIL_Z,
   CITY_EAST_FENCE_X,
@@ -43,8 +44,41 @@ test("builds a playable five-district city with a delivery loop", () => {
   assert.equal((redSignals?.userData.instanceCount ?? 0) + (greenSignals?.userData.instanceCount ?? 0), city.trafficLights);
   assert.equal(redSignals?.userData.heightScale, 1.25);
   assert.equal(greenSignals?.userData.heightScale, 1.25);
-  assert.ok(redSignals?.getObjectByName("city-showroom-traffic-lights-red-traffic-light-lens"));
-  assert.ok(greenSignals?.getObjectByName("city-showroom-traffic-lights-green-traffic-light-lens"));
+  assert.ok(redSignals?.getObjectByName("city-showroom-traffic-lights-red-leftArm-traffic-light-lens"));
+  assert.ok(greenSignals?.getObjectByName("city-showroom-traffic-lights-green-rightArm-traffic-light-lens"));
+});
+
+test("only the two highlighted diagonal traffic lights rotate toward the arrows", () => {
+  assert.deepEqual(getCitySignalCornerOrientation(-1, -1), { rotationY: Math.PI * 0.5, armSide: -1 });
+  assert.deepEqual(getCitySignalCornerOrientation(1, -1), { rotationY: 0, armSide: -1 });
+  assert.deepEqual(getCitySignalCornerOrientation(-1, 1), { rotationY: Math.PI, armSide: -1 });
+  assert.deepEqual(getCitySignalCornerOrientation(1, 1), { rotationY: -Math.PI * 0.5, armSide: -1 });
+});
+
+test("delivery beacons stay on sidewalks and clear of roads and intersections", () => {
+  const profiles = getCityRoadProfiles(8, DEFAULT_SETTINGS.seed);
+  const city = buildCityWorld(
+    { ...DEFAULT_SETTINGS, mapType: "city", roadWidth: 8, deliveryStops: 12 },
+    new CollisionWorld(),
+  );
+  const markers = city.group.getObjectByName("city-delivery-stop-markers");
+  assert.equal(city.stops.length, 12);
+  assert.ok(markers?.userData.safeCandidateCount > city.stops.length);
+  for (const stop of city.stops) {
+    const insideAnyRoad = profiles.x.some((road) => stop.z >= road.start && stop.z <= road.end
+      && Math.abs(stop.x - road.position) <= road.streetOuter)
+      || profiles.z.some((road) => stop.x >= road.start && stop.x <= road.end
+        && Math.abs(stop.z - road.position) <= road.streetOuter);
+    assert.equal(insideAnyRoad, false, `delivery beacon at ${stop.x},${stop.z} must not occupy a road`);
+
+    const onSidewalk = profiles.x.some((road) => stop.z >= road.start && stop.z <= road.end
+      && Math.abs(stop.x - road.position) > road.streetOuter
+      && Math.abs(stop.x - road.position) < road.streetOuter + road.sidewalkWidth)
+      || profiles.z.some((road) => stop.x >= road.start && stop.x <= road.end
+        && Math.abs(stop.z - road.position) > road.streetOuter
+        && Math.abs(stop.z - road.position) < road.streetOuter + road.sidewalkWidth);
+    assert.equal(onSidewalk, true, `delivery beacon at ${stop.x},${stop.z} should sit on a sidewalk`);
+  }
 });
 
 test("city clamp keeps riding on land and inside the coastal edge", () => {

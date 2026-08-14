@@ -31,6 +31,11 @@
 .school::after { left: 72px; bottom: 28px; width: 26px; height: 38px; background: #5e8d9b; box-shadow: 52px 0 #5e8d9b, 104px 0 #5e8d9b, 156px 0 #5e8d9b, 208px 0 #5e8d9b, 26px -48px #5e8d9b, 78px -48px #5e8d9b, 130px -48px #5e8d9b, 182px -48px #5e8d9b; }
 .school i { position: absolute; z-index: 2; left: 50%; bottom: 0; width: 38px; height: 57px; background: #294f63; transform: translateX(-50%); }
 .school i::before { content: ""; position: absolute; left: 50%; top: -28px; width: 60px; height: 60px; border: 5px solid #eee5d2; border-radius: 50%; background: #294f63; transform: translateX(-50%); }
+.shopping { background: linear-gradient(#c6dde0 0 70%, #bcae94 70%); }
+.shopping::before { left: 28px; right: 28px; bottom: 0; height: 118px; background: linear-gradient(90deg, #eee5d4 0 28%, transparent 28% 34%, #eee5d4 34% 66%, transparent 66% 72%, #eee5d4 72%); border-top: 12px solid #b65942; box-shadow: inset 0 -14px #d2af74; }
+.shopping::after { left: 48px; bottom: 26px; width: 30px; height: 40px; background: #68a1ad; box-shadow: 43px 0 #68a1ad, 122px 0 #68a1ad, 165px 0 #68a1ad, 208px 0 #68a1ad, 251px 0 #68a1ad, 22px -51px #68a1ad, 65px -51px #68a1ad, 108px -51px #68a1ad, 151px -51px #68a1ad, 194px -51px #68a1ad; }
+.shopping i { position: absolute; z-index: 3; left: 50%; bottom: 0; width: 68px; height: 74px; border: 6px solid #2e4852; border-bottom: 0; transform: translateX(-50%); }
+.shopping i::before { content: ""; position: absolute; left: 50%; top: 25px; width: 150px; height: 5px; background: #d4a660; box-shadow: 0 30px #d4a660; transform: translateX(-50%); }
 .card h2 { margin: 0; font-family: "Songti SC", "STSong", Georgia, serif; font-size: 27px; font-weight: 650; }
 .card p { margin: 8px 0 0; color: #6d7d83; font-size: 11px; line-height: 1.6; }
 .tags { align-self: end; display: flex; flex-wrap: wrap; gap: 5px; margin-top: 24px; }

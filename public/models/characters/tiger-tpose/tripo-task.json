@@ -1,0 +1,33 @@
+{
+  "character": "forest-courier-tiger-cub",
+  "pose": "T-pose",
+  "task_id": "fae8ca0b-20d3-41df-84cf-15a5902221f6",
+  "task_type": "multiview_to_model",
+  "model_version": "v3.1-20260211",
+  "geometry_quality": "detailed",
+  "face_limit": 300000,
+  "orthographic_projection": true,
+  "texture": true,
+  "pbr": true,
+  "texture_quality": "detailed",
+  "texture_alignment": "original_image",
+  "auto_size": true,
+  "consumed_credit": 60,
+  "output": {
+    "file": "tiger-courier-tpose-high.glb",
+    "size_bytes": 10728440,
+    "vertices": 153486,
+    "triangles": 284664,
+    "meshes": 1,
+    "materials": 1,
+    "textures": 3,
+    "skins": 0,
+    "animations": 0
+  },
+  "input_view_order": [
+    "reference/tiger-front.png",
+    "reference/tiger-left.png",
+    "reference/tiger-back.png",
+    "reference/tiger-right.png"
+  ]
+}
