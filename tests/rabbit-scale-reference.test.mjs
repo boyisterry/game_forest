@@ -4,6 +4,7 @@ import test from "node:test";
 import * as THREE from "three";
 import {
   prepareRabbitRiderReference,
+  RABBIT_RIDER_REFERENCE_LENGTH_METERS,
   RABBIT_RIDER_REFERENCE_SIZE,
   RABBIT_RIDER_URL,
 } from "../app/lib/map/rabbitRiderReference.ts";
@@ -15,6 +16,9 @@ test("normalizes the existing rabbit-rider model to a 2.40 metre scale reference
   assert.equal(reference.name, "game-rabbit-rider-scale-reference");
   assert.equal(reference.userData.sourceModel, RABBIT_RIDER_URL);
   assert.equal(reference.userData.referenceSizeMeters, 2.4);
+  assert.equal(reference.userData.referenceLengthMeters, 2.4);
+  assert.equal(reference.userData.referenceMeasurement, "maximum-bounds-dimension");
+  assert.equal(RABBIT_RIDER_REFERENCE_LENGTH_METERS, 2.4);
   assert.equal(RABBIT_RIDER_REFERENCE_SIZE, 2.4);
   const size = new THREE.Box3().setFromObject(reference).getSize(new THREE.Vector3());
   assert.ok(Math.abs(Math.max(size.x, size.y, size.z) - 2.4) < 0.001);
@@ -36,13 +40,13 @@ test("uses the existing riding rabbit in the street, residential and hospital sh
   for (const source of [city, hospital]) {
     assert.match(source, /prepareRabbitRiderReference/);
     assert.match(source, /RABBIT_RIDER_URL/);
-    assert.match(source, /现有骑车兔子约 2\.40 m 参考/);
+    assert.match(source, /骑车兔子整体外廓约 2\.40 m/);
     assert.doesNotMatch(source, /buildLowPolyRabbitScaleReference/);
   }
   assert.match(city, /CATEGORY_RIDER_FOREGROUND/);
   assert.match(city, /street: new THREE\.Vector3\(0, 0\.46, 14\)/);
-  assert.match(city, /residential: new THREE\.Vector3\(0, 0\.46, 52\)/);
-  assert.match(hospital, /HOSPITAL_RIDER_FOREGROUND = new THREE\.Vector3\(0, 0\.46, 22\.5\)/);
+  assert.match(city, /residential: new THREE\.Vector3\(0, 0\.46, 68\)/);
+  assert.match(hospital, /HOSPITAL_RIDER_FOREGROUND = new THREE\.Vector3\(0, 0\.46, 34\.5\)/);
   assert.doesNotMatch(city, /riderAnchor\.position\.copy\(next/);
   assert.doesNotMatch(hospital, /riderAnchor\.position\.copy\(RABBIT_REFERENCE_POSITION\[next\]\)/);
   assert.match(streetPage, /category="street"/);

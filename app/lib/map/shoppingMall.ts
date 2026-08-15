@@ -115,9 +115,18 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
   }
 
   // Drop-off loop and realistic parking strips outside the storefront line.
-  const dropoff = mallMesh(new THREE.BoxGeometry(54, 0.11, 9), asphalt, "shopping-mall-main-dropoff", "exterior");
-  dropoff.position.set(0, 0.5, 47);
+  const dropoff = new THREE.Group();
+  dropoff.name = "shopping-mall-main-dropoff";
+  dropoff.userData = { pedestrianCoreClearWidth: 54 * SHOPPING_MALL_SCALE, separatedFromEntry: true };
+  for (const x of [-42, 42]) {
+    const layby = mallMesh(new THREE.BoxGeometry(26, 0.11, 9), asphalt, "shopping-mall-dropoff-layby", "exterior");
+    layby.position.set(x, 0.5, 47);
+    dropoff.add(layby);
+  }
   mall.add(dropoff);
+  const entryPlaza = mallMesh(new THREE.BoxGeometry(54, 0.13, 14), paving, "shopping-mall-pedestrian-entry-plaza", "exterior");
+  entryPlaza.position.set(0, 0.58, 47);
+  mall.add(entryPlaza);
   for (const side of [-1, 1]) {
     for (let bay = 0; bay < 9; bay += 1) {
       const parking = mallMesh(new THREE.BoxGeometry(2.35, 0.04, 5.1), asphalt, "shopping-mall-parking-space", "exterior");
@@ -143,6 +152,12 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     const core = mallMesh(new THREE.BoxGeometry(width - 1.5, height - 0.35, depth - 1.5), ivory, "shopping-mall-building-core", "lifestyle");
     core.position.y = 0.55 + height * 0.5;
     group.add(core);
+    cutawayShell.push(core);
+    for (let floor = 0; floor <= floors; floor += 1) {
+      const slab = mallMesh(new THREE.BoxGeometry(width - 1.8, 0.18, depth - 1.8), stone, "shopping-mall-interior-floor-slab", "lifestyle");
+      slab.position.y = 0.65 + floor * pitch;
+      group.add(slab);
+    }
     const roof = mallMesh(new THREE.BoxGeometry(width + 0.5, 0.34, depth + 0.5), charcoal, "shopping-mall-flat-roof", "lifestyle");
     roof.position.y = 0.68 + height;
     group.add(roof);
@@ -151,6 +166,7 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
       const band = mallMesh(new THREE.BoxGeometry(width + 0.12, 0.32, depth + 0.12), terracotta, "shopping-mall-floor-band", "lifestyle");
       band.position.y = 0.55 + floor * pitch;
       group.add(band);
+      cutawayShell.push(band);
     }
     const facadeSides: Wing["innerSide"][] = ["+x", "-x", "+z", "-z"];
     facadeSides.forEach((side) => {
@@ -194,6 +210,7 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
           horizontal ? side === "+z" ? depth * 0.5 + 0.2 : -depth * 0.5 - 0.2 : offset,
         );
         group.add(mullion);
+        cutawayShell.push(mullion);
       }
     });
     return { group, width, depth, floors, innerSide, outerSide };
@@ -222,8 +239,11 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     store.userData = { tenantType: tenant, exterior, storefrontIndex };
     store.position.set(frontX, 0, frontZ);
     wing.group.add(store);
-    const window = mallMesh(new THREE.BoxGeometry(horizontal ? frontage : depth, 2.55, horizontal ? depth : frontage), glass, "shopping-mall-storefront-glass", exterior ? "exterior" : "courtyard");
-    window.position.y = 2.15;
+    const window = mallMesh(new THREE.BoxGeometry(horizontal ? 3.05 : depth, 2.55, horizontal ? depth : 3.05), glass, "shopping-mall-storefront-glass", exterior ? "exterior" : "courtyard");
+    window.position.set(horizontal ? -0.72 : 0, 2.15, horizontal ? 0 : -0.72);
+    const door = mallMesh(new THREE.BoxGeometry(horizontal ? 1.22 : depth + 0.03, 2.55, horizontal ? depth + 0.03 : 1.22), glass, "shopping-mall-storefront-door", exterior ? "exterior" : "courtyard");
+    door.position.set(horizontal ? 1.58 : 0, 2.15, horizontal ? 0 : 1.58);
+    door.userData = { tenantType: tenant, clearWidth: 1.22 * SHOPPING_MALL_SCALE, operable: true };
     const sign = mallMesh(new THREE.BoxGeometry(horizontal ? frontage : 0.3, 0.72, horizontal ? 0.3 : frontage), signMaterial, "shopping-mall-store-sign", exterior ? "exterior" : "courtyard");
     sign.position.y = 3.82;
     const awning = mallMesh(new THREE.BoxGeometry(horizontal ? frontage + 0.5 : 1.45, 0.18, horizontal ? 1.45 : frontage + 0.5), signMaterial, "shopping-mall-store-awning", exterior ? "exterior" : "courtyard");
@@ -232,7 +252,8 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     interiorGlow.position.set(horizontal ? 0 : side === "+x" ? -0.32 : 0.32, 2.1, horizontal ? side === "+z" ? -0.32 : 0.32 : 0);
     const ceilingLight = mallMesh(new THREE.BoxGeometry(horizontal ? 2.6 : 0.38, 0.08, horizontal ? 0.38 : 2.6), warmLamp, "shopping-mall-store-ceiling-light", exterior ? "exterior" : "courtyard");
     ceilingLight.position.set(horizontal ? 0 : side === "+x" ? -0.75 : 0.75, 3.42, horizontal ? side === "+z" ? -0.75 : 0.75 : 0);
-    store.add(interiorGlow, window, sign, awning, ceilingLight);
+    store.add(interiorGlow, window, door, sign, awning, ceilingLight);
+    cutawayShell.push(window, door, sign, awning);
     if (["fast-food", "burger", "milk-tea", "coffee", "bakery", "restaurant"].includes(tenant)) {
       const counter = mallMesh(new THREE.BoxGeometry(horizontal ? 2.8 : 0.68, 0.95, horizontal ? 0.68 : 2.8), timber, "shopping-mall-food-counter", exterior ? "exterior" : "food-street");
       counter.position.set(horizontal ? 0 : side === "+x" ? -0.9 : 0.9, 1.03, horizontal ? side === "+z" ? -0.9 : 0.9 : 0);
@@ -340,23 +361,59 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     arcade.position.set(x, 0, z);
     arcade.userData = { attachedToFacade: true, openAir: true, guardSide };
     mall.add(arcade);
-    const gallery = mallMesh(new THREE.BoxGeometry(width, 0.3, depth), sand, "shopping-mall-upper-arcade", "upper-arcade");
+    const gallery = new THREE.Group();
+    gallery.name = "shopping-mall-upper-arcade";
     gallery.position.y = 4.95;
     arcade.add(gallery);
     const horizontal = width > depth;
     const length = horizontal ? width : depth;
-    const guard = mallMesh(
-      new THREE.BoxGeometry(horizontal ? width : 0.18, 1.25, horizontal ? 0.18 : depth),
-      glass,
-      "shopping-mall-arcade-glass-guard",
-      "upper-arcade",
-    );
-    guard.position.set(
-      guardSide === "+x" ? width * 0.5 - 0.08 : guardSide === "-x" ? -width * 0.5 + 0.08 : 0,
-      5.7,
-      guardSide === "+z" ? depth * 0.5 - 0.08 : guardSide === "-z" ? -depth * 0.5 + 0.08 : 0,
-    );
-    arcade.add(guard);
+    if (guardSide === "-z" && width === 24) {
+      const openingX = x < 0 ? 10 : -10;
+      const openingHalfWidth = 1.7;
+      const rearSlab = mallMesh(new THREE.BoxGeometry(width, 0.3, depth * 0.5), sand, "shopping-mall-upper-arcade-slab-segment", "upper-arcade");
+      rearSlab.position.z = depth * 0.25;
+      gallery.add(rearSlab);
+      const frontMin = -width * 0.5;
+      const frontMax = width * 0.5;
+      for (const [start, end] of [[frontMin, openingX - openingHalfWidth], [openingX + openingHalfWidth, frontMax]] as Array<[number, number]>) {
+        if (end - start < 0.5) continue;
+        const segment = mallMesh(new THREE.BoxGeometry(end - start, 0.3, depth * 0.5), sand, "shopping-mall-upper-arcade-slab-segment", "upper-arcade");
+        segment.position.set((start + end) * 0.5, 0, -depth * 0.25);
+        gallery.add(segment);
+      }
+      const opening = new THREE.Group();
+      opening.name = "shopping-mall-escalator-floor-opening";
+      opening.position.set(openingX, 0.15, -depth * 0.25);
+      opening.userData = { clearWidth: 3.4, clearDepth: depth * 0.5, openToEscalator: true, guardedSides: 3 };
+      gallery.add(opening);
+    } else {
+      const slab = mallMesh(new THREE.BoxGeometry(width, 0.3, depth), sand, "shopping-mall-upper-arcade-slab-segment", "upper-arcade");
+      gallery.add(slab);
+    }
+    if (guardSide === "-z" && width === 24) {
+      const openingX = x < 0 ? 10 : -10;
+      const openingHalfWidth = 1.7;
+      for (const [start, end] of [[-width * 0.5, openingX - openingHalfWidth], [openingX + openingHalfWidth, width * 0.5]] as Array<[number, number]>) {
+        if (end - start < 0.5) continue;
+        const guard = mallMesh(new THREE.BoxGeometry(end - start, 1.25, 0.18), glass, "shopping-mall-arcade-glass-guard", "upper-arcade");
+        guard.position.set((start + end) * 0.5, 5.7, -depth * 0.5 + 0.08);
+        guard.userData = { protectsEscalatorOpening: true };
+        arcade.add(guard);
+      }
+    } else {
+      const guard = mallMesh(
+        new THREE.BoxGeometry(horizontal ? width : 0.18, 1.25, horizontal ? 0.18 : depth),
+        glass,
+        "shopping-mall-arcade-glass-guard",
+        "upper-arcade",
+      );
+      guard.position.set(
+        guardSide === "+x" ? width * 0.5 - 0.08 : guardSide === "-x" ? -width * 0.5 + 0.08 : 0,
+        5.7,
+        guardSide === "+z" ? depth * 0.5 - 0.08 : guardSide === "-z" ? -depth * 0.5 + 0.08 : 0,
+      );
+      arcade.add(guard);
+    }
     const supportIntervals = Math.ceil(length / 8);
     for (let index = 0; index <= supportIntervals; index += 1) {
       const offset = -length * 0.5 + index / supportIntervals * length;
@@ -409,10 +466,11 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     escalator.userData = {
       physicalSlopeDirection: "+z",
       travelDirection: index === 0 ? "up" : "down",
-      lowerLanding: { x, y: 0.72, z: 13.3 },
+      lowerLanding: { x, y: 0.69, z: 13.3 },
       upperLanding: { x, y: 5.02, z: 25.65 },
       connectedToUpperArcade: true,
       outsideCentralPromenade: true,
+      coordinateSpace: "mall-local",
     };
     mall.add(escalator);
 
@@ -421,6 +479,22 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     const upperLanding = mallMesh(new THREE.BoxGeometry(2.7, 0.22, 2.3), escalatorMetal, "shopping-mall-escalator-upper-landing", "upper-arcade");
     upperLanding.position.set(0, 5.02, 6.15);
     escalator.add(lowerLanding, upperLanding);
+
+    for (const side of [-1, 1]) {
+      const lowerGuard = mallMesh(new THREE.BoxGeometry(0.12, 1.1, 2.25), glass, "shopping-mall-escalator-landing-guard", "upper-arcade");
+      lowerGuard.position.set(side * 1.3, 1.3, -6.2);
+      const upperGuard = mallMesh(new THREE.BoxGeometry(0.12, 1.1, 2.35), glass, "shopping-mall-escalator-landing-guard", "upper-arcade");
+      upperGuard.position.set(side * 1.3, 5.65, 6.15);
+      escalator.add(lowerGuard, upperGuard);
+      for (const [y, startZ, endZ] of [[1.3, -7.32, -5.08], [5.65, 4.98, 7.32]] as Array<[number, number, number]>) {
+        for (const z of [startZ, endZ]) {
+          const guardReturn = mallMesh(new THREE.BoxGeometry(0.86, 1.1, 0.12), glass, "shopping-mall-escalator-guard-return", "upper-arcade");
+          guardReturn.position.set(side * 1.73, y, z);
+          guardReturn.userData = { side, leavesTravelPathClear: true };
+          escalator.add(guardReturn);
+        }
+      }
+    }
 
     const stringer = mallMesh(new THREE.BoxGeometry(2.35, 0.28, slopeLength), escalatorMetal, "shopping-mall-escalator-underframe", "upper-arcade");
     stringer.position.set(0, (lowerY + upperY) * 0.5 - 0.2, 0);

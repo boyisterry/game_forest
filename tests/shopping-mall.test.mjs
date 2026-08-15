@@ -49,6 +49,9 @@ test("keeps the grand entrance fully open and barrier free", () => {
   assert.equal(mall.getObjectByName("shopping-mall-entry-glass-portal"), undefined);
   assert.equal(namedObjects(entrance, "shopping-mall-entry-tower").length, 2);
   assert.equal(namedObjects(entrance, "shopping-mall-entry-sign-beam").length, 1);
+  assert.equal(namedObjects(mall, "shopping-mall-dropoff-layby").length, 2);
+  assert.ok(mall.getObjectByName("shopping-mall-pedestrian-entry-plaza"));
+  assert.equal(mall.getObjectByName("shopping-mall-main-dropoff").userData.separatedFromEntry, true);
 });
 
 test("places outward-facing ground-floor stores around the whole complex", () => {
@@ -63,6 +66,8 @@ test("places outward-facing ground-floor stores around the whole complex", () =>
   assert.equal(mall.userData.exteriorStorefrontCount, 34);
   assert.equal(mall.userData.courtyardStorefrontCount, 28);
   assert.equal(namedObjects(mall, "shopping-mall-storefront-glass").length, 62);
+  assert.equal(namedObjects(mall, "shopping-mall-storefront-door").length, 62);
+  assert.ok(namedObjects(mall, "shopping-mall-storefront-door").every((door) => door.userData.operable && door.userData.clearWidth >= 1.4));
   assert.equal(namedObjects(mall, "shopping-mall-store-sign").length, 62);
   assert.equal(namedObjects(mall, "shopping-mall-store-awning").length, 62);
 });
@@ -119,12 +124,42 @@ test("connects the building group with upper arcades, bridges and escalators", (
   assert.ok(escalators.every((escalator) => escalator.userData.connectedToUpperArcade));
   assert.ok(escalators.every((escalator) => escalator.userData.outsideCentralPromenade));
   assert.deepEqual(escalators.map((escalator) => escalator.userData.travelDirection), ["up", "down"]);
+  assert.ok(escalators.every((escalator) => escalator.userData.coordinateSpace === "mall-local"));
   assert.equal(namedObjects(mall, "shopping-mall-escalator-step").length, 36);
   assert.equal(namedObjects(mall, "shopping-mall-escalator-step-safety-edge").length, 36);
   assert.equal(namedObjects(mall, "shopping-mall-escalator-lower-landing").length, 2);
   assert.equal(namedObjects(mall, "shopping-mall-escalator-upper-landing").length, 2);
   assert.equal(namedObjects(mall, "shopping-mall-escalator-underframe").length, 2);
   assert.equal(namedObjects(mall, "shopping-mall-escalator-glass-rail").length, 4);
+  assert.equal(namedObjects(mall, "shopping-mall-escalator-landing-guard").length, 8);
+  assert.equal(namedObjects(mall, "shopping-mall-escalator-guard-return").length, 16);
+  assert.equal(namedObjects(mall, "shopping-mall-escalator-floor-opening").length, 2);
+  assert.ok(namedObjects(mall, "shopping-mall-escalator-floor-opening").every((opening) => opening.userData.guardedSides === 3 && opening.userData.clearWidth >= 3.4));
+  for (const opening of namedObjects(mall, "shopping-mall-escalator-floor-opening")) {
+    const halfWidth = opening.userData.clearWidth * 0.5;
+    const frontSegments = namedObjects(opening.parent, "shopping-mall-upper-arcade-slab-segment").filter((segment) => segment.position.z < 0);
+    assert.ok(frontSegments.every((segment) => {
+      const width = segment.geometry.parameters.width;
+      return segment.position.x + width * 0.5 <= opening.position.x - halfWidth || segment.position.x - width * 0.5 >= opening.position.x + halfWidth;
+    }));
+    const edgeGuards = namedObjects(opening.parent.parent, "shopping-mall-arcade-glass-guard");
+    assert.ok(edgeGuards.every((guard) => {
+      const width = guard.geometry.parameters.width;
+      return guard.position.x + width * 0.5 <= opening.position.x - halfWidth || guard.position.x - width * 0.5 >= opening.position.x + halfWidth;
+    }));
+  }
+  for (const escalator of escalators) {
+    const lower = escalator.getObjectByName("shopping-mall-escalator-lower-landing");
+    const upper = escalator.getObjectByName("shopping-mall-escalator-upper-landing");
+    assert.deepEqual(
+      { x: escalator.position.x + lower.position.x, y: lower.position.y, z: escalator.position.z + lower.position.z },
+      escalator.userData.lowerLanding,
+    );
+    assert.deepEqual(
+      { x: escalator.position.x + upper.position.x, y: upper.position.y, z: escalator.position.z + upper.position.z },
+      escalator.userData.upperLanding,
+    );
+  }
   assert.equal(namedObjects(mall, "shopping-mall-escalator-handrail").length, 4);
   assert.equal(namedObjects(mall, "shopping-mall-escalator-steps").length, 0);
   assert.equal(namedObjects(mall, "shopping-mall-upper-arcade").length, 5);
@@ -146,8 +181,16 @@ test("supports commercial night lighting and structural cutaway", () => {
   mall.userData.setPowered(false);
   assert.ok(streetLights.every((light) => light.intensity === 0));
   assert.equal(roof.visible, true);
+  const core = namedObjects(mall, "shopping-mall-building-core")[0];
+  assert.equal(core.visible, true);
   mall.userData.setInteriorCutaway(true);
   assert.equal(roof.visible, false);
+  assert.equal(core.visible, false);
+  assert.ok(namedObjects(mall, "shopping-mall-curtain-wall-mullion").every((mullion) => !mullion.visible));
+  assert.ok(namedObjects(mall, "shopping-mall-storefront-door").every((door) => !door.visible));
+  assert.ok(namedObjects(mall, "shopping-mall-storefront-glass").every((pane) => !pane.visible));
+  assert.ok(namedObjects(mall, "shopping-mall-interior-floor-slab").every((slab) => slab.visible));
+  assert.ok(namedObjects(mall, "shopping-mall-food-counter").every((counter) => counter.visible));
 });
 
 test("uses the rabbit rider scale and fills an independent city site", () => {
@@ -177,7 +220,7 @@ test("exposes the shopping centre from the archive and map studio", async () => 
   assert.match(demoSource, /都会里/);
   assert.match(demoSource, /外向临街商业/);
   assert.match(demoSource, /快餐 · 咖啡 · 汉堡 · 奶茶/);
-  assert.match(demoSource, /兔子骑车主角约 2\.40 m 参考/);
+  assert.match(demoSource, /兔子骑车主角整体外廓约 2\.40 m/);
   assert.match(archiveSource, /大型商业中心/);
   assert.match(archiveSource, /\/demos\/shopping-mall/);
   assert.match(studioSource, /学校 · 商业中心/);

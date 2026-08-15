@@ -188,7 +188,7 @@ export function ShoppingMallDemo() {
       <aside className={styles.metrics} aria-label="商业中心模型参数">
         <span>OPEN-AIR RETAIL CENTRE</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>
-        <small>{metrics ? `${metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 62 个首层商铺 · ${referenceReady ? "兔子骑车主角约 2.40 m 参考" : "主角参考加载中"}` : "正在计算商业中心规模"}</small>
+        <small>{metrics ? `${metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 62 个首层商铺 · ${referenceReady ? "兔子骑车主角整体外廓约 2.40 m" : "主角参考加载中"}` : "正在计算商业中心规模"}</small>
       </aside>
       <nav className={styles.zoneRail} aria-label="选择商业中心分区">
         {ZONES.map((zone) => <button key={zone.id} type="button" className={`${styles.zoneCard} ${focus === zone.id ? styles.selected : ""}`} onClick={() => chooseFocus(zone.id)}><span>{zone.number}</span><strong>{zone.title}</strong><small>{zone.summary}</small><em>{zone.detail}</em></button>)}

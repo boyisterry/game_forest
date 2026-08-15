@@ -29,12 +29,24 @@ test("builds a complete amusement district with ten navigable facility zones", (
   assert.ok(park.getObjectByName("amusement-park-central-fountain"));
   assert.ok(park.getObjectByName("amusement-park-city-skyline"));
   assert.ok(park.getObjectByName("amusement-park-protection-fence"));
-  assert.equal(park.userData.fenceSegmentCount, 5);
-  assert.equal(namedObjects(park, "amusement-park-protection-fence-segment").length, 5);
+  assert.equal(park.userData.fenceSegmentCount, 9);
+  assert.equal(namedObjects(park, "amusement-park-protection-fence-segment").length, 9);
   assert.ok(namedObjects(park, "amusement-park-fence-post").length > 200);
-  assert.equal(namedObjects(park, "amusement-park-fence-horizontal-rail").length, 10);
+  assert.equal(namedObjects(park, "amusement-park-fence-horizontal-rail").length, 18);
+  assert.equal(park.userData.rideSafetyFenceCount, 7);
+  assert.equal(namedObjects(park, "amusement-park-ride-safety-rail").length, 70);
+  assert.equal(namedObjects(park, "amusement-park-ride-safety-post").length, 42);
+  assert.equal(park.userData.entranceGateLaneCount, 3);
+  assert.equal(park.userData.entranceClearWidth, 15.48);
+  assert.equal(namedObjects(park, "amusement-park-entrance-gate-post").length, 4);
+  assert.equal(namedObjects(park, "amusement-park-entrance-gate-lane").length, 3);
+  const entrancePosts = namedObjects(park, "amusement-park-entrance-gate-post").sort((a, b) => a.position.x - b.position.x);
+  const measuredEntranceClearWidth = entrancePosts.slice(0, -1).reduce((total, post, index) => (
+    total + entrancePosts[index + 1].position.x - post.position.x - post.geometry.parameters.width
+  ), 0);
+  assert.ok(Math.abs(measuredEntranceClearWidth - park.userData.entranceClearWidth) < 1e-6);
   assert.equal(namedObjects(park, "amusement-park-city-building").length, 8);
-  assert.equal(namedObjects(park, "amusement-park-perimeter-road").length, 4);
+  assert.equal(namedObjects(park, "amusement-park-perimeter-road").length, 5);
   assert.ok(namedObjects(park, "amusement-park-reused-tree-anchor").length >= 20);
   assert.equal(park.userData.treeAnchorCount, namedObjects(park, "amusement-park-reused-tree-anchor").length);
 });
@@ -65,11 +77,13 @@ test("includes the flagship animated rides and game venues", () => {
   assert.equal(namedObjects(park, "amusement-park-carousel-horse").length, 12);
   assert.equal(namedObjects(park, "amusement-park-ferris-cabin").length, 12);
   assert.equal(namedObjects(park, "amusement-park-ferris-cabin-seat").length, 72);
-  assert.equal(namedObjects(park, "amusement-park-ferris-cabin-safety-panel").length, 48);
-  assert.equal(namedObjects(park, "amusement-park-ferris-cabin-glass-wall").length, 48);
+  assert.equal(namedObjects(park, "amusement-park-ferris-cabin-safety-panel").length, 60);
+  assert.equal(namedObjects(park, "amusement-park-ferris-cabin-glass-wall").length, 60);
   assert.equal(namedObjects(park, "amusement-park-ferris-cabin-glass-roof").length, 12);
   assert.equal(namedObjects(park, "amusement-park-ferris-cabin-handrail").length, 24);
   assert.equal(namedObjects(park, "amusement-park-ferris-cabin-door-frame").length, 12);
+  assert.equal(namedObjects(park, "amusement-park-ferris-cabin-door").length, 12);
+  assert.ok(namedObjects(park, "amusement-park-ferris-cabin-door").every((door) => door.userData.operable));
   assert.equal(namedObjects(park, "amusement-park-shooting-target").length, 7);
   assert.equal(namedObjects(park, "amusement-park-go-kart").length, 6);
   assert.ok(park.getObjectByName("amusement-park-pirate-pivot"));
@@ -78,6 +92,39 @@ test("includes the flagship animated rides and game venues", () => {
   assert.ok(park.getObjectByName("amusement-park-drop-tower-carriage"));
   assert.ok(park.getObjectByName("amusement-park-bumper-cars"));
   assert.ok(park.getObjectByName("amusement-park-spinning-cups"));
+  assert.equal(park.userData.loadingGateCount, 7);
+  assert.equal(park.userData.loadingAccessCount, 6);
+  const loadingGates = namedObjects(park, "amusement-park-ride-loading-gate");
+  assert.equal(loadingGates.length, 7);
+  assert.ok(loadingGates.every((gate) => gate.userData.operable && gate.userData.state === "open"));
+  assert.ok(park.getObjectByName("amusement-park-carousel-loading-step"));
+  assert.ok(park.getObjectByName("amusement-park-pirate-loading-platform"));
+  assert.ok(park.getObjectByName("amusement-park-coaster-loading-platform"));
+  assert.ok(park.getObjectByName("amusement-park-ferris-loading-platform"));
+  assert.ok(park.getObjectByName("amusement-park-drop-tower-loading-platform"));
+  assert.equal(namedObjects(park, "amusement-park-ferris-access-walkway").length, 2);
+  assert.ok(park.getObjectByName("amusement-park-drop-tower-access-walkway"));
+  assert.ok(park.getObjectByName("amusement-park-playground-entrance-header"));
+  assert.equal(park.userData.indoorPlaygroundEntranceWidth, 4.69);
+  assert.equal(park.userData.shootingServiceOpeningWidth, 14);
+  park.updateWorldMatrix(true, true);
+  const playGlass = namedObjects(park, "amusement-park-playground-glass-wall")
+    .sort((a, b) => new THREE.Box3().setFromObject(a).min.x - new THREE.Box3().setFromObject(b).min.x);
+  const playGap = new THREE.Box3().setFromObject(playGlass[1]).min.x - new THREE.Box3().setFromObject(playGlass[0]).max.x;
+  assert.ok(Math.abs(playGap - park.userData.indoorPlaygroundEntranceWidth) < 0.01);
+  assert.equal(namedObjects(park, "amusement-park-shooting-gallery-wall").length, 3, "shooting gallery front should remain genuinely open");
+  const kartTrack = park.getObjectByName("amusement-park-kart-track");
+  const kartTrackSize = new THREE.Box3().setFromObject(kartTrack).getSize(new THREE.Vector3());
+  assert.ok(kartTrackSize.y < 0.01, "kart circuit should be a flat road ribbon rather than a buried tube");
+  assert.equal(namedObjects(park, "amusement-park-kart-safety-barrier").length, 2);
+
+  park.updateWorldMatrix(true, true);
+  const lowestCabin = namedObjects(park, "amusement-park-ferris-cabin")
+    .sort((a, b) => new THREE.Box3().setFromObject(a).min.y - new THREE.Box3().setFromObject(b).min.y)[0];
+  const lowestDoor = lowestCabin.getObjectByName("amusement-park-ferris-cabin-door");
+  const doorBottom = new THREE.Box3().setFromObject(lowestDoor).min.y;
+  const platformTop = new THREE.Box3().setFromObject(park.getObjectByName("amusement-park-ferris-loading-platform")).max.y;
+  assert.ok(Math.abs(doorBottom - platformTop) < 0.1, "lowest Ferris cabin door should align with its loading platform");
 });
 
 test("animates rides, supports pausing, and powers night lighting", () => {
@@ -94,6 +141,30 @@ test("animates rides, supports pausing, and powers night lighting", () => {
   assert.notEqual(ferris.rotation.z, 0);
   const firstCar = namedObjects(park, "amusement-park-coaster-car")[0];
   assert.ok(firstCar.position.length() > 10);
+  const trackTop = new THREE.Box3().setFromObject(park.getObjectByName("amusement-park-kart-track")).max.y;
+  const kartBottom = new THREE.Box3().setFromObject(namedObjects(park, "amusement-park-go-kart")[0]).min.y;
+  assert.ok(kartBottom > trackTop, "go-karts should sit on top of the flat track");
+
+  const pirateParts = [
+    "amusement-park-pirate-suspension", "amusement-park-pirate-hull", "amusement-park-pirate-bow",
+    "amusement-park-pirate-mast", "amusement-park-pirate-sail",
+  ];
+  for (const angle of [-0.3, 0.3]) {
+    pirate.rotation.z = angle;
+    park.updateMatrixWorld(true);
+    const sweepBounds = pirateParts.reduce(
+      (bounds, name) => bounds.union(new THREE.Box3().setFromObject(park.getObjectByName(name))),
+      new THREE.Box3(),
+    );
+    assert.ok(sweepBounds.min.y > 0.4, "pirate ship sweep should clear the park surface");
+  }
+  pirate.rotation.z = 0;
+  park.updateWorldMatrix(true, true);
+  const pirateDeckTop = new THREE.Box3().setFromObject(park.getObjectByName("amusement-park-pirate-hull")).max.y;
+  const piratePlatform = park.getObjectByName("amusement-park-pirate-loading-platform");
+  const piratePlatformBounds = new THREE.Box3().setFromObject(piratePlatform);
+  assert.ok(Math.abs(pirateDeckTop - piratePlatformBounds.max.y) < 0.1, "pirate loading platform should align with the resting deck");
+  assert.equal(piratePlatformBounds.intersectsBox(new THREE.Box3().setFromObject(park.getObjectByName("amusement-park-pirate-hull"))), false);
 
   park.userData.setMotionEnabled(false);
   const previousRotation = carousel.rotation.y;
@@ -165,8 +236,8 @@ test("exposes the amusement park showroom from the model archive and map studio"
   assert.match(demoSource, /暂停所有设施/);
   assert.match(demoSource, /返回模型分类/);
   assert.match(demoSource, /\/models\/forest\/tree_normal_medium_redwood_a\.glb/);
-  assert.match(demoSource, /\/models\/rabbit-rider\.glb/);
-  assert.match(demoSource, /兔子骑车主角约 2\.40 m 参考/);
+  assert.match(demoSource, /RABBIT_RIDER_URL/);
+  assert.match(demoSource, /兔子骑车主角整体外廓约 2\.40 m/);
   assert.doesNotMatch(demoSource, /buildLowPolyRabbitScaleReference/);
   assert.match(archiveSource, /大型游乐园/);
   assert.match(archiveSource, /\/demos\/amusement-park/);

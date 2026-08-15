@@ -6,45 +6,41 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
-import { buildLowPolySchoolCampus, type SchoolZone } from "../../lib/map/schoolCampus";
-import styles from "./SchoolCampusDemo.module.css";
+import { buildLowPolyResidentialCommunity, type ResidentialCommunityZone } from "../../lib/map/residentialCommunity";
+import styles from "./ResidentialCommunityDemo.module.css";
 
-type Focus = "overview" | SchoolZone;
+type Focus = "overview" | ResidentialCommunityZone;
 const TREE_URL = "/models/forest/tree_normal_medium_redwood_a.glb";
 
 const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3; rider: THREE.Vector3 }> = {
-  overview: { target: new THREE.Vector3(0, 7, -2), camera: new THREE.Vector3(142, 104, 154), rider: new THREE.Vector3(0, 0.48, 56) },
-  teaching: { target: new THREE.Vector3(-52, 7, 8), camera: new THREE.Vector3(-105, 42, 68), rider: new THREE.Vector3(-37, 0.48, 28) },
-  laboratory: { target: new THREE.Vector3(-16, 9, 6), camera: new THREE.Vector3(29, 32, 48), rider: new THREE.Vector3(-3, 0.48, 22) },
-  administration: { target: new THREE.Vector3(0, 6, 39), camera: new THREE.Vector3(48, 25, 74), rider: new THREE.Vector3(0, 0.48, 55) },
-  dormitory: { target: new THREE.Vector3(-44, 9, -41), camera: new THREE.Vector3(-98, 39, -12), rider: new THREE.Vector3(-37, 0.48, -28) },
-  sports: { target: new THREE.Vector3(38, 2, -20), camera: new THREE.Vector3(102, 47, 27), rider: new THREE.Vector3(11, 0.48, -7) },
-  natatorium: { target: new THREE.Vector3(52, 4, 47), camera: new THREE.Vector3(104, 29, 78), rider: new THREE.Vector3(29, 0.48, 55) },
+  overview: { target: new THREE.Vector3(0, 10, 0), camera: new THREE.Vector3(160, 120, 175), rider: new THREE.Vector3(0, 0.58, 68) },
+  residential: { target: new THREE.Vector3(-43, 10, -18), camera: new THREE.Vector3(-130, 55, 78), rider: new THREE.Vector3(-43, 0.58, 33) },
+  commercial: { target: new THREE.Vector3(0, 5, 51), camera: new THREE.Vector3(94, 33, 104), rider: new THREE.Vector3(15, 0.58, 68) },
+  kindergarten: { target: new THREE.Vector3(54, 6, -22), camera: new THREE.Vector3(126, 44, 55), rider: new THREE.Vector3(55, 0.58, 36) },
 };
 
 const ZONES: Array<{ id: Focus; number: string; title: string; summary: string; detail: string }> = [
-  { id: "overview", number: "CAMPUS 00", title: "红砖学府总览", summary: "170 × 130 m · 学习 / 生活 / 运动三区", detail: "以南门行政轴线为序，教学庭院居西、完整运动区居东，宿舍与教学区保持安静缓冲。" },
-  { id: "administration", number: "ZONE 01", title: "教务处与主入口", summary: "3 层行政楼 · 校钟 · 仪式广场", detail: "教务、教师发展与会议空间面向主入口布置，形成现实校园常见的识别中轴。" },
-  { id: "teaching", number: "ZONE 02", title: "教学楼组团", summary: "2 栋 4 层教学楼 · 24 间教室", detail: "平行教学楼围合中央庭院；教室按真实课桌、黑板与层高尺度构建，可切换剖面查看。" },
-  { id: "laboratory", number: "ZONE 03", title: "综合实验楼", summary: "5 层 · 12 间理化生实验室", detail: "实验台、器材与通风尺度独立表达，紧邻教学区并与生活区分隔。" },
-  { id: "dormitory", number: "ZONE 04", title: "学生宿舍区", summary: "2 栋 6 层宿舍 · 48 间寝室", detail: "宿舍布置在校园西北安静区，寝室包含双床与学习桌，并拥有独立生活庭院。" },
-  { id: "sports", number: "ZONE 05", title: "综合运动区", summary: "6 道约 238 米训练跑道 · 校园足球场", detail: "东侧另含 2 个篮球训练场和 2 个网球训练场；看台已移至跑道外侧并保留安全缓冲。" },
-  { id: "natatorium", number: "ZONE 06", title: "室内游泳馆", summary: "8 泳道 · 全封闭场馆 · 采光幕墙", detail: "独立泳池大厅包含起跳台、泳道绳和屋架；开启剖面可查看馆内完整水池布局。" },
+  { id: "overview", number: "COMMUNITY 00", title: "林庭社区总览", summary: "190 × 145 m · 住宅 / 商业 / 幼儿园", detail: "完整社区以消防环路串联三个分区，住宅与幼儿园分别受控管理，南侧商业直接面向城市道路开放。" },
+  { id: "residential", number: "HOME 01", title: "完整住宅组团", summary: "8 栋住宅 · 368 户 · 中央花园", detail: "4 栋高层与 4 栋多层住宅统一朝向，配置地下车库、快递驿站、垃圾分类点及全龄活动场地。" },
+  { id: "commercial", number: "STREET 02", title: "社区商业街", summary: "14 个沿街店铺 · 18 个停车位", detail: "超市、药房、早餐、咖啡、餐饮、洗衣与社区诊所连续面向公共道路营业，不受住宅门禁阻挡。" },
+  { id: "kindergarten", number: "KIDS 03", title: "独立幼儿园", summary: "3 栋建筑 · 8 间教室 · 160 人", detail: "独立围栏、专用校门和接送区保护儿童流线，教学楼、多功能厅、后勤楼及室外活动场完整分离。" },
 ];
 
 type DemoApi = {
   focus: (focus: Focus) => void;
   setNight: (night: boolean) => void;
   setCutaway: (cutaway: boolean) => void;
+  setGatesOpen: (open: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
 };
 
-export function SchoolCampusDemo() {
+export function ResidentialCommunityDemo() {
   const hostRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<DemoApi | null>(null);
   const [focus, setFocus] = useState<Focus>("overview");
   const [night, setNight] = useState(false);
   const [cutaway, setCutaway] = useState(false);
+  const [gatesOpen, setGatesOpen] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -60,53 +56,49 @@ export function SchoolCampusDemo() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.04;
-    renderer.domElement.setAttribute("aria-label", "现代学校教学、生活和运动分区三维展示场景");
+    renderer.toneMappingExposure = 1.03;
+    renderer.domElement.setAttribute("aria-label", "完整住宅社区、社区商业与幼儿园三分区三维展示场景");
     renderer.domElement.tabIndex = 0;
     host.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xcbdde0);
-    scene.fog = new THREE.Fog(0xcbdde0, 170, 340);
-    const camera = new THREE.PerspectiveCamera(37, host.clientWidth / Math.max(host.clientHeight, 1), 0.1, 420);
+    scene.background = new THREE.Color(0xcbdede);
+    scene.fog = new THREE.Fog(0xcbdede, 190, 375);
+    const camera = new THREE.PerspectiveCamera(37, host.clientWidth / Math.max(host.clientHeight, 1), 0.1, 460);
     camera.position.copy(FOCUS.overview.camera);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.copy(FOCUS.overview.target);
     controls.enableDamping = true;
     controls.dampingFactor = 0.065;
-    controls.minDistance = 15;
-    controls.maxDistance = 280;
+    controls.minDistance = 14;
+    controls.maxDistance = 320;
     controls.maxPolarAngle = Math.PI * 0.49;
 
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(155, 64),
-      new THREE.MeshStandardMaterial({ color: 0xaebdaf, roughness: 0.98 }),
-    );
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(172, 64), new THREE.MeshStandardMaterial({ color: 0xa9b9a8, roughness: 0.98 }));
     ground.rotation.x = -Math.PI * 0.5;
     ground.position.y = -0.02;
     ground.receiveShadow = true;
     scene.add(ground);
-
-    const hemi = new THREE.HemisphereLight(0xf5fbff, 0x516454, 2.1);
-    const sun = new THREE.DirectionalLight(0xffedcf, 4.8);
-    sun.position.set(-64, 88, 48);
+    const hemi = new THREE.HemisphereLight(0xf5fbff, 0x526653, 2.1);
+    const sun = new THREE.DirectionalLight(0xffedcf, 4.7);
+    sun.position.set(-72, 98, 56);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -110;
-    sun.shadow.camera.right = 110;
-    sun.shadow.camera.top = 96;
-    sun.shadow.camera.bottom = -90;
-    sun.shadow.camera.far = 280;
-    const fill = new THREE.DirectionalLight(0x91bed0, 0.7);
-    fill.position.set(70, 30, -60);
+    sun.shadow.camera.left = -125;
+    sun.shadow.camera.right = 125;
+    sun.shadow.camera.top = 110;
+    sun.shadow.camera.bottom = -100;
+    sun.shadow.camera.far = 310;
+    const fill = new THREE.DirectionalLight(0x91bdcf, 0.72);
+    fill.position.set(74, 32, -66);
     scene.add(hemi, sun, fill);
 
-    const campus = buildLowPolySchoolCampus();
-    scene.add(campus);
-    setMetrics(measureModelGeometry(campus));
+    const community = buildLowPolyResidentialCommunity();
+    scene.add(community);
+    setMetrics(measureModelGeometry(community));
 
     const riderAnchor = new THREE.Group();
-    riderAnchor.name = "school-campus-rabbit-rider-reference-anchor";
+    riderAnchor.name = "residential-community-rabbit-rider-reference-anchor";
     riderAnchor.position.copy(FOCUS.overview.rider);
     riderAnchor.rotation.y = -0.7;
     scene.add(riderAnchor);
@@ -116,24 +108,23 @@ export function SchoolCampusDemo() {
     loader.loadAsync(TREE_URL).then((gltf) => {
       if (disposed) return;
       const template = gltf.scene;
-      template.name = "school-campus-reused-city-tree";
+      template.name = "residential-community-reused-city-tree";
       template.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
         object.castShadow = true;
         object.receiveShadow = true;
       });
       let bounds = new THREE.Box3().setFromObject(template);
-      template.scale.setScalar(5.8 / Math.max(bounds.getSize(new THREE.Vector3()).y, 0.001));
+      template.scale.setScalar(5.5 / Math.max(bounds.getSize(new THREE.Vector3()).y, 0.001));
       template.updateMatrixWorld(true);
       bounds = new THREE.Box3().setFromObject(template);
       const center = bounds.getCenter(new THREE.Vector3());
       template.position.set(-center.x, -bounds.min.y, -center.z);
-      campus.traverse((object) => {
-        if (object instanceof THREE.Group && object.name === "school-campus-reused-tree-anchor") object.add(template.clone(true));
+      community.traverse((object) => {
+        if (object instanceof THREE.Group && object.name === "residential-community-reused-tree-anchor") object.add(template.clone(true));
       });
-      setMetrics(measureModelGeometry(campus));
+      setMetrics(measureModelGeometry(community));
     }).catch(() => undefined);
-
     loader.loadAsync(RABBIT_RIDER_URL).then((gltf) => {
       if (disposed) return;
       riderAnchor.add(prepareRabbitRiderReference(gltf.scene));
@@ -147,16 +138,15 @@ export function SchoolCampusDemo() {
     let rotating = false;
     controls.addEventListener("start", () => { interacting = true; focusBlend = 0; });
     controls.addEventListener("end", () => { interacting = false; });
-
     const setNightMode = (on: boolean) => {
-      const color = on ? 0x0d1d2b : 0xcbdde0;
+      const color = on ? 0x101e2b : 0xcbdede;
       scene.background = new THREE.Color(color);
-      scene.fog = new THREE.Fog(color, on ? 145 : 170, on ? 300 : 340);
-      hemi.intensity = on ? 0.42 : 2.1;
-      sun.intensity = on ? 0.25 : 4.8;
-      fill.intensity = on ? 0.22 : 0.7;
-      renderer.toneMappingExposure = on ? 0.87 : 1.04;
-      campus.userData.setPowered(on);
+      scene.fog = new THREE.Fog(color, on ? 165 : 190, on ? 335 : 375);
+      hemi.intensity = on ? 0.4 : 2.1;
+      sun.intensity = on ? 0.24 : 4.7;
+      fill.intensity = on ? 0.22 : 0.72;
+      renderer.toneMappingExposure = on ? 0.88 : 1.03;
+      community.userData.setPowered(on);
     };
     apiRef.current = {
       focus: (next) => {
@@ -166,19 +156,18 @@ export function SchoolCampusDemo() {
         focusBlend = 1;
       },
       setNight: setNightMode,
-      setCutaway: (on) => campus.userData.setInteriorCutaway(on),
-      setAutoRotate: (enabled) => {
-        rotating = enabled;
-        controls.autoRotate = enabled;
-        controls.autoRotateSpeed = 0.48;
-      },
+      setCutaway: (on) => community.userData.setInteriorCutaway(on),
+      setGatesOpen: (on) => community.userData.setAccessGatesOpen(on),
+      setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.45; },
     };
     setNightMode(false);
-    campus.userData.setInteriorCutaway(false);
+    community.userData.setInteriorCutaway(false);
 
+    const clock = new THREE.Clock();
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
+      community.userData.update(Math.min(clock.getDelta(), 0.05));
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -217,6 +206,7 @@ export function SchoolCampusDemo() {
   const chooseFocus = (next: Focus) => { setFocus(next); apiRef.current?.focus(next); };
   const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
+  const toggleGates = () => { const next = !gatesOpen; setGatesOpen(next); apiRef.current?.setGatesOpen(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -224,32 +214,28 @@ export function SchoolCampusDemo() {
       <div ref={hostRef} className={styles.canvasHost} />
       <header className={`${styles.header} ${collapsed ? styles.collapsed : ""}`}>
         <div className={styles.headerTop}>
-          <div>
-            <p className={styles.eyebrow}>ACADEMIC CAMPUS / BRICK &amp; GARDEN</p>
-            <h1>红砖学府 · 独立学校场景</h1>
-          </div>
-          <button type="button" className={styles.collapseButton} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>
-            {collapsed ? "展开导览 ↓" : "收起导览 ↑"}
-          </button>
+          <div><p className={styles.eyebrow}>COMPLETE NEIGHBOURHOOD / HOME &amp; CHILDCARE</p><h1>林庭社区 · 独立住宅场景</h1></div>
+          <button type="button" className={styles.collapseButton} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>{collapsed ? "展开导览 ↓" : "收起导览 ↑"}</button>
         </div>
         <div hidden={collapsed}>
-          <p className={styles.intro}>参考现实高中与大学进修校园规划，将教学、实验、行政、住宿和运动功能组织成独立完整院区；主体建筑统一朝向校园主轴，周界以围栏和受控校门保护。树木、花坛与路灯复用已有饰品模型，小兔子骑车主角作为统一比例参考。</p>
+          <p className={styles.intro}>按照现实完整社区规划，将住宅组团、沿街社区商业和独立幼儿园组织在同一城市街区。住宅与幼儿园分别设置围栏和受控入口，商业街保持对外开放；树木、花坛与路灯复用已有饰品模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
-            <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮校园夜景"}</button>
+            <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮社区夜景"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整外观" : "查看建筑剖面"}</button>
+            <button type="button" className={gatesOpen ? styles.active : ""} aria-pressed={gatesOpen} onClick={toggleGates}>{gatesOpen ? "关闭社区门禁" : "打开社区门禁"}</button>
             <button type="button" className={autoRotate ? styles.active : ""} aria-pressed={autoRotate} onClick={toggleRotate}>{autoRotate ? "停止环游" : "自动环游"}</button>
-            <button type="button" onClick={() => chooseFocus("overview")}>返回校园总览</button>
+            <button type="button" onClick={() => chooseFocus("overview")}>返回社区总览</button>
           </div>
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {night ? "EVENING STUDY" : "CAMPUS OPEN"} · {cutaway ? "剖面观察中" : "完整建筑外观"}</div>
-      <aside className={styles.metrics} aria-label="学校模型参数">
-        <span>SCHOOL CAMPUS MODEL</span>
+      <div className={styles.status}><span /> {night ? "COMMUNITY NIGHT" : "NEIGHBOURHOOD OPEN"} · {cutaway ? "剖面观察中" : "完整建筑外观"}</div>
+      <aside className={styles.metrics} aria-label="住宅社区模型参数">
+        <span>RESIDENTIAL COMMUNITY MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>
-        <small>{metrics ? `${metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 7 栋主体建筑 · ${referenceReady ? "兔子骑车主角整体外廓约 2.40 m" : "主角参考加载中"}` : "正在计算校园规模"}</small>
+        <small>{metrics ? `${metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 8 栋住宅 / 14 个商铺 / 3 栋幼儿园建筑 · ${referenceReady ? "兔子骑车主角整体外廓约 2.40 m" : "主角参考加载中"}` : "正在计算社区规模"}</small>
       </aside>
-      <nav className={styles.zoneRail} aria-label="选择学校功能分区">
+      <nav className={styles.zoneRail} aria-label="选择住宅社区功能分区">
         {ZONES.map((zone) => (
           <button key={zone.id} type="button" className={`${styles.zoneCard} ${focus === zone.id ? styles.selected : ""}`} onClick={() => chooseFocus(zone.id)}>
             <span>{zone.number}</span><strong>{zone.title}</strong><small>{zone.summary}</small><em>{zone.detail}</em>

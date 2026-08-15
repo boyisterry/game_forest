@@ -27,6 +27,13 @@ export type AmusementParkModel = THREE.Group & {
     planterCount: number;
     foodTruckCount: number;
     fenceSegmentCount: number;
+    rideSafetyFenceCount: number;
+    entranceGateLaneCount: number;
+    entranceClearWidth: number;
+    loadingGateCount: number;
+    loadingAccessCount: number;
+    indoorPlaygroundEntranceWidth: number;
+    shootingServiceOpeningWidth: number;
     scaleReferenceLengthMeters: number;
     ferrisCabinCapacity: number;
     rideScaleStandard: "rabbit-rider";
@@ -71,6 +78,39 @@ function assignFacility(root: THREE.Object3D, facility: AmusementFacility) {
   root.traverse((object) => {
     if (!object.userData.facility) object.userData.facility = facility;
   });
+}
+
+function buildFlatRibbonGeometry(curve: THREE.Curve<THREE.Vector3>, segments: number, halfWidth: number) {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const point = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  for (let index = 0; index <= segments; index += 1) {
+    const t = index / segments;
+    curve.getPointAt(t, point);
+    curve.getTangentAt(t, tangent).setY(0).normalize();
+    normal.set(-tangent.z, 0, tangent.x).multiplyScalar(halfWidth);
+    const left = point.clone().add(normal);
+    const right = point.clone().sub(normal);
+    positions.push(left.x, left.y, left.z, right.x, right.y, right.z);
+    uvs.push(0, t * 12, 1, t * 12);
+    if (index === segments) continue;
+    const a = index * 2;
+    const b = a + 1;
+    const c = a + 2;
+    const d = a + 3;
+    indices.push(a, c, b, b, c, d);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
 export function buildLowPolyAmusementPark(): AmusementParkModel {
@@ -173,6 +213,12 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   addProtectionFenceSegment(128, 89, 0, false);
   addProtectionFenceSegment(68, -55, 64, true);
   addProtectionFenceSegment(68, 55, 64, true);
+  // Return the perimeter to the ticket booths so visitors cannot bypass the
+  // controlled central opening along either side of the entrance plaza.
+  addProtectionFenceSegment(9, -21, 59.5, false);
+  addProtectionFenceSegment(9, 21, 59.5, false);
+  addProtectionFenceSegment(2.6, -19.7, 55, true);
+  addProtectionFenceSegment(2.6, 19.7, 55, true);
 
   const promenade = parkMesh(new THREE.BoxGeometry(154, 0.12, 9.5), paving, "amusement-park-main-promenade", "overview");
   promenade.position.set(0, 0.46, 42);
@@ -180,14 +226,15 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const centralWalk = parkMesh(new THREE.BoxGeometry(10, 0.13, 98), paving, "amusement-park-central-walk", "overview");
   centralWalk.position.set(0, 0.47, 4);
   park.add(centralWalk);
-  for (const z of [-38, -12, 16]) {
+  for (const z of [-38, -12, 32]) {
     const crossWalk = parkMesh(new THREE.BoxGeometry(160, 0.11, 5.4), paving, "amusement-park-cross-walk", "overview");
     crossWalk.position.set(0, 0.47, z);
     park.add(crossWalk);
   }
 
   const perimeterRoads = [
-    { size: [176, 5] as const, position: [0, 61] as const },
+    { size: [68, 5] as const, position: [-55, 61] as const },
+    { size: [68, 5] as const, position: [55, 61] as const },
     { size: [176, 5] as const, position: [0, -61] as const },
     { size: [5, 118] as const, position: [-86, 0] as const },
     { size: [5, 118] as const, position: [86, 0] as const },
@@ -203,6 +250,55 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     bulb.position.set(x, y, z);
     parent.add(bulb);
     return bulb;
+  };
+
+  const addRideSafetyFence = (
+    facility: AmusementFacility,
+    centerX: number,
+    centerZ: number,
+    width: number,
+    depth: number,
+    gateWidth = 3.2,
+  ) => {
+    const fence = new THREE.Group();
+    fence.name = `amusement-park-${facility}-safety-fence`;
+    fence.userData.facility = facility;
+    const addRail = (railWidth: number, railDepth: number, x: number, z: number) => {
+      for (const y of [0.68, 1.28]) {
+        const rail = parkMesh(new THREE.BoxGeometry(railWidth, 0.14, railDepth), dark, "amusement-park-ride-safety-rail", facility);
+        rail.position.set(x, y, z);
+        fence.add(rail);
+      }
+    };
+    addRail(width, 0.12, centerX, centerZ - depth * 0.5);
+    addRail(0.12, depth, centerX - width * 0.5, centerZ);
+    addRail(0.12, depth, centerX + width * 0.5, centerZ);
+    const frontSideWidth = (width - gateWidth) * 0.5;
+    addRail(frontSideWidth, 0.12, centerX - (gateWidth + frontSideWidth) * 0.5, centerZ + depth * 0.5);
+    addRail(frontSideWidth, 0.12, centerX + (gateWidth + frontSideWidth) * 0.5, centerZ + depth * 0.5);
+    const postPositions = [
+      [centerX - width * 0.5, centerZ - depth * 0.5], [centerX + width * 0.5, centerZ - depth * 0.5],
+      [centerX - width * 0.5, centerZ + depth * 0.5], [centerX + width * 0.5, centerZ + depth * 0.5],
+      [centerX - gateWidth * 0.5, centerZ + depth * 0.5], [centerX + gateWidth * 0.5, centerZ + depth * 0.5],
+    ];
+    postPositions.forEach(([x, z]) => {
+      const post = parkMesh(new THREE.BoxGeometry(0.16, 1.8, 0.16), dark, "amusement-park-ride-safety-post", facility);
+      post.position.set(x, 0.92, z);
+      fence.add(post);
+    });
+    const gatePivot = new THREE.Group();
+    gatePivot.name = "amusement-park-ride-loading-gate";
+    gatePivot.position.set(centerX - gateWidth * 0.5, 0, centerZ + depth * 0.5);
+    gatePivot.rotation.y = Math.PI * 0.5;
+    gatePivot.userData = { facility, operable: true, clearWidth: gateWidth, state: "open" };
+    for (const y of [0.68, 1.28]) {
+      const gateRail = parkMesh(new THREE.BoxGeometry(gateWidth, 0.14, 0.12), yellow, "amusement-park-ride-loading-gate-rail", facility);
+      gateRail.position.set(gateWidth * 0.5, y, 0);
+      gatePivot.add(gateRail);
+    }
+    fence.add(gatePivot);
+    park.add(fence);
+    return fence;
   };
 
   const treeAnchors: THREE.Group[] = [];
@@ -254,6 +350,22 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     entrance.add(booth, boothWindow);
   }
   park.add(entrance);
+  const entranceGate = new THREE.Group();
+  entranceGate.name = "amusement-park-entrance-gate";
+  entranceGate.userData = { laneCount: 3, clearWidth: 15.48, state: "open" };
+  for (const x of [-8.1, -2.7, 2.7, 8.1]) {
+    const post = parkMesh(new THREE.BoxGeometry(0.24, 2.25, 0.24), dark, "amusement-park-entrance-gate-post", "overview");
+    post.position.set(x, 1.525, 58);
+    const scanner = parkMesh(new THREE.BoxGeometry(0.44, 0.28, 0.5), aqua, "amusement-park-entrance-gate-scanner", "overview");
+    scanner.position.set(x, 2.55, 58);
+    entranceGate.add(post, scanner);
+  }
+  for (const x of [-5.4, 0, 5.4]) {
+    const laneMarker = parkMesh(new THREE.BoxGeometry(4.8, 0.025, 0.12), ivory, "amusement-park-entrance-gate-lane", "overview");
+    laneMarker.position.set(x, 0.515, 58);
+    entranceGate.add(laneMarker);
+  }
+  park.add(entranceGate);
 
   // Central fountain works as the visual anchor for the ring promenade.
   const fountain = new THREE.Group();
@@ -273,7 +385,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   // Carousel.
   const carousel = new THREE.Group();
   carousel.name = "amusement-park-carousel";
-  carousel.position.set(-38, 0.5, 17);
+  carousel.position.set(-43, 0.5, 17);
   carousel.scale.setScalar(1.52);
   const carouselTurntable = new THREE.Group();
   carouselTurntable.name = "amusement-park-carousel-turntable";
@@ -310,16 +422,22 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   }
   assignFacility(carousel, "carousel");
   park.add(carousel);
+  for (let index = 0; index < 5; index += 1) {
+    const height = 0.28 * (index + 1);
+    const step = parkMesh(new THREE.BoxGeometry(4.2, height, 0.72), paving, "amusement-park-carousel-loading-step", "carousel");
+    step.position.set(-43, 0.4 + height * 0.5, 26.7 + index * 0.62);
+    park.add(step);
+  }
 
   // Pirate ship with a true suspended pivot.
   const pirate = new THREE.Group();
   pirate.name = "amusement-park-pirate-ship";
-  pirate.position.set(-10, 0.5, 17);
+  pirate.position.set(-15, 0.4, 18);
   pirate.scale.setScalar(1.58);
   for (const side of [-1, 1]) {
-    const left = new THREE.Vector3(side * 4.5, 0.25, -2.8);
-    const right = new THREE.Vector3(side * 4.5, 0.25, 2.8);
-    const top = new THREE.Vector3(side * 4.5, 8.5, 0);
+    const left = new THREE.Vector3(side * 4.5, 0.08, -2.8);
+    const right = new THREE.Vector3(side * 4.5, 0.08, 2.8);
+    const top = new THREE.Vector3(side * 4.5, 11.1, 0);
     pirate.add(
       beamBetween(left, top, 0.22, steel, "amusement-park-pirate-support", "pirate"),
       beamBetween(right, top, 0.22, steel, "amusement-park-pirate-support", "pirate"),
@@ -327,7 +445,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   }
   const piratePivot = new THREE.Group();
   piratePivot.name = "amusement-park-pirate-pivot";
-  piratePivot.position.y = 8.1;
+  piratePivot.position.y = 9.5;
   const suspension = parkMesh(new THREE.CylinderGeometry(0.14, 0.14, 6.2, 8), dark, "amusement-park-pirate-suspension", "pirate");
   suspension.position.y = -3.1;
   const hull = parkMesh(new THREE.BoxGeometry(8.3, 1.6, 3), timber, "amusement-park-pirate-hull", "pirate");
@@ -344,6 +462,15 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   piratePivot.add(suspension, hull, bow, mast, sail);
   pirate.add(piratePivot);
   park.add(pirate);
+  const piratePlatform = parkMesh(new THREE.BoxGeometry(14, 6.65, 4), paving, "amusement-park-pirate-loading-platform", "pirate");
+  piratePlatform.position.set(-15, 3.725, 23);
+  park.add(piratePlatform);
+  for (let index = 0; index < 14; index += 1) {
+    const height = 0.475 * (index + 1);
+    const step = parkMesh(new THREE.BoxGeometry(3.2, height, 0.4), paving, "amusement-park-pirate-loading-step", "pirate");
+    step.position.set(-15, 0.4 + height * 0.5, 29.8 - index * 0.36);
+    park.add(step);
+  }
 
   // Ferris wheel with cabins that remain upright.
   const ferris = new THREE.Group();
@@ -393,12 +520,24 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
       cabin.add(lowerPanel, glazedWall, handrail);
     }
     for (const x of [-2.32, 2.32]) {
+      if (x > 0) continue;
       const lowerPanel = parkMesh(new THREE.BoxGeometry(0.16, 0.76, 2.42), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-safety-panel", "ferris");
       lowerPanel.position.set(x, -0.08, 0);
       const glazedWall = parkMesh(new THREE.BoxGeometry(0.08, 1.45, 2.3), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-wall", "ferris");
       glazedWall.position.set(x, 1.02, 0);
       cabin.add(lowerPanel, glazedWall);
     }
+    for (const z of [-0.96, 0.96]) {
+      const fixedLower = parkMesh(new THREE.BoxGeometry(0.16, 0.76, 0.5), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-safety-panel", "ferris");
+      fixedLower.position.set(2.32, -0.08, z);
+      const fixedGlass = parkMesh(new THREE.BoxGeometry(0.08, 1.45, 0.5), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-wall", "ferris");
+      fixedGlass.position.set(2.32, 1.02, z);
+      cabin.add(fixedLower, fixedGlass);
+    }
+    const cabinDoor = parkMesh(new THREE.BoxGeometry(0.12, 2.2, 1.25), ferrisCabinGlass, "amusement-park-ferris-cabin-door", "ferris");
+    cabinDoor.position.set(2.34, 0.55, 0);
+    cabinDoor.userData = { operable: true, clearWidth: 1.25, state: "closed" };
+    cabin.add(cabinDoor);
     for (const x of [-2.25, 2.25]) {
       for (const z of [-1.15, 1.15]) {
         const post = parkMesh(new THREE.CylinderGeometry(0.09, 0.09, 2.25, 6), steel, "amusement-park-ferris-cabin-post", "ferris");
@@ -430,6 +569,20 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   }
   ferris.add(ferrisWheel);
   park.add(ferris);
+  const ferrisPlatform = parkMesh(new THREE.BoxGeometry(5.8, 2.62, 6.2), paving, "amusement-park-ferris-loading-platform", "ferris");
+  ferrisPlatform.position.set(57.5, 1.71, 14);
+  park.add(ferrisPlatform);
+  for (let index = 0; index < 6; index += 1) {
+    const height = 0.4 * (index + 1);
+    const step = parkMesh(new THREE.BoxGeometry(2.8, height, 0.65), paving, "amusement-park-ferris-loading-step", "ferris");
+    step.position.set(61.1 + index * 0.48, 0.4 + height * 0.5, 14);
+    park.add(step);
+  }
+  const ferrisAccessA = parkMesh(new THREE.BoxGeometry(3, 0.1, 12), paving, "amusement-park-ferris-access-walkway", "ferris");
+  ferrisAccessA.position.set(53, 0.51, 20);
+  const ferrisAccessB = parkMesh(new THREE.BoxGeometry(11, 0.1, 3), paving, "amusement-park-ferris-access-walkway", "ferris");
+  ferrisAccessB.position.set(58.5, 0.51, 14);
+  park.add(ferrisAccessA, ferrisAccessB);
 
   // Circus tent and family show plaza.
   const circus = new THREE.Group();
@@ -458,13 +611,26 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   playground.name = "amusement-park-indoor-playground";
   playground.position.set(-24, 0.5, -10);
   playground.scale.setScalar(1.42);
-  const playHall = parkMesh(new THREE.BoxGeometry(13, 6.8, 10), aqua, "amusement-park-playground-hall", "playground");
-  playHall.position.y = 3.4;
-  const playGlass = parkMesh(new THREE.BoxGeometry(11.5, 4.2, 0.1), glass, "amusement-park-playground-glass-wall", "playground");
+  const playFloor = parkMesh(new THREE.BoxGeometry(13, 0.24, 10), aqua, "amusement-park-playground-hall", "playground");
+  playFloor.position.y = 0.12;
+  const playRearWall = parkMesh(new THREE.BoxGeometry(13, 6.8, 0.24), aqua, "amusement-park-playground-wall", "playground");
+  playRearWall.position.set(0, 3.4, -4.88);
+  const playLeftWall = parkMesh(new THREE.BoxGeometry(0.24, 6.8, 10), aqua, "amusement-park-playground-wall", "playground");
+  playLeftWall.position.set(-6.38, 3.4, 0);
+  const playRightWall = playLeftWall.clone();
+  playRightWall.position.x = 6.38;
+  const playEntranceHeader = parkMesh(new THREE.BoxGeometry(13, 1.4, 0.24), aqua, "amusement-park-playground-entrance-header", "playground");
+  playEntranceHeader.position.set(0, 6.1, 4.88);
+  const playGlass = parkMesh(new THREE.BoxGeometry(4.1, 4.2, 0.1), glass, "amusement-park-playground-glass-wall", "playground");
   playGlass.position.set(0, 3.6, 5.05);
   const playRoof = parkMesh(new THREE.BoxGeometry(13.7, 0.6, 10.7), yellow, "amusement-park-playground-roof", "playground");
   playRoof.position.y = 7.05;
-  playground.add(playHall, playGlass, playRoof);
+  playground.add(playFloor, playRearWall, playLeftWall, playRightWall, playEntranceHeader, playGlass, playRoof);
+  playGlass.position.x = -3.7;
+  const playGlassRight = playGlass.clone();
+  playGlassRight.position.x = 3.7;
+  playground.add(playGlassRight);
+  playground.userData.entranceClearWidth = 4.69;
   for (let i = 0; i < 3; i += 1) {
     const tower = parkMesh(new THREE.CylinderGeometry(1.1, 1.1, 3.2 + i * 0.8, 10), [pink, blue, orange][i], "amusement-park-playground-climbing-tower", "playground");
     tower.position.set(-4 + i * 4, 2 + i * 0.4, 3.9);
@@ -485,13 +651,20 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   shooting.name = "amusement-park-shooting-gallery";
   shooting.position.set(12, 0.5, -10);
   shooting.scale.setScalar(1.4);
-  const gallery = parkMesh(new THREE.BoxGeometry(11, 5.2, 7), timber, "amusement-park-shooting-gallery-building", "shooting");
-  gallery.position.y = 2.6;
+  const galleryFloor = parkMesh(new THREE.BoxGeometry(11, 0.25, 7), timber, "amusement-park-shooting-gallery-building", "shooting");
+  galleryFloor.position.y = 0.125;
+  const galleryRear = parkMesh(new THREE.BoxGeometry(11, 5.2, 0.24), timber, "amusement-park-shooting-gallery-wall", "shooting");
+  galleryRear.position.set(0, 2.6, -3.38);
+  const galleryLeft = parkMesh(new THREE.BoxGeometry(0.24, 5.2, 7), timber, "amusement-park-shooting-gallery-wall", "shooting");
+  galleryLeft.position.set(-5.38, 2.6, 0);
+  const galleryRight = galleryLeft.clone();
+  galleryRight.position.x = 5.38;
   const galleryRoof = parkMesh(new THREE.BoxGeometry(12, 0.65, 8), red, "amusement-park-shooting-gallery-roof", "shooting");
   galleryRoof.position.y = 5.55;
   const counter = parkMesh(new THREE.BoxGeometry(10, 1, 1.2), yellow, "amusement-park-shooting-gallery-counter", "shooting");
   counter.position.set(0, 1, 4);
-  shooting.add(gallery, galleryRoof, counter);
+  shooting.add(galleryFloor, galleryRear, galleryLeft, galleryRight, galleryRoof, counter);
+  shooting.userData.serviceOpeningWidth = 14;
   const targets: THREE.Mesh[] = [];
   for (let i = 0; i < 7; i += 1) {
     const target = parkMesh(new THREE.CylinderGeometry(0.62, 0.62, 0.16, 16), i % 2 ? blue : red, "amusement-park-shooting-target", "shooting");
@@ -517,9 +690,21 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   dropCarriage.name = "amusement-park-drop-tower-carriage";
   const carriage = parkMesh(new THREE.CylinderGeometry(2.4, 2.4, 1.2, 16), yellow, "amusement-park-drop-tower-seat-ring", "drop-tower");
   dropCarriage.add(carriage);
-  dropCarriage.position.y = 4;
+  dropCarriage.position.y = 0.9;
   dropTower.add(tower, towerCap, dropCarriage);
   park.add(dropTower);
+  const dropPlatform = parkMesh(new THREE.CylinderGeometry(4.25, 4.25, 0.62, 20), paving, "amusement-park-drop-tower-loading-platform", "drop-tower");
+  dropPlatform.position.set(69, 0.71, -8);
+  park.add(dropPlatform);
+  const dropAccess = parkMesh(new THREE.BoxGeometry(2.8, 0.1, 4.25), paving, "amusement-park-drop-tower-access-walkway", "drop-tower");
+  dropAccess.position.set(69, 0.51, -1.65);
+  park.add(dropAccess);
+  for (let index = 0; index < 3; index += 1) {
+    const height = 0.2 * (index + 1);
+    const step = parkMesh(new THREE.BoxGeometry(2.8, height, 0.65), paving, "amusement-park-drop-tower-loading-step", "drop-tower");
+    step.position.set(69, 0.4 + height * 0.5, -3.7 + index * 0.55);
+    park.add(step);
+  }
 
   // Spinning teacups and bumper car pavilion fill the family district.
   const cups = new THREE.Group();
@@ -542,6 +727,12 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     cups.add(cup);
   }
   park.add(cups);
+  for (let index = 0; index < 3; index += 1) {
+    const height = 0.16 * (index + 1);
+    const step = parkMesh(new THREE.BoxGeometry(3.2, height, 0.62), paving, "amusement-park-spinning-cups-loading-step", "overview");
+    step.position.set(18, 0.4 + height * 0.5, 24.8 + index * 0.56);
+    park.add(step);
+  }
 
   const bumper = new THREE.Group();
   bumper.name = "amusement-park-bumper-cars";
@@ -573,14 +764,14 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const coaster = new THREE.Group();
   coaster.name = "amusement-park-roller-coaster";
   const coasterCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-78, 6, -49),
+    new THREE.Vector3(-78, 2.4, -49),
     new THREE.Vector3(-62, 13, -52),
     new THREE.Vector3(-45, 32, -49),
     new THREE.Vector3(-24, 8, -49),
     new THREE.Vector3(2, 22, -41),
     new THREE.Vector3(-10, 6, -27),
     new THREE.Vector3(-38, 11, -25),
-    new THREE.Vector3(-69, 6, -32),
+    new THREE.Vector3(-69, 4.2, -32),
   ], true, "catmullrom", 0.35);
   for (const zOffset of [-0.55, 0.55]) {
     const railCurve = new THREE.CatmullRomCurve3(coasterCurve.points.map((point) => point.clone().add(new THREE.Vector3(0, 0, zOffset))), true, "catmullrom", 0.35);
@@ -602,25 +793,52 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   }
   coaster.add(coasterTrain);
   park.add(coaster);
+  const coasterPlatform = parkMesh(new THREE.BoxGeometry(12, 2.25, 6.5), paving, "amusement-park-coaster-loading-platform", "coaster");
+  coasterPlatform.position.set(-78, 1.525, -49);
+  park.add(coasterPlatform);
+  for (let index = 0; index < 6; index += 1) {
+    const height = 0.36 * (index + 1);
+    const step = parkMesh(new THREE.BoxGeometry(3.2, height, 0.68), paving, "amusement-park-coaster-loading-step", "coaster");
+    step.position.set(-78, 0.4 + height * 0.5, -44.9 + index * 0.58);
+    park.add(step);
+  }
 
   // Kart circuit follows the entertainment district at the eastern edge.
   const karting = new THREE.Group();
   karting.name = "amusement-park-karting-circuit";
   const kartCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(17, 0.7, -45),
-    new THREE.Vector3(38, 0.7, -53),
-    new THREE.Vector3(69, 0.7, -46),
-    new THREE.Vector3(74, 0.7, -29),
-    new THREE.Vector3(57, 0.7, -20),
-    new THREE.Vector3(30, 0.7, -23),
-    new THREE.Vector3(15, 0.7, -33),
-  ], true, "catmullrom", 0.35);
-  const kartTrack = parkMesh(new THREE.TubeGeometry(kartCurve, 180, 3.3, 8, true), road, "amusement-park-kart-track", "karting");
-  kartTrack.rotation.x = 0;
+    new THREE.Vector3(73, 0.54, -37),
+    new THREE.Vector3(64.8, 0.54, -24.3),
+    new THREE.Vector3(45, 0.54, -19),
+    new THREE.Vector3(25.2, 0.54, -24.3),
+    new THREE.Vector3(17, 0.54, -37),
+    new THREE.Vector3(25.2, 0.54, -49.7),
+    new THREE.Vector3(45, 0.54, -55),
+    new THREE.Vector3(64.8, 0.54, -49.7),
+  ], true, "centripetal");
+  const kartTrack = parkMesh(buildFlatRibbonGeometry(kartCurve, 192, 3.3), road, "amusement-park-kart-track", "karting");
   karting.add(kartTrack);
-  for (const offset of [-2.25, 2.25]) {
-    const lineCurve = new THREE.CatmullRomCurve3(kartCurve.points.map((point) => point.clone().add(new THREE.Vector3(0, 0.08, offset * 0.25))), true, "catmullrom", 0.35);
-    karting.add(parkMesh(new THREE.TubeGeometry(lineCurve, 180, 0.09, 5, true), ivory, "amusement-park-kart-track-line", "karting"));
+  for (const offset of [-1.25, 1.25]) {
+    const edgePoints: THREE.Vector3[] = [];
+    for (let index = 0; index < 96; index += 1) {
+      const t = index / 96;
+      const point = kartCurve.getPointAt(t);
+      const tangent = kartCurve.getTangentAt(t).setY(0).normalize();
+      edgePoints.push(point.add(new THREE.Vector3(-tangent.z, 0, tangent.x).multiplyScalar(offset)).setY(0.6));
+    }
+    const lineCurve = new THREE.CatmullRomCurve3(edgePoints, true, "centripetal");
+    karting.add(parkMesh(new THREE.TubeGeometry(lineCurve, 192, 0.07, 5, true), ivory, "amusement-park-kart-track-line", "karting"));
+  }
+  for (const offset of [-3.45, 3.45]) {
+    const barrierPoints: THREE.Vector3[] = [];
+    for (let index = 0; index < 96; index += 1) {
+      const t = index / 96;
+      const point = kartCurve.getPointAt(t);
+      const tangent = kartCurve.getTangentAt(t).setY(0).normalize();
+      barrierPoints.push(point.add(new THREE.Vector3(-tangent.z, 0, tangent.x).multiplyScalar(offset)).setY(0.96));
+    }
+    const barrierCurve = new THREE.CatmullRomCurve3(barrierPoints, true, "centripetal");
+    karting.add(parkMesh(new THREE.TubeGeometry(barrierCurve, 192, 0.12, 6, true), steel, "amusement-park-kart-safety-barrier", "karting"));
   }
   const karts: THREE.Group[] = [];
   for (let i = 0; i < 6; i += 1) {
@@ -636,7 +854,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     karting.add(kart);
   }
   const kartPit = parkMesh(new THREE.BoxGeometry(18, 5.5, 6), orange, "amusement-park-kart-pit-building", "karting");
-  kartPit.position.set(42, 3.2, -55);
+  kartPit.position.set(45, 3.2, -61);
   karting.add(kartPit);
   park.add(karting);
 
@@ -719,6 +937,14 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     }
   }
 
+  addRideSafetyFence("carousel", -43, 17, 22, 22);
+  addRideSafetyFence("pirate", -15, 18, 30, 24);
+  addRideSafetyFence("overview", 18, 17, 18, 18);
+  addRideSafetyFence("overview", -68, 17, 18, 14);
+  addRideSafetyFence("ferris", 53, 14, 34, 24, 4.2);
+  addRideSafetyFence("drop-tower", 69, -8, 13, 17);
+  addRideSafetyFence("coaster", -78, -49, 14, 9);
+
   let motionEnabled = true;
   let rideTime = 0;
   const tempPoint = new THREE.Vector3();
@@ -741,7 +967,14 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     streetLightCount: reusedStreetLights.length,
     planterCount: planterPositions.length,
     foodTruckCount: reusedFoodTrucks.length,
-    fenceSegmentCount: 5,
+    fenceSegmentCount: 9,
+    rideSafetyFenceCount: 7,
+    entranceGateLaneCount: 3,
+    entranceClearWidth: 15.48,
+    loadingGateCount: 7,
+    loadingAccessCount: 6,
+    indoorPlaygroundEntranceWidth: 4.69,
+    shootingServiceOpeningWidth: 14,
     scaleReferenceLengthMeters: 2.4,
     ferrisCabinCapacity: 6,
     rideScaleStandard: "rabbit-rider",
@@ -765,10 +998,10 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
 
       carouselTurntable.rotation.y = time * 0.52;
       horses.forEach((horse) => { horse.position.y = Math.sin(time * 2.3 + horse.userData.phase) * 0.35; });
-      piratePivot.rotation.z = Math.sin(time * 0.88) * 0.72;
+      piratePivot.rotation.z = Math.sin(time * 0.88) * 0.3;
       ferrisWheel.rotation.z = time * 0.14;
       cabins.forEach((cabin) => { cabin.rotation.z = -ferrisWheel.rotation.z; });
-      dropCarriage.position.y = 4 + (Math.sin(time * 0.78 - Math.PI * 0.5) * 0.5 + 0.5) * 14.5;
+      dropCarriage.position.y = 0.9 + (Math.sin(time * 0.78 - Math.PI * 0.5) * 0.5 + 0.5) * 17.6;
       dropCarriage.rotation.y = time * 0.34;
       cups.rotation.y = time * 0.42;
       cupCars.forEach((cup) => { cup.rotation.y = -time * 1.25 + cup.userData.phase; });
@@ -784,15 +1017,15 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
         const progress = (trainProgress - index * 0.012 + 1) % 1;
         coasterCurve.getPointAt(progress, tempPoint);
         coasterCurve.getTangentAt(progress, tempTangent);
-        car.position.copy(tempPoint);
-        car.lookAt(tempPoint.clone().add(tempTangent));
+        car.position.copy(tempPoint).add(new THREE.Vector3(0, 0.8, 0));
+        car.lookAt(car.position.clone().add(tempTangent));
       });
       karts.forEach((kart, index) => {
         const progress = (time * (0.045 + index * 0.0015) + kart.userData.phase) % 1;
         kartCurve.getPointAt(progress, tempPoint);
         kartCurve.getTangentAt(progress, tempTangent);
-        kart.position.copy(tempPoint).add(new THREE.Vector3(0, 0.65, 0));
-        kart.lookAt(tempPoint.clone().add(tempTangent));
+        kart.position.copy(tempPoint).add(new THREE.Vector3(0, 0.12, 0));
+        kart.lookAt(kart.position.clone().add(tempTangent));
       });
 
       if (elapsed > -1) {

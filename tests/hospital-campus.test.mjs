@@ -24,6 +24,9 @@ test("generates a complete three-zone hospital campus with independent entrances
   assert.equal(namedObjects(hospital, "hospital-campus-internal-road").length, 4);
   assert.equal(namedObjects(hospital, "hospital-campus-pedestrian-walkway").length, 5);
   assert.equal(namedObjects(hospital, "hospital-campus-covered-walkway").length, 3);
+  assert.equal(hospital.userData.raisedCrossingCount, 1);
+  assert.equal(namedObjects(hospital, "hospital-campus-raised-crossing").length, 1);
+  assert.equal(namedObjects(hospital, "hospital-campus-crossing-marking").length, 3);
   assert.ok(hospital.getObjectByName("hospital-main-entrance-canopy"));
   assert.ok(hospital.getObjectByName("hospital-emergency-entrance-canopy"));
   assert.ok(hospital.getObjectByName("hospital-inpatient-entrance-canopy"));
@@ -35,6 +38,7 @@ test("generates a complete three-zone hospital campus with independent entrances
     hospital.getObjectByName("hospital-inpatient-building"),
   ];
   assert.ok(buildings.every(Boolean));
+  assert.ok(buildings.every((building) => building.userData.architecturalScale === 1.55));
   const bounds = buildings.map((building) => new THREE.Box3().setFromObject(building));
   assert.equal(bounds[0].intersectsBox(bounds[1]), false);
   assert.equal(bounds[0].intersectsBox(bounds[2]), false);
@@ -98,10 +102,37 @@ test("builds detailed outpatient, emergency and inpatient interiors", () => {
   assert.equal(namedObjects(hospital, "hospital-inpatient-nurse-station").length, 6);
   assert.equal(namedObjects(hospital, "hospital-inpatient-bed").length, 12);
   assert.equal(namedObjects(hospital, "hospital-inpatient-elevator-door").length, 12);
-  assert.equal(namedObjects(hospital, "hospital-inpatient-stair-step").length, 35);
+  assert.equal(namedObjects(hospital, "hospital-inpatient-elevator-cabin").length, 2);
+  assert.equal(namedObjects(hospital, "hospital-inpatient-stair-step").length, 70);
+  assert.equal(namedObjects(hospital, "hospital-inpatient-stair-landing").length, 5);
+  assert.equal(namedObjects(hospital, "hospital-inpatient-stair-handrail").length, 10);
   assert.ok(hospital.getObjectByName("hospital-roof-helipad"));
+  assert.ok(hospital.getObjectByName("hospital-roof-helipad-access"));
+  assert.ok(hospital.getObjectByName("hospital-roof-helipad-safety-net"));
+  hospital.updateWorldMatrix(true, true);
+  const helipadSize = new THREE.Box3().setFromObject(hospital.getObjectByName("hospital-roof-helipad")).getSize(new THREE.Vector3());
+  assert.ok(helipadSize.x > 10 && helipadSize.z > 10);
   assert.ok(hospital.getObjectByName("hospital-healing-garden"));
   assert.equal(namedObjects(hospital, "hospital-service-oxygen-tank").length, 2);
+  assert.equal(namedObjects(hospital, "hospital-service-oxygen-cage").length, 4);
+  assert.equal(namedObjects(hospital, "hospital-service-oxygen-bollard").length, 4);
+  const serviceRoad = namedObjects(hospital, "hospital-campus-internal-road")
+    .find((road) => road.userData.routeName === "hospital-campus-ward-service-road");
+  assert.ok(serviceRoad.geometry.parameters.depth >= 3.5);
+  const emergencyRoad = namedObjects(hospital, "hospital-campus-internal-road")
+    .find((road) => road.userData.routeName === "hospital-campus-emergency-road");
+  const wheelBottom = new THREE.Box3().setFromObject(ambulance).min.y;
+  const roadTop = new THREE.Box3().setFromObject(emergencyRoad).max.y;
+  assert.ok(Math.abs(wheelBottom - roadTop) < 1e-6, "ambulance tyres should rest on the emergency lane");
+  const dropoffRoad = namedObjects(hospital, "hospital-campus-internal-road")
+    .find((road) => road.userData.routeName === "hospital-campus-outpatient-dropoff-road");
+  const raisedCrossing = hospital.getObjectByName("hospital-campus-raised-crossing");
+  const approach = hospital.getObjectByName("hospital-campus-crossing-approach");
+  const dropoffBounds = new THREE.Box3().setFromObject(dropoffRoad);
+  const crossingBounds = new THREE.Box3().setFromObject(raisedCrossing);
+  const approachBounds = new THREE.Box3().setFromObject(approach);
+  assert.ok(dropoffBounds.intersectsBox(crossingBounds), "raised crossing should explicitly span the drop-off lane");
+  assert.ok(Math.abs(approachBounds.max.z - crossingBounds.min.z) < 1e-6, "sidewalk approach should meet the crossing without a gap");
 });
 
 test("supports an interior cutaway and powered night state", () => {
@@ -131,12 +162,12 @@ test("supports an interior cutaway and powered night state", () => {
 test("reports hospital geometry and creates a separate shattered model", () => {
   const hospital = buildLowPolyHospitalCampus();
   const metrics = measureModelGeometry(hospital);
-  assert.ok(metrics.size.x >= 54);
-  assert.ok(metrics.size.y > 13);
-  assert.ok(metrics.size.z >= 38);
+  assert.ok(metrics.size.x >= 80);
+  assert.ok(metrics.size.y > 24);
+  assert.ok(metrics.size.z >= 62);
   assert.ok(metrics.faceCount > 5_000);
-  assert.equal(hospital.userData.siteSize.x, 54);
-  assert.equal(hospital.userData.siteSize.z, 38);
+  assert.equal(hospital.userData.siteSize.x, 80);
+  assert.equal(hospital.userData.siteSize.z, 62);
 
   const pair = createFurnitureShatterPair(hospital, { seed: 503, trianglesPerShard: 10, spread: 1.5 });
   assert.equal(pair.normal.userData.modelState, "normal");

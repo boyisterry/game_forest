@@ -14,13 +14,13 @@ type Focus = "all" | HospitalZone;
 type HospitalMetrics = ModelGeometryMetrics & { shatteredFaceCount: number };
 
 const FOCUS = {
-  all: { target: new THREE.Vector3(0, 5.8, -1.5), camera: new THREE.Vector3(62, 39, 64) },
-  outpatient: { target: new THREE.Vector3(-16, 3.3, 3.5), camera: new THREE.Vector3(-35, 15, 29) },
-  emergency: { target: new THREE.Vector3(16, 2.7, 4.5), camera: new THREE.Vector3(35, 14, 29) },
-  inpatient: { target: new THREE.Vector3(0, 7.3, -11.5), camera: new THREE.Vector3(28, 22, 23.5) },
+  all: { target: new THREE.Vector3(0, 8.5, -2), camera: new THREE.Vector3(88, 58, 91) },
+  outpatient: { target: new THREE.Vector3(-22, 5.5, 5), camera: new THREE.Vector3(-55, 25, 42) },
+  emergency: { target: new THREE.Vector3(22, 4.8, 6), camera: new THREE.Vector3(56, 24, 43) },
+  inpatient: { target: new THREE.Vector3(0, 11.5, -17), camera: new THREE.Vector3(43, 38, 36) },
 } as const;
 
-const HOSPITAL_RIDER_FOREGROUND = new THREE.Vector3(0, 0.46, 22.5);
+const HOSPITAL_RIDER_FOREGROUND = new THREE.Vector3(0, 0.46, 34.5);
 
 const ZONE_CARDS: Array<{
   id: Focus;
@@ -104,11 +104,11 @@ export function HospitalCampusDemo() {
     controls.enableDamping = true;
     controls.dampingFactor = 0.065;
     controls.minDistance = 12;
-    controls.maxDistance = 125;
+    controls.maxDistance = 165;
     controls.maxPolarAngle = Math.PI * 0.49;
 
     const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(66, 64),
+      new THREE.CircleGeometry(82, 64),
       new THREE.MeshStandardMaterial({ color: 0xbfc8c3, roughness: 0.96 }),
     );
     ground.rotation.x = -Math.PI * 0.5;
@@ -292,7 +292,7 @@ export function HospitalCampusDemo() {
       </header>
 
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}>正常 / 破碎双版本 · {shattered ? "破碎态" : cutaway ? "内饰剖面" : "完整外观"} · {referenceReady ? "现有骑车兔子约 2.40 m 参考" : "骑车兔子加载中"}</div>
+      <div className={styles.status}>正常 / 破碎双版本 · {shattered ? "破碎态" : cutaway ? "内饰剖面" : "完整外观"} · {referenceReady ? "骑车兔子整体外廓约 2.40 m" : "骑车兔子加载中"}</div>
 
       <nav className={styles.zoneCards} aria-label="选择医院功能分区">
         {ZONE_CARDS.map((zone) => (

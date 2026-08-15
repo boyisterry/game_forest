@@ -511,7 +511,7 @@ export function MapStudio() {
         <a className="model-showcase-entry" href="/demos">
           <span>
             <b>{locale === "zh" ? "模型展示区" : "Model showcase"}</b>
-            <small>{locale === "zh" ? "街道装饰 · 居民建筑 · 医院 · 游乐园 · 学校 · 商业中心" : "Street · Residential · Hospital · Amusement park · School · Shopping mall"}</small>
+            <small>{locale === "zh" ? "街道装饰 · 居民建筑 · 医院 · 游乐园 · 学校 · 商业中心 · 完整社区 · 消防局 · 城市公园 · 体育中心 · 城市中心 · 市镇中心" : "Street · Residential · Hospital · Amusement park · School · Shopping mall · Community · Fire station · City park · Sports center · City center · Town center"}</small>
           </span>
           <i>↗</i>
         </a>

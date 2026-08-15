@@ -6,18 +6,18 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { buildLowPolyAmusementPark, type AmusementFacility } from "../../lib/map/amusementPark";
 import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import styles from "./AmusementParkDemo.module.css";
 
 const PARK_TREE_URL = "/models/forest/tree_normal_medium_redwood_a.glb";
-const RABBIT_RIDER_URL = "/models/rabbit-rider.glb";
 
 type Focus = AmusementFacility;
 
 const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3 }> = {
   overview: { target: new THREE.Vector3(0, 9, -2), camera: new THREE.Vector3(136, 88, 158) },
   coaster: { target: new THREE.Vector3(-39, 14, -38), camera: new THREE.Vector3(-5, 42, 27) },
-  carousel: { target: new THREE.Vector3(-38, 6, 17), camera: new THREE.Vector3(-10, 22, 49) },
-  pirate: { target: new THREE.Vector3(-10, 7, 17), camera: new THREE.Vector3(21, 24, 49) },
+  carousel: { target: new THREE.Vector3(-43, 6, 17), camera: new THREE.Vector3(-14, 22, 50) },
+  pirate: { target: new THREE.Vector3(-15, 9, 18), camera: new THREE.Vector3(18, 28, 52) },
   playground: { target: new THREE.Vector3(-24, 6, -10), camera: new THREE.Vector3(2, 20, 25) },
   circus: { target: new THREE.Vector3(-56, 8, -10), camera: new THREE.Vector3(-27, 27, 25) },
   shooting: { target: new THREE.Vector3(12, 4, -10), camera: new THREE.Vector3(34, 16, 22) },
@@ -48,8 +48,8 @@ const FACILITY_CARDS: Array<{
 const RIDER_POSITIONS: Record<Focus, THREE.Vector3> = {
   overview: new THREE.Vector3(7, 0.46, 45),
   coaster: new THREE.Vector3(-17, 0.46, -24),
-  carousel: new THREE.Vector3(-25, 0.46, 17),
-  pirate: new THREE.Vector3(3, 0.46, 17),
+  carousel: new THREE.Vector3(-29, 0.46, 18),
+  pirate: new THREE.Vector3(4, 0.46, 18),
   playground: new THREE.Vector3(-12, 0.46, -2),
   circus: new THREE.Vector3(-43, 0.46, -1),
   shooting: new THREE.Vector3(23, 0.46, -1),
@@ -134,12 +134,7 @@ export function AmusementParkDemo() {
     setMetrics(measureModelGeometry(park));
 
     const riderReference = new THREE.Group();
-    riderReference.name = "game-rabbit-rider-scale-reference";
-    riderReference.userData = {
-      modelType: "game-rabbit-rider-scale-reference",
-      sourceModel: RABBIT_RIDER_URL,
-      referenceLengthMeters: 2.4,
-    };
+    riderReference.name = "amusement-park-rabbit-rider-reference-anchor";
     riderReference.position.copy(RIDER_POSITIONS.overview);
     riderReference.rotation.y = -0.65;
     scene.add(riderReference);
@@ -181,23 +176,7 @@ export function AmusementParkDemo() {
     loader.loadAsync(RABBIT_RIDER_URL)
       .then((gltf) => {
         if (disposed) return;
-        const model = gltf.scene;
-        model.name = "game-rabbit-rider-model";
-        model.traverse((object) => {
-          if (!(object instanceof THREE.Mesh)) return;
-          object.castShadow = true;
-          object.receiveShadow = true;
-        });
-        let bounds = new THREE.Box3().setFromObject(model);
-        const size = bounds.getSize(new THREE.Vector3());
-        model.scale.setScalar(2.4 / Math.max(size.y, size.x, size.z, 0.001));
-        model.rotation.y = -Math.PI * 0.5;
-        model.updateMatrixWorld(true);
-        bounds = new THREE.Box3().setFromObject(model);
-        const center = bounds.getCenter(new THREE.Vector3());
-        model.position.sub(center);
-        model.position.y += bounds.getSize(new THREE.Vector3()).y * 0.5;
-        riderReference.add(model);
+        riderReference.add(prepareRabbitRiderReference(gltf.scene));
         setReferenceReady(true);
       })
       .catch(() => setReferenceReady(false));
@@ -331,7 +310,7 @@ export function AmusementParkDemo() {
       <aside className={styles.metrics} aria-label="游乐园模型参数">
         <span>WONDER CITY MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>
-        <small>{metrics ? `${metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 复用 4 类既有饰品 · ${referenceReady ? "兔子骑车主角约 2.40 m 参考" : "主角参考加载中"}` : "正在计算场景规模"}</small>
+        <small>{metrics ? `${metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 复用 4 类既有饰品 · ${referenceReady ? "兔子骑车主角整体外廓约 2.40 m" : "主角参考加载中"}` : "正在计算场景规模"}</small>
       </aside>
 
       <nav className={styles.facilityRail} aria-label="选择游乐设施">

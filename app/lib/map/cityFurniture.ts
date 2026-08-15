@@ -217,15 +217,84 @@ export function buildLowPolyStreetLight(): StreetLightModel {
   return group;
 }
 
+export function buildLowPolyParkStreetLight(): StreetLightModel {
+  const group = new THREE.Group() as StreetLightModel;
+  group.name = "city-park-street-light-lowpoly";
+  const metal = new THREE.MeshStandardMaterial({ color: 0x31544f, roughness: 0.64, metalness: 0.38 });
+  const darkMetal = new THREE.MeshStandardMaterial({ color: 0x203a38, roughness: 0.72, metalness: 0.32 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0xd5a94f, roughness: 0.62, metalness: 0.24 });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0xffe5ad,
+    emissive: 0xffb95c,
+    emissiveIntensity: 0.44,
+    roughness: 0.28,
+  });
+
+  const base = mesh(new THREE.CylinderGeometry(0.48, 0.62, 0.32, 10), darkMetal, "park-street-light-base");
+  base.position.y = 0.16;
+  const plinth = mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.42, 10), metal, "park-street-light-plinth");
+  plinth.position.y = 0.48;
+  const pole = beamBetween(
+    new THREE.Vector3(0, 0.68, 0),
+    new THREE.Vector3(0, 4.45, 0),
+    0.18,
+    0.12,
+    metal,
+    "park-street-light-pole",
+  );
+  const finial = mesh(new THREE.ConeGeometry(0.2, 0.42, 8), trim, "park-street-light-finial");
+  finial.position.y = 5.28;
+  group.add(base, plinth, pole, finial);
+
+  const crossbar = mesh(new THREE.BoxGeometry(2.65, 0.14, 0.14), darkMetal, "park-street-light-crossbar");
+  crossbar.position.y = 4.58;
+  group.add(crossbar);
+  for (const side of [-1, 1]) {
+    const lantern = new THREE.Group();
+    lantern.name = "park-street-light-lantern";
+    lantern.position.set(side * 1.05, 4.43, 0);
+    const canopy = mesh(new THREE.ConeGeometry(0.48, 0.3, 8), darkMetal, "park-street-light-canopy");
+    canopy.position.y = 0.4;
+    const lens = mesh(new THREE.CylinderGeometry(0.27, 0.34, 0.58, 10), glass, "park-street-light-warm-lens");
+    const lowerCap = mesh(new THREE.CylinderGeometry(0.35, 0.29, 0.13, 10), trim, "park-street-light-lower-cap");
+    lowerCap.position.y = -0.35;
+    lantern.add(canopy, lens, lowerCap);
+    for (const cageX of [-0.26, 0.26]) {
+      const cage = mesh(new THREE.BoxGeometry(0.045, 0.56, 0.045), darkMetal, "park-street-light-cage");
+      cage.position.x = cageX;
+      lantern.add(cage);
+    }
+    group.add(lantern);
+
+    const light = new THREE.PointLight(0xffc96f, 0.7, 11, 1.9);
+    light.name = "park-street-light-point-light";
+    light.position.set(side * 1.05, 4.2, 0);
+    light.castShadow = false;
+    group.add(light);
+  }
+
+  group.userData = {
+    modelType: "street-light",
+    generatedLocally: true,
+    setPowered(powered: boolean) {
+      glass.emissiveIntensity = powered ? 3 : 0.14;
+      group.children.forEach((child) => {
+        if (child instanceof THREE.PointLight) child.intensity = powered ? 2.6 : 0;
+      });
+    },
+  };
+  return group;
+}
+
 function buildSignalLens(
   color: number,
   y: number,
   housingMaterial: THREE.Material,
   lensMaterials: THREE.MeshStandardMaterial[],
 ) {
-  const bezel = mesh(new THREE.CylinderGeometry(0.33, 0.36, 0.28, 10), housingMaterial, "traffic-light-lens-bezel");
+  const bezel = mesh(new THREE.CylinderGeometry(0.205, 0.225, 0.2, 10), housingMaterial, "traffic-light-lens-bezel");
   bezel.rotation.x = Math.PI * 0.5;
-  bezel.position.set(0, y, 0.42);
+  bezel.position.set(0, y, 0.29);
   const lensMaterial = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color).multiplyScalar(0.04),
     emissive: color,
@@ -236,9 +305,9 @@ function buildSignalLens(
   // Signal colors must stay saturated instead of being compressed by ACES.
   lensMaterial.toneMapped = false;
   lensMaterials.push(lensMaterial);
-  const lens = mesh(new THREE.CylinderGeometry(0.265, 0.265, 0.065, 16), lensMaterial, "traffic-light-lens");
+  const lens = mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.05, 16), lensMaterial, "traffic-light-lens");
   lens.rotation.x = Math.PI * 0.5;
-  lens.position.set(0, y, 0.58);
+  lens.position.set(0, y, 0.4);
   return [bezel, lens];
 }
 
@@ -258,19 +327,19 @@ export function buildLowPolyTrafficLight(armSide: 1 | -1 = 1): TrafficLightModel
   const head = new THREE.Group();
   head.name = "traffic-light-vehicle-head";
   head.position.set(armSide * 2.08, 4.18, 0);
-  const backplate = mesh(new THREE.BoxGeometry(1.32, 3.02, 0.2), housingMaterial, "traffic-light-backplate");
+  const backplate = mesh(new THREE.BoxGeometry(0.78, 1.65, 0.16), housingMaterial, "traffic-light-backplate");
   backplate.position.z = -0.02;
-  const casing = mesh(new THREE.BoxGeometry(1.04, 2.76, 0.62), housingMaterial, "traffic-light-casing");
-  casing.position.z = 0.18;
+  const casing = mesh(new THREE.BoxGeometry(0.64, 1.5, 0.44), housingMaterial, "traffic-light-casing");
+  casing.position.z = 0.14;
   head.add(backplate, casing);
   const lensMaterials: THREE.MeshStandardMaterial[] = [];
-  const red = buildSignalLens(0xff160c, 0.84, housingMaterial, lensMaterials);
+  const red = buildSignalLens(0xff160c, 0.48, housingMaterial, lensMaterials);
   const yellow = buildSignalLens(0xffc21c, 0, housingMaterial, lensMaterials);
-  const green = buildSignalLens(0x00f04c, -0.84, housingMaterial, lensMaterials);
+  const green = buildSignalLens(0x00f04c, -0.48, housingMaterial, lensMaterials);
   head.add(...red, ...yellow, ...green);
   group.add(head);
 
-  const pedestrianHousing = mesh(new THREE.BoxGeometry(0.92, 1.08, 0.44), housingMaterial, "pedestrian-signal-housing");
+  const pedestrianHousing = mesh(new THREE.BoxGeometry(0.58, 0.7, 0.34), housingMaterial, "pedestrian-signal-housing");
   pedestrianHousing.position.set(armSide * 0.42, 3.1, 0);
   const pedestrianLens = new THREE.MeshStandardMaterial({
     color: 0x5ca77b,
@@ -278,9 +347,9 @@ export function buildLowPolyTrafficLight(armSide: 1 | -1 = 1): TrafficLightModel
     emissiveIntensity: 0.45,
     roughness: 0.34,
   });
-  const pedestrianFace = mesh(new THREE.BoxGeometry(0.62, 0.76, 0.08), pedestrianLens, "pedestrian-signal-face");
-  pedestrianFace.position.set(armSide * 0.42, 3.1, 0.26);
-  const pushButton = mesh(new THREE.BoxGeometry(0.34, 0.48, 0.2), trimMaterial, "pedestrian-crossing-button");
+  const pedestrianFace = mesh(new THREE.BoxGeometry(0.4, 0.5, 0.07), pedestrianLens, "pedestrian-signal-face");
+  pedestrianFace.position.set(armSide * 0.42, 3.1, 0.21);
+  const pushButton = mesh(new THREE.BoxGeometry(0.2, 0.28, 0.14), trimMaterial, "pedestrian-crossing-button");
   pushButton.position.set(armSide * 0.2, 1.65, 0.2);
   group.add(pedestrianHousing, pedestrianFace, pushButton);
 
@@ -291,7 +360,7 @@ export function buildLowPolyTrafficLight(armSide: 1 | -1 = 1): TrafficLightModel
 
   const setPhase = (phase: TrafficPhase) => {
     const activeIndex = phase === "red" ? 0 : phase === "yellow" ? 1 : 2;
-    const lensY = [5.02, 4.18, 3.34];
+    const lensY = [4.66, 4.18, 3.7];
     lensMaterials.forEach((material, index) => {
       material.emissiveIntensity = index === activeIndex ? 3.2 : 0;
       material.color.copy(material.emissive).multiplyScalar(index === activeIndex ? 0.5 : 0.04);
@@ -390,7 +459,7 @@ export function buildLowPolyFoodTruck(): FoodTruckModel {
   group.add(cabDoorNear, cabDoorFar, windshield, sideWindowNear, sideWindowFar);
 
   const counter = mesh(new THREE.BoxGeometry(2.75, 0.12, 0.62), creamMaterial, "food-truck-serving-counter");
-  counter.position.set(-0.75, 1.54, 1.42);
+  counter.position.set(-0.75, 1.2, 1.42);
   const lowerTrim = mesh(new THREE.BoxGeometry(4.02, 0.34, 0.08), creamMaterial, "food-truck-side-trim");
   lowerTrim.position.set(-0.72, 1.08, 1.115);
   group.add(counter, lowerTrim);
@@ -435,7 +504,7 @@ export function buildLowPolyFoodTruck(): FoodTruckModel {
   for (const x of [-1.92, 2.05]) {
     for (const z of [-1.18, 1.18]) {
       const wheel = mesh(wheelGeometry, rubberMaterial, "food-truck-wheel");
-      wheel.position.set(x, 0.67, z);
+      wheel.position.set(x, 0.54, z);
       wheel.rotation.x = Math.PI * 0.5;
       const hub = mesh(hubGeometry, creamMaterial, "food-truck-wheel-hub");
       hub.position.copy(wheel.position);
@@ -466,7 +535,7 @@ export function buildLowPolyFoodTruck(): FoodTruckModel {
     modelType: "food-truck",
     generatedLocally: true,
     occupantAnchor: new THREE.Vector3(-0.68, 1.17, -0.12),
-    occupantSpace: new THREE.Vector3(2.8, 2.08, 1.72),
+    occupantSpace: new THREE.Vector3(2.8, 2.42, 1.72),
     setServingOpen(open: boolean) {
       hatchPivot.rotation.x = open ? -1.13 : 0;
     },
@@ -780,6 +849,9 @@ export function buildLowPolyPhoneBooth(): PhoneBoothModel {
     },
   };
   group.userData.setDoorOpen(true);
+  // The original booth read as a four-metre pavilion beside the 2.4 m rider.
+  // Keep the same detail while returning it to a compact street-kiosk scale.
+  group.scale.setScalar(0.72);
   return group;
 }
 
@@ -1048,12 +1120,12 @@ export function buildLowPolyResidentialBuilding(): ResidentialBuildingModel {
       for (const x of [-2.18, 2.18]) {
         const balconyFloor = mesh(new THREE.BoxGeometry(2.05, 0.16, 0.82), balcony, "residential-building-balcony-floor");
         balconyFloor.position.set(x, y - 0.7, 2.72);
-        const balconyRail = mesh(new THREE.BoxGeometry(2.05, 0.58, 0.1), dark, "residential-building-balcony-rail");
-        balconyRail.position.set(x, y - 0.32, 3.08);
+        const balconyRail = mesh(new THREE.BoxGeometry(2.05, 0.62, 0.1), dark, "residential-building-balcony-rail");
+        balconyRail.position.set(x, y - 0.285, 3.08);
         group.add(balconyFloor, balconyRail);
         for (const side of [-1, 1]) {
-          const sideRail = mesh(new THREE.BoxGeometry(0.1, 0.58, 0.72), dark, "residential-building-balcony-side-rail");
-          sideRail.position.set(x + side * 0.975, y - 0.32, 2.72);
+          const sideRail = mesh(new THREE.BoxGeometry(0.1, 0.62, 0.72), dark, "residential-building-balcony-side-rail");
+          sideRail.position.set(x + side * 0.975, y - 0.285, 2.72);
           group.add(sideRail);
         }
       }
@@ -1775,12 +1847,12 @@ export function buildLowPolySmallVilla(): SmallVillaModel {
 
   const terrace = mesh(new THREE.BoxGeometry(3.25, 0.18, 1.02), stone, "small-villa-terrace");
   terrace.position.set(1.55, 3.18, -3.42);
-  const terraceRail = mesh(new THREE.BoxGeometry(3.25, 0.62, 0.1), dark, "small-villa-terrace-rail");
-  terraceRail.position.set(1.55, 3.54, -3.88);
+  const terraceRail = mesh(new THREE.BoxGeometry(3.25, 0.86, 0.1), dark, "small-villa-terrace-rail");
+  terraceRail.position.set(1.55, 3.66, -3.88);
   group.add(terrace, terraceRail);
   for (const x of [0.05, 0.8, 1.55, 2.3, 3.05]) {
-    const railPost = mesh(new THREE.BoxGeometry(0.06, 0.6, 0.08), dark, "small-villa-terrace-post");
-    railPost.position.set(x, 3.54, -3.83);
+    const railPost = mesh(new THREE.BoxGeometry(0.06, 0.84, 0.08), dark, "small-villa-terrace-post");
+    railPost.position.set(x, 3.66, -3.83);
     group.add(railPost);
   }
 
@@ -2002,13 +2074,48 @@ export function buildLowPolyOfficeCampus(): OfficeCampusModel {
     const stairX = wing.centerX + (wingIndex === 0 ? -4.25 : 4.25);
     for (let storey = 0; storey < wing.floors - 1; storey += 1) {
       const baseY = 0.48 + storey * floorPitch;
+      const halfRise = floorPitch * 0.5;
+      const frontZ = -3.9;
+      const rearZ = -1.62;
+      const firstX = stairX - 0.46;
+      const secondX = stairX + 0.46;
       for (let stepIndex = 0; stepIndex < 6; stepIndex += 1) {
-        const step = mesh(new THREE.BoxGeometry(0.82, 0.12, 0.42), stone, "office-campus-emergency-stair-step");
-        step.position.set(stairX, baseY + 0.16 + stepIndex * floorPitch / 6, -3.9 + stepIndex * 0.48);
-        emergencyStair.add(step);
+        const progress = (stepIndex + 1) / 6;
+        const firstStep = mesh(new THREE.BoxGeometry(0.78, halfRise / 6, 0.41), stone, "office-campus-emergency-stair-step");
+        firstStep.position.set(firstX, baseY + halfRise * progress - halfRise / 12, frontZ + (rearZ - frontZ) * (stepIndex + 0.5) / 6);
+        const secondStep = mesh(new THREE.BoxGeometry(0.78, halfRise / 6, 0.41), stone, "office-campus-emergency-stair-step");
+        secondStep.position.set(secondX, baseY + halfRise + halfRise * progress - halfRise / 12, rearZ + (frontZ - rearZ) * (stepIndex + 0.5) / 6);
+        emergencyStair.add(firstStep, secondStep);
       }
+      const landing = mesh(new THREE.BoxGeometry(1.74, 0.14, 0.68), stone, "office-campus-emergency-stair-landing");
+      landing.position.set(stairX, baseY + halfRise - 0.07, rearZ);
+      emergencyStair.add(landing);
+      emergencyStair.add(
+        beamBetween(new THREE.Vector3(firstX - 0.42, baseY + 0.72, frontZ), new THREE.Vector3(firstX - 0.42, baseY + halfRise + 0.72, rearZ), 0.03, 0.03, dark, "office-campus-emergency-stair-handrail"),
+        beamBetween(new THREE.Vector3(secondX + 0.42, baseY + halfRise + 0.72, rearZ), new THREE.Vector3(secondX + 0.42, baseY + floorPitch + 0.72, frontZ), 0.03, 0.03, dark, "office-campus-emergency-stair-handrail"),
+      );
     }
     group.add(emergencyStair);
+  });
+
+  wingDefinitions.forEach((wing, wingIndex) => {
+    const cabin = new THREE.Group();
+    cabin.name = "office-campus-elevator-cabin";
+    cabin.position.set(wing.centerX + (wingIndex === 0 ? 4.28 : -4.28), 0.46, -1.75);
+    const cabinFloor = mesh(new THREE.BoxGeometry(1.12, 0.1, 1.42), dark, "office-campus-elevator-cabin-floor");
+    const cabinRoof = mesh(new THREE.BoxGeometry(1.12, 0.1, 1.42), dark, "office-campus-elevator-cabin-roof");
+    cabinRoof.position.y = 1.5;
+    const cabinBack = mesh(new THREE.BoxGeometry(1.12, 1.45, 0.08), bronze, "office-campus-elevator-cabin-wall");
+    cabinBack.position.set(0, 0.75, -0.67);
+    const cabinDoor = mesh(new THREE.BoxGeometry(1.02, 1.42, 0.06), atriumGlass, "office-campus-elevator-cabin-door");
+    cabinDoor.position.set(0, 0.74, 0.72);
+    cabin.add(cabinFloor, cabinRoof, cabinBack, cabinDoor);
+    for (const side of [-1, 1]) {
+      const wall = mesh(new THREE.BoxGeometry(0.08, 1.45, 1.34), bronze, "office-campus-elevator-cabin-wall");
+      wall.position.set(side * 0.52, 0.75, 0);
+      cabin.add(wall);
+    }
+    group.add(cabin);
   });
 
   const atriumHeight = 10.1;
@@ -2154,6 +2261,16 @@ export function buildLowPolyOfficeCampus(): OfficeCampusModel {
   const roofTerrace = mesh(new THREE.BoxGeometry(8.8, 0.12, 7.7), timber, "office-campus-roof-terrace");
   roofTerrace.position.set(7, 10.08, 0);
   group.add(roofTerrace);
+  for (const z of [-3.78, 3.78]) {
+    const rail = mesh(new THREE.BoxGeometry(8.8, 0.65, 0.1), dark, "office-campus-roof-terrace-rail");
+    rail.position.set(7, 10.465, z);
+    group.add(rail);
+  }
+  for (const x of [2.65, 11.35]) {
+    const rail = mesh(new THREE.BoxGeometry(0.1, 0.65, 7.5), dark, "office-campus-roof-terrace-rail");
+    rail.position.set(x, 10.465, 0);
+    group.add(rail);
+  }
   for (const x of [3.7, 7, 10.3]) {
     const terracePlanter = mesh(new THREE.BoxGeometry(1.35, 0.44, 0.78), stone, "office-campus-roof-planter");
     terracePlanter.position.set(x, 10.34, -3.05);

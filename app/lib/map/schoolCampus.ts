@@ -26,6 +26,8 @@ export type SchoolCampusModel = THREE.Group & {
     scaleStandard: "rabbit-rider";
     decorationSources: string[];
     siteSize: THREE.Vector3;
+    runningTrackLengthMeters: number;
+    setMainGateOpen: (open: boolean) => void;
     setInteriorCutaway: (cutaway: boolean) => void;
     setPowered: (powered: boolean) => void;
   };
@@ -80,6 +82,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
   const campus = new THREE.Group() as SchoolCampusModel;
   campus.name = "city-school-campus-lowpoly";
   const cutawayShell: THREE.Object3D[] = [];
+  const mainGatePanels: THREE.Mesh[] = [];
   const nightLights: THREE.Light[] = [];
 
   const concrete = new THREE.MeshStandardMaterial({ color: 0xd6d0c1, roughness: 0.95 });
@@ -168,8 +171,8 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     path.userData.routeIndex = index;
     campus.add(path);
   });
-  const serviceRoad = campusMesh(new THREE.BoxGeometry(158, 0.11, 5.4), asphalt, "school-campus-service-road");
-  serviceRoad.position.set(0, 0.48, 57);
+  const serviceRoad = campusMesh(new THREE.BoxGeometry(158, 0.11, 4), asphalt, "school-campus-service-road");
+  serviceRoad.position.set(0, 0.48, 61.8);
   campus.add(serviceRoad);
 
   const gate = new THREE.Group();
@@ -184,10 +187,12 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
   const lintel = campusMesh(new THREE.BoxGeometry(18, 1.15, 1.5), navy, "school-campus-gate-lintel", "administration");
   lintel.position.set(0, 5.25, 0);
   gate.add(lintel);
-  for (let index = -6; index <= 6; index += 1) {
-    const bar = campusMesh(new THREE.BoxGeometry(0.1, 3.4, 0.1), dark, "school-campus-gate-railing", "administration");
-    bar.position.set(index, 2.1, 0);
-    gate.add(bar);
+  for (const side of [-1, 1]) {
+    const panel = campusMesh(new THREE.BoxGeometry(6.6, 3.25, 0.16), dark, "school-campus-main-gate-panel", "administration");
+    panel.position.set(side * 10.6, 2.08, 0);
+    panel.userData = { side, closedX: side * 3.35, openX: side * 10.6, open: true };
+    mainGatePanels.push(panel);
+    gate.add(panel);
   }
 
   type BuildingResult = { group: THREE.Group; levels: number[]; width: number; depth: number; roofY: number };
@@ -214,7 +219,9 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     sideA.position.set(-width * 0.5, height * 0.5 + 0.55, 0);
     const sideB = sideA.clone();
     sideB.position.x = width * 0.5;
+    sideB.userData = { ...sideB.userData, cutawayRole: "observation-side" };
     group.add(foundation, rear, sideA, sideB);
+    cutawayShell.push(sideB);
     const bayCount = Math.max(4, Math.floor(width / 3.2));
     levels.forEach((level) => {
       const slab = campusMesh(new THREE.BoxGeometry(width - 0.28, 0.18, depth - 0.3), concrete, "school-building-floor-slab", zone);
@@ -247,6 +254,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     const roof = campusMesh(new THREE.BoxGeometry(width + 0.42, 0.32, depth + 0.42), navy, "school-building-flat-roof", zone);
     roof.position.y = roofY;
     group.add(roof);
+    cutawayShell.push(roof);
     return { group, levels, width, depth, roofY };
   };
 
@@ -264,7 +272,6 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     const door = campusMesh(new THREE.BoxGeometry(4.6, 2.45, 0.18), atriumGlass, `${label}-entrance-door`, zone);
     door.position.set(0, 1.9, front * (building.depth * 0.5 + 0.17));
     building.group.add(canopy, door);
-    cutawayShell.push(door);
     for (const x of [-3.6, 3.6]) {
       const post = campusMesh(new THREE.BoxGeometry(0.22, 2.65, 0.22), dark, `${label}-canopy-post`, zone);
       post.position.set(x, 1.94, front * (building.depth * 0.5 + 1.15));
@@ -272,9 +279,22 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     }
   };
   addEntrance(teachingA, "teaching", "school-teaching-a");
+  addEntrance(teachingB, "teaching", "school-teaching-b");
   addEntrance(laboratory, "laboratory", "school-laboratory");
   addEntrance(administration, "administration", "school-administration");
   addEntrance(dormA, "dormitory", "school-dormitory-a");
+  addEntrance(dormB, "dormitory", "school-dormitory-b");
+
+  for (const [x, z, width, depth] of [
+    [-48, 25.2, 18, 3.2],
+    [-48, 5.2, 18, 3.2],
+    [-9.5, 16.2, 13, 3.2],
+    [-24, -33.4, 3.2, 6.8],
+  ] as Array<[number, number, number, number]>) {
+    const link = campusMesh(new THREE.BoxGeometry(width, 0.12, depth), paving, "school-campus-entrance-link");
+    link.position.set(x, 0.49, z);
+    campus.add(link);
+  }
 
   // 24 representative classrooms, with desks sized for the 2.40 m rider reference.
   [teachingA, teachingB].forEach((building) => {
@@ -356,7 +376,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     });
   });
 
-  // East athletic district: 6-lane 400 m-proportioned oval, infield and spectator stand.
+  // East athletic district: compact six-lane campus training oval, infield and spectator stand.
   const sports = new THREE.Group();
   sports.name = "school-sports-complex";
   sports.userData.zone = "sports";
@@ -398,7 +418,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
   }
   const stand = new THREE.Group();
   stand.name = "school-spectator-stand";
-  stand.position.set(-3, 0, -23.5);
+  stand.position.set(-3, 0, -28);
   sports.add(stand);
   for (let tier = 0; tier < 5; tier += 1) {
     const bench = campusMesh(new THREE.BoxGeometry(30, 0.48 + tier * 0.46, 1.05), concrete, "school-spectator-stand-tier", "sports");
@@ -479,15 +499,33 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     const wall = campusMesh(new THREE.BoxGeometry(0.38, 8.4, 25), brick, "school-natatorium-side-wall", "natatorium");
     wall.position.set(x, 5.1, 0);
     natatorium.add(wall);
+    if (x > 0) {
+      wall.userData.cutawayRole = "observation-side";
+      cutawayShell.push(wall);
+    }
   }
   const rearWall = campusMesh(new THREE.BoxGeometry(44.8, 8.4, 0.38), brick, "school-natatorium-rear-wall", "natatorium");
   rearWall.position.set(0, 5.1, -12.3);
   natatorium.add(rearWall);
-  const glassFront = campusMesh(new THREE.BoxGeometry(44.5, 6.4, 0.22), atriumGlass, "school-natatorium-glass-facade", "natatorium");
-  glassFront.position.set(0, 4.15, 12.3);
-  natatorium.add(glassFront);
-  cutawayShell.push(glassFront);
+  for (const side of [-1, 1]) {
+    const glassFront = campusMesh(new THREE.BoxGeometry(19.6, 6.4, 0.22), atriumGlass, "school-natatorium-glass-facade", "natatorium");
+    glassFront.position.set(side * 12.3, 4.15, 12.3);
+    natatorium.add(glassFront);
+    cutawayShell.push(glassFront);
+  }
+  for (const side of [-1, 1]) {
+    const entranceDoor = campusMesh(new THREE.BoxGeometry(2.25, 3.1, 0.18), atriumGlass, "school-natatorium-entrance-door", "natatorium");
+    entranceDoor.position.set(side * 1.18, 2.35, 12.42);
+    natatorium.add(entranceDoor);
+  }
+  const natatoriumCanopy = campusMesh(new THREE.BoxGeometry(8, 0.28, 2.4), navy, "school-natatorium-entrance-canopy", "natatorium");
+  natatoriumCanopy.position.set(0, 4.3, 13.35);
+  natatorium.add(natatoriumCanopy);
+  const natatoriumPath = campusMesh(new THREE.BoxGeometry(8, 0.12, 2.6), paving, "school-natatorium-entrance-link", "natatorium");
+  natatoriumPath.position.set(52, 0.5, 60.7);
+  campus.add(natatoriumPath);
   for (let frame = -5; frame <= 5; frame += 1) {
+    if (frame === 0) continue;
     const mullion = campusMesh(new THREE.BoxGeometry(0.18, 6.5, 0.28), navy, "school-natatorium-glass-frame", "natatorium");
     mullion.position.set(frame * 4.05, 4.15, 12.4);
     natatorium.add(mullion);
@@ -496,6 +534,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
   const roof = campusMesh(new THREE.BoxGeometry(45.2, 0.35, 25.2), navy, "school-natatorium-roof", "natatorium");
   roof.position.y = 9.35;
   natatorium.add(roof);
+  cutawayShell.push(roof);
   for (let truss = -4; truss <= 4; truss += 1) {
     const beam = campusMesh(new THREE.BoxGeometry(0.22, 0.32, 24.5), dark, "school-natatorium-roof-truss", "natatorium");
     beam.position.set(truss * 5, 9.05, 0);
@@ -559,6 +598,13 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
       "city-roadside-planter-lowpoly",
     ],
     siteSize: new THREE.Vector3(170, 22, 130),
+    runningTrackLengthMeters: 238,
+    setMainGateOpen: (open) => {
+      mainGatePanels.forEach((panel) => {
+        panel.position.x = open ? panel.userData.openX as number : panel.userData.closedX as number;
+        panel.userData.open = open;
+      });
+    },
     setInteriorCutaway: (cutaway) => {
       cutawayShell.forEach((object) => { object.visible = !cutaway; });
     },
@@ -572,5 +618,6 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
   };
   campus.userData.setPowered(false);
   campus.userData.setInteriorCutaway(false);
+  campus.userData.setMainGateOpen(true);
   return campus;
 }

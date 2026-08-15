@@ -36,6 +36,37 @@
 .shopping::after { left: 48px; bottom: 26px; width: 30px; height: 40px; background: #68a1ad; box-shadow: 43px 0 #68a1ad, 122px 0 #68a1ad, 165px 0 #68a1ad, 208px 0 #68a1ad, 251px 0 #68a1ad, 22px -51px #68a1ad, 65px -51px #68a1ad, 108px -51px #68a1ad, 151px -51px #68a1ad, 194px -51px #68a1ad; }
 .shopping i { position: absolute; z-index: 3; left: 50%; bottom: 0; width: 68px; height: 74px; border: 6px solid #2e4852; border-bottom: 0; transform: translateX(-50%); }
 .shopping i::before { content: ""; position: absolute; left: 50%; top: 25px; width: 150px; height: 5px; background: #d4a660; box-shadow: 0 30px #d4a660; transform: translateX(-50%); }
+.community { background: linear-gradient(#c5dcdf 0 67%, #789b6c 67%); }
+.community::before { left: 28px; bottom: 0; width: 74px; height: 148px; background: #e5d8c2; border-top: 11px solid #9d5b45; box-shadow: 92px 24px 0 #e9dfcd, 184px 66px 0 #f0d88f, 276px 92px 0 #efe6d6; }
+.community::after { left: 44px; bottom: 30px; width: 18px; height: 24px; background: #69a2ac; box-shadow: 31px 0 #69a2ac, 0 -42px #69a2ac, 31px -42px #69a2ac, 92px 18px #69a2ac, 123px 18px #69a2ac, 184px 60px #e06d56, 215px 60px #4f94aa, 246px 60px #e7b846; }
+.community i { position: absolute; z-index: 3; left: 55%; bottom: 0; width: 6px; height: 72px; background: #3f5358; box-shadow: -116px 8px #3f5358, 116px 4px #3f5358; }
+.community i::before { content: ""; position: absolute; left: -14px; top: -17px; width: 34px; height: 34px; border-radius: 50%; background: #5f8c5f; box-shadow: -116px 8px #6b9868, 116px 4px #709a69; }
+.fire { background: linear-gradient(#c5dce0 0 70%, #69796e 70%); }
+.fire::before { left: 28px; right: 92px; bottom: 0; height: 126px; background: #ece8dc; border-top: 13px solid #c94d3f; box-shadow: inset 0 -14px #bfb8aa, 230px -42px 0 -42px #8e312b; }
+.fire::after { left: 48px; bottom: 23px; width: 34px; height: 58px; background: #8fa0a4; box-shadow: 43px 0 #8fa0a4, 86px 0 #8fa0a4, 129px 0 #8fa0a4, 172px 0 #8fa0a4, 215px 0 #8fa0a4, 259px -32px #6e858b, 259px -66px #6e858b, 259px -100px #6e858b; }
+.fire i { position: absolute; z-index: 3; left: 112px; bottom: 18px; width: 92px; height: 26px; border-radius: 4px; background: #c94d3f; box-shadow: 0 -10px 0 -5px #e9e6dc; }
+.fire i::before { content: ""; position: absolute; left: 9px; bottom: -8px; width: 18px; height: 18px; border: 5px solid #303f45; border-radius: 50%; background: #7d898b; box-shadow: 48px 0 0 -5px #7d898b, 48px 0 0 0 #303f45; }
+.park { background: linear-gradient(#c5dde1 0 61%, #759868 61%); }
+.park::before { left: 50%; bottom: 12px; width: 210px; height: 78px; border: 10px solid #aaa59b; border-radius: 50%; background: #55a0b2; box-shadow: 0 0 0 12px #d7b87f; transform: translateX(-50%); }
+.park::after { left: 50%; bottom: 42px; width: 250px; height: 8px; background: #936a48; box-shadow: 0 8px 0 #35484c; transform: translateX(-50%); }
+.park i { position: absolute; z-index: 3; left: 50%; bottom: 51px; width: 44px; height: 9px; border-radius: 50%; background: #a9a59c; transform: translateX(-50%); }
+.park i::before { content: ""; position: absolute; left: 50%; top: -47px; width: 5px; height: 48px; background: #956b47; box-shadow: -98px 15px #3f5f43, 98px 15px #3f5f43; transform: translateX(-50%); }
+.park i::after { content: ""; position: absolute; left: 50%; top: -66px; width: 64px; height: 30px; background: #b9654d; clip-path: polygon(50% 0, 100% 100%, 0 100%); transform: translateX(-50%); }
+.sports { background: linear-gradient(#c5dce0 0 68%, #708d68 68%); }
+.sports::before { left: 34px; bottom: 15px; width: 230px; height: 112px; border: 14px solid #b95046; border-radius: 54px; background: #4f8255; box-shadow: 254px 18px 0 -8px #eee9dc, 254px -30px 0 -8px #315f78; }
+.sports::after { left: 62px; bottom: 42px; width: 174px; height: 58px; border: 3px solid rgba(246,242,232,.9); border-radius: 30px; box-shadow: inset 0 0 0 3px rgba(246,242,232,.65); }
+.sports i { position: absolute; z-index: 3; left: 270px; bottom: 18px; width: 9px; height: 135px; background: #6f7d82; box-shadow: -225px 0 #6f7d82, 100px 10px #6f7d82; }
+.sports i::before { content: ""; position: absolute; left: -16px; top: -4px; width: 42px; height: 15px; background: #ffd89b; box-shadow: -225px 0 #ffd89b, 100px 10px #ffd89b; }
+.center { background: linear-gradient(#c6dce1 0 68%, #717e75 68%); }
+.center::before { left: 50%; bottom: 0; width: 74px; height: 172px; background: #5b9bad; border-top: 9px solid #c95f45; box-shadow: -112px 56px 0 -14px #eee9dc, 112px 75px 0 -18px #3c7890; transform: translateX(-50%); }
+.center::after { left: 31px; right: 31px; bottom: 22px; height: 28px; border: 5px solid #e0b348; border-inline-width: 0; background: repeating-linear-gradient(90deg, #49575a 0 33px, #e1d7c6 33px 38px); box-shadow: 0 -34px 0 -11px #c95f45; }
+.center i { position: absolute; z-index: 3; left: 50%; bottom: 24px; width: 92px; height: 10px; background: #e1d7c6; transform: translateX(-50%); }
+.center i::before { content: ""; position: absolute; left: 50%; top: -58px; width: 60px; height: 58px; border: 7px solid #3c7890; border-bottom: 0; transform: translateX(-50%); }
+.town { background: linear-gradient(#c9dde0 0 66%, #78956c 66%); }
+.town::before { left: 50%; bottom: 0; width: 172px; height: 90px; background: #efe7d6; border-top: 11px solid #9b4938; box-shadow: -118px 26px 0 -12px #f5eedf, 118px 34px 0 -15px #a95842; transform: translateX(-50%); }
+.town::after { left: 50%; bottom: 84px; width: 36px; height: 84px; background: #a95842; border-top: 20px solid #9b4938; box-shadow: inset 0 20px #efe7d6; transform: translateX(-50%); }
+.town i { position: absolute; z-index: 3; left: 50%; bottom: 9px; width: 132px; height: 36px; border: 7px solid #ddd1bc; border-radius: 50%; background: #4a99aa; transform: translateX(-50%) scaleY(.38); }
+.town i::before { content: ""; position: absolute; left: 50%; bottom: 59px; width: 16px; height: 16px; border-radius: 50%; background: #f3e6c8; box-shadow: 0 0 0 5px #2c3f43; transform: translateX(-50%) scaleY(2.63); }
 .card h2 { margin: 0; font-family: "Songti SC", "STSong", Georgia, serif; font-size: 27px; font-weight: 650; }
 .card p { margin: 8px 0 0; color: #6d7d83; font-size: 11px; line-height: 1.6; }
 .tags { align-self: end; display: flex; flex-wrap: wrap; gap: 5px; margin-top: 24px; }

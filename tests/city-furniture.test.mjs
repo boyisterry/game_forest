@@ -54,6 +54,8 @@ test("generates a traffic light with vehicle, pedestrian and phase controls", ()
   const spillLight = signal.getObjectByName("traffic-signal-status-light");
   assert.equal(spillLight.position.y, 4.18);
   assert.ok(spillLight.distance < 0.84);
+  const headSize = new THREE.Box3().setFromObject(signal.getObjectByName("traffic-light-vehicle-head")).getSize(new THREE.Vector3());
+  assert.ok(headSize.y < 1.8, "vehicle signal head should stay below the 2.4 m rider reference");
 });
 
 test("generates a mirrored traffic-light mast without reversing the signal face", () => {
@@ -80,6 +82,21 @@ test("generates a roadside food truck with wheels, service hatch and lighting co
   assert.ok(truck.userData.occupantSpace.x >= 2.8);
   assert.ok(truck.getObjectByName("food-truck-menu-board"));
   assert.equal(truck.children.filter((child) => child.name === "food-truck-wheel").length, 4);
+  const truckBounds = new THREE.Box3().setFromObject(truck);
+  assert.ok(Math.abs(truckBounds.min.y) < 1e-6, "food-truck tyres should touch the placement surface");
+  const counter = truck.getObjectByName("food-truck-serving-counter");
+  assert.ok(counter.position.y <= 1.25, "serving counter should remain reachable at rider scale");
+  let truckRadius = 0;
+  truck.updateWorldMatrix(true, true);
+  truck.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const positions = object.geometry.attributes.position;
+    for (let index = 0; index < positions.count; index += 1) {
+      const vertex = new THREE.Vector3().fromBufferAttribute(positions, index).applyMatrix4(object.matrixWorld);
+      truckRadius = Math.max(truckRadius, Math.hypot(vertex.x, vertex.z));
+    }
+  });
+  assert.ok(truckRadius < 3.9, "food truck should stay within its enlarged display pedestal");
   const hatch = truck.getObjectByName("food-truck-serving-hatch-pivot");
   truck.userData.setServingOpen(false);
   assert.equal(hatch.rotation.x, 0);
@@ -145,6 +162,8 @@ test("generates a lit phone booth with a telephone and opening framed door", () 
   assert.equal(booth.userData.generatedLocally, true);
   assert.ok(booth.getObjectByName("phone-booth-telephone"));
   assert.ok(booth.getObjectByName("phone-booth-handset"));
+  const boothSize = new THREE.Box3().setFromObject(booth).getSize(new THREE.Vector3());
+  assert.ok(boothSize.y < 3.2, "phone booth should remain close to rider scale");
   const door = booth.getObjectByName("phone-booth-door-pivot");
   booth.userData.setDoorOpen(false);
   assert.equal(door.rotation.y, 0);
@@ -399,7 +418,12 @@ test("generates a broad furnished office campus with two wings, atrium and share
   assert.equal(office.children.filter((child) => child.name === "office-campus-workstation-desk").length, 24);
   assert.equal(office.children.filter((child) => child.name === "office-campus-meeting-room-floor").length, 6);
   assert.equal(office.children.filter((child) => child.name === "office-campus-elevator-door").length, 11);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-elevator-cabin").length, 2);
   assert.equal(office.children.filter((child) => child.name === "office-campus-emergency-stair").length, 2);
+  assert.equal(office.children.filter((child) => child.name === "office-campus-roof-terrace-rail").length, 4);
+  const officeStairs = office.children.filter((child) => child.name === "office-campus-emergency-stair");
+  assert.equal(officeStairs.flatMap((stair) => stair.children.filter((child) => child.name === "office-campus-emergency-stair-step")).length, 108);
+  assert.equal(officeStairs.flatMap((stair) => stair.children.filter((child) => child.name === "office-campus-emergency-stair-landing")).length, 9);
   assert.equal(office.children.filter((child) => child.name === "office-campus-solar-panel").length, 6);
   assert.ok(office.getObjectByName("office-campus-atrium-glazing"));
   assert.ok(office.getObjectByName("office-campus-reception-desk"));
@@ -470,9 +494,11 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /buildLowPolyResidentialBuilding/);
   assert.match(source, /buildLowPolyHighRiseResidential/);
   assert.match(source, /buildLowPolySmallVilla/);
-  assert.match(source, /APARTMENT_SHOWCASE_SCALE = 1\.5/);
+  assert.match(source, /APARTMENT_SHOWCASE_SCALE = 1\.8/);
   assert.match(source, /VILLA_SHOWCASE_SCALE = 1\.3/);
-  assert.match(source, /HIGH_RISE_SHOWCASE_SCALE = 1\.05/);
+  assert.match(source, /HIGH_RISE_SHOWCASE_SCALE = 1\.7/);
+  assert.match(source, /OFFICE_SHOWCASE_SCALE = 1\.65/);
+  assert.match(source, /addPedestal\(scene, -12, 6, 0x3f8c88, 3\.9\)/);
   assert.match(source, /pair\.root\.scale\.setScalar\(displayScale\)/);
   assert.match(source, /setApartmentDoorOpen/);
   assert.match(source, /setVillaDoorOpen/);
@@ -491,7 +517,7 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /开启电梯自动运行/);
   assert.match(source, /查看办公楼内部/);
   assert.match(source, /恢复办公楼外观/);
-  assert.match(source, /new THREE\.Vector3\(0, 0\.42, 44\)/);
+  assert.match(source, /new THREE\.Vector3\(0, 0\.42, 50\)/);
   assert.match(source, /createFurnitureShatterPair/);
   assert.match(source, /ShatterMorphController/);
   assert.match(source, /破碎全部模型/);

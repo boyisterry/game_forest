@@ -41,6 +41,9 @@ test("aligns every main building facade to one campus direction", () => {
   assert.ok(mainBuildings.every((name) => campus.getObjectByName(name)?.userData.frontDirection === "+z"));
   const dormDoor = campus.getObjectByName("school-dormitory-a-entrance-door");
   assert.ok(dormDoor.position.z > 0, "dormitory entrance should face the same +z direction");
+  assert.ok(campus.getObjectByName("school-teaching-b-entrance-door"));
+  assert.ok(campus.getObjectByName("school-dormitory-b-entrance-door"));
+  assert.equal(namedObjects(campus, "school-campus-entrance-link").length, 4);
 });
 
 test("protects the school with a continuous perimeter and controlled main-gate gap", () => {
@@ -51,6 +54,12 @@ test("protects the school with a continuous perimeter and controlled main-gate g
   assert.equal(namedObjects(campus, "school-campus-fence-horizontal-rail").length, 10);
   const gate = campus.getObjectByName("school-campus-main-gate");
   assert.ok(gate && gate.position.z > 60);
+  const panels = namedObjects(campus, "school-campus-main-gate-panel");
+  assert.equal(panels.length, 2);
+  assert.ok(panels.every((panel) => panel.userData.open && Math.abs(panel.position.x) > 9));
+  campus.userData.setMainGateOpen(false);
+  assert.ok(panels.every((panel) => !panel.userData.open && Math.abs(panel.position.x) < 4));
+  campus.userData.setMainGateOpen(true);
 });
 
 test("includes inspectable learning, laboratory, office and dormitory interiors", () => {
@@ -66,11 +75,18 @@ test("includes inspectable learning, laboratory, office and dormitory interiors"
   assert.equal(namedObjects(campus, "school-dorm-bed").length, 96);
 
   const window = namedObjects(campus, "school-building-window")[0];
+  const observationWall = namedObjects(campus, "school-building-side-wall").find((wall) => wall.userData.cutawayRole === "observation-side");
+  const roof = namedObjects(campus, "school-building-flat-roof")[0];
+  const entranceDoor = campus.getObjectByName("school-teaching-a-entrance-door");
   assert.equal(window.visible, true);
   campus.userData.setInteriorCutaway(true);
   assert.equal(window.visible, false);
+  assert.equal(observationWall.visible, false);
+  assert.equal(roof.visible, false);
+  assert.equal(entranceDoor.visible, true, "cutaway must preserve the building entrance");
   campus.userData.setInteriorCutaway(false);
   assert.equal(window.visible, true);
+  assert.equal(observationWall.visible, true);
 });
 
 test("provides a complete track, ball-court district and eight-lane indoor pool", () => {
@@ -88,6 +104,20 @@ test("provides a complete track, ball-court district and eight-lane indoor pool"
   assert.equal(namedObjects(campus, "school-swimming-starting-block").length, 8);
   assert.ok(campus.getObjectByName("school-natatorium-glass-facade"));
   assert.ok(campus.getObjectByName("school-natatorium-roof"));
+  assert.equal(campus.userData.runningTrackLengthMeters, 238);
+  assert.equal(namedObjects(campus, "school-natatorium-entrance-door").length, 2);
+  assert.ok(campus.getObjectByName("school-natatorium-entrance-link"));
+  const trackBox = new THREE.Box3().setFromObject(campus.getObjectByName("school-running-track"));
+  const standBox = new THREE.Box3().setFromObject(campus.getObjectByName("school-spectator-stand"));
+  assert.ok(standBox.max.z < trackBox.min.z);
+  const serviceRoadBox = new THREE.Box3().setFromObject(campus.getObjectByName("school-campus-service-road"));
+  const poolBox = new THREE.Box3().setFromObject(campus.getObjectByName("school-natatorium-foundation"));
+  assert.ok(serviceRoadBox.min.z > poolBox.max.z);
+  const poolObservationWall = namedObjects(campus, "school-natatorium-side-wall").find((wall) => wall.userData.cutawayRole === "observation-side");
+  campus.userData.setInteriorCutaway(true);
+  assert.equal(poolObservationWall.visible, false);
+  assert.equal(campus.getObjectByName("school-natatorium-roof").visible, false);
+  assert.ok(namedObjects(campus, "school-natatorium-entrance-door").every((door) => door.visible));
 });
 
 test("reuses city decorations and is calibrated to the rabbit rider", () => {
@@ -136,7 +166,7 @@ test("exposes the school campus from the model archive and map studio", async ()
   assert.match(demoSource, /教学楼组团/);
   assert.match(demoSource, /综合实验楼/);
   assert.match(demoSource, /室内游泳馆/);
-  assert.match(demoSource, /兔子骑车主角约 2\.40 m 参考/);
+  assert.match(demoSource, /兔子骑车主角整体外廓约 2\.40 m/);
   assert.match(demoSource, /RABBIT_RIDER_URL/);
   assert.match(archiveSource, /现代学校/);
   assert.match(archiveSource, /\/demos\/school-campus/);
