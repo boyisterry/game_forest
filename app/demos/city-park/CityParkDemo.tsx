@@ -16,19 +16,19 @@ const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3; rider
   overview: { target: new THREE.Vector3(0, 5, 0), camera: new THREE.Vector3(150, 110, 170), rider: new THREE.Vector3(0, 0.58, 68) },
   entrance: { target: new THREE.Vector3(0, 4, 55), camera: new THREE.Vector3(70, 28, 104), rider: new THREE.Vector3(0, 0.58, 68) },
   lake: { target: new THREE.Vector3(0, 4, -8), camera: new THREE.Vector3(90, 38, 55), rider: new THREE.Vector3(10, 0.58, 26) },
-  recreation: { target: new THREE.Vector3(-55, 3, 19), camera: new THREE.Vector3(-120, 36, 70), rider: new THREE.Vector3(-35, 0.58, 38) },
-  garden: { target: new THREE.Vector3(-58, 4, -43), camera: new THREE.Vector3(-120, 38, 0), rider: new THREE.Vector3(-35, 0.58, -25) },
-  amphitheatre: { target: new THREE.Vector3(56, 4, -38), camera: new THREE.Vector3(120, 38, 5), rider: new THREE.Vector3(37, 0.58, -18) },
+  recreation: { target: new THREE.Vector3(0, 3, 19), camera: new THREE.Vector3(0, 72, 132), rider: new THREE.Vector3(-35, 0.58, 38) },
+  garden: { target: new THREE.Vector3(-58, 4.8, -53), camera: new THREE.Vector3(-116, 32, -16), rider: new THREE.Vector3(-36, 0.58, -28) },
+  amphitheatre: { target: new THREE.Vector3(64, 4, -50), camera: new THREE.Vector3(120, 34, -2), rider: new THREE.Vector3(42, 0.58, -29) },
   service: { target: new THREE.Vector3(54, 3, 52), camera: new THREE.Vector3(110, 25, 96), rider: new THREE.Vector3(36, 0.58, 64) },
 };
 
 const ZONES: Array<{ id: Focus; number: string; title: string; summary: string; detail: string }> = [
-  { id: "overview", number: "PARK 00", title: "云水城市公园总览", summary: "185 × 140 m · 湖区 / 活动 / 花园 / 剧场", detail: "四个常开入口连接连续无障碍步行环路和骑行环线，以中央生态湖组织全园公共空间。" },
+  { id: "overview", number: "PARK 00", title: "云水城市公园总览", summary: "185 × 140 m · 湖区 / 草坪 / 花园 / 剧场", detail: "四个常开入口连接连续无障碍步行环路和骑行环线，以中央生态湖组织互不冲突的游憩、植物展示与文化空间。" },
   { id: "entrance", number: "GATE 01", title: "入口广场与环形步道", summary: "4 个开放入口 · 344 m 步行环 · 398 m 骑行环", detail: "南侧主入口设置自行车停车和迎宾广场，东西北三个次入口保证社区各方向均可自由进入。" },
-  { id: "lake", number: "LAKE 02", title: "中央生态湖区", summary: "生态驳岸 · 78 m 景观桥 · 双组喷泉", detail: "东西无障碍景观桥连接湖岸并穿过中央亭，湿地岛和循环喷泉兼顾生态净化与景观体验。" },
-  { id: "recreation", number: "PLAY 03", title: "儿童与运动活动区", summary: "儿童乐园 · 社区球场 · 10 组健身设施", detail: "儿童软质活动场与成人球场保持安全距离，外围健身区面向步行环路开放。" },
-  { id: "garden", number: "GARDEN 04", title: "植物花园与温室", summary: "15 组主题花床 · 全玻璃温室", detail: "西北安静区通过规则花床、温室和林下步道展示季节植物，并保持完整无障碍游览路线。" },
-  { id: "amphitheatre", number: "STAGE 05", title: "露天剧场", summary: "6 排阶梯坐席 · 有顶舞台", detail: "东北草坡剧场适合社区演出、露天电影和公共活动，首排保留无障碍观演空间。" },
+  { id: "lake", number: "LAKE 02", title: "中央生态湖区", summary: "生态驳岸 · 观景座椅 · 双组喷泉", detail: "重新分区的湖景座椅与林木避开水面、景观桥和主环路，湿地岛及循环喷泉兼顾生态净化与安全观景。" },
+  { id: "recreation", number: "PLAY 03", title: "儿童与草坪活动区", summary: "儿童乐园 · 开放活动草坪 · 10 组健身设施", detail: "可野餐、游戏和承载社区活动的开放草坪，衔接儿童软质场地与面向步行环路的全龄健身区。" },
+  { id: "garden", number: "GARDEN 04", title: "植物花园与温室", summary: "15 组主题花床 · 分段玻璃公共温室", detail: "温室采用完整金属框架、分格玻璃屋面、双门雨棚和中央无障碍通道，内部配置八组种植床及通风、排水和植物解说设施。" },
+  { id: "amphitheatre", number: "STAGE 05", title: "露天剧场", summary: "6 排落地阶梯坐席 · 无障碍观演", detail: "每排看台均由连续基础支撑，并细化独立座板、靠背和双侧阶梯过道；舞台基础及四个轮椅观演位满足社区演出使用。" },
   { id: "service", number: "SERVICE 06", title: "游客服务区", summary: "游客中心 · 咖啡 · 公厕 · 急救 · 2 辆餐车", detail: "服务建筑集中在主入口东侧，方便管理维护，同时避免服务车辆进入中央游园区域。" },
 ];
 
@@ -63,7 +63,7 @@ export function CityParkDemo() {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.04;
-    renderer.domElement.setAttribute("aria-label", "中央湖区、活动场、花园和露天剧场组成的城市公园三维展示场景");
+    renderer.domElement.setAttribute("aria-label", "中央生态湖、开放活动草坪、精细温室花园和落地看台露天剧场组成的城市公园三维展示场景");
     renderer.domElement.tabIndex = 0;
     host.appendChild(renderer.domElement);
 
@@ -216,7 +216,7 @@ export function CityParkDemo() {
           <button type="button" className={styles.collapseButton} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>{collapsed ? "展开导览 ↓" : "收起导览 ↑"}</button>
         </div>
         <div hidden={collapsed}>
-          <p className={styles.intro}>参考现实综合性城市公园规划，以中央生态湖为核心，串联步行、骑行、儿童活动、社区运动、植物展示、文化演出与游客服务。四个入口保持开放，低围栏仅用于边界引导；树木、花坛、路灯和餐车复用已有模型，小兔子骑车主角作为统一比例参考。</p>
+          <p className={styles.intro}>参考现实综合性城市公园规划，以中央生态湖为核心，串联步行、骑行、儿童活动、开放草坪、植物展示、文化演出与游客服务。湖边座椅和树木按观景、安全与通行需求重新分区，四个入口保持开放；树木、花坛、路灯和餐车复用已有模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮公园夜景"}</button>
             <button type="button" className={waterEnabled ? styles.active : ""} aria-pressed={waterEnabled} onClick={toggleWater}>{waterEnabled ? "暂停湖面喷泉" : "启动湖面喷泉"}</button>

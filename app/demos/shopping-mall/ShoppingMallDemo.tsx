@@ -17,6 +17,7 @@ const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3; rider
   "food-street": { target: new THREE.Vector3(-32, 4, 12), camera: new THREE.Vector3(8, 22, 49), rider: new THREE.Vector3(-15, 0.5, 26) },
   lifestyle: { target: new THREE.Vector3(60, 8, -3), camera: new THREE.Vector3(111, 35, 44), rider: new THREE.Vector3(48, 0.5, 26) },
   "upper-arcade": { target: new THREE.Vector3(0, 8, 0), camera: new THREE.Vector3(76, 37, 46), rider: new THREE.Vector3(21, 0.5, 24) },
+  interior: { target: new THREE.Vector3(-24, 2.8, -32), camera: new THREE.Vector3(4, 11, -7), rider: new THREE.Vector3(-8, 0.5, -18) },
 };
 
 const ZONES: Array<{ id: Focus; number: string; title: string; summary: string; detail: string }> = [
@@ -26,6 +27,7 @@ const ZONES: Array<{ id: Focus; number: string; title: string; summary: string; 
   { id: "food-street", number: "TASTE 03", title: "半露天餐饮街", summary: "快餐 · 咖啡 · 汉堡 · 奶茶", detail: "首层内街集中了餐饮柜台、户外餐桌、遮阳伞、烘焙与正餐商家。" },
   { id: "lifestyle", number: "RETAIL 04", title: "生活方式商业翼", summary: "时尚零售 · 便利店 · 主力店", detail: "东西翼楼承载生活零售，北侧四层主力店形成商业中心的视觉锚点。" },
   { id: "upper-arcade", number: "LINK 05", title: "露天过道系统", summary: "4 座转角短桥 · 2 组扶梯 · 沿楼露台", detail: "有柱支撑的二层过道贴合内立面，仅以短桥连接建筑转角，不再横跨或遮挡整个中庭。" },
+  { id: "interior", number: "INTERIOR 06", title: "主题店铺精装内部", summary: "62 个主题店铺 · 后厨与陈列", detail: "剖开北翼观察收银柜台、餐饮后厨、零售陈列、店内座席与灯光，并串联楼梯、电梯、卫生间和导视等公共服务。" },
 ];
 
 type DemoApi = { focus: (focus: Focus) => void; setNight: (night: boolean) => void; setCutaway: (cutaway: boolean) => void; setAutoRotate: (enabled: boolean) => void };
@@ -52,7 +54,7 @@ export function ShoppingMallDemo() {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.04;
-    renderer.domElement.setAttribute("aria-label", "大型开放街区式商场建筑群三维展示场景");
+    renderer.domElement.setAttribute("aria-label", "都会里大型商业中心三维展示场景，包含六十二个主题店铺、精装室内、中庭和公共服务设施");
     renderer.domElement.tabIndex = 0;
     host.appendChild(renderer.domElement);
 
@@ -160,7 +162,18 @@ export function ShoppingMallDemo() {
     };
   }, []);
 
-  const chooseFocus = (next: Focus) => { setFocus(next); apiRef.current?.focus(next); };
+  const chooseFocus = (next: Focus) => {
+    if (autoRotate) {
+      setAutoRotate(false);
+      apiRef.current?.setAutoRotate(false);
+    }
+    setFocus(next);
+    if (next === "interior") {
+      setCutaway(true);
+      apiRef.current?.setCutaway(true);
+    }
+    apiRef.current?.focus(next);
+  };
   const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
@@ -174,21 +187,21 @@ export function ShoppingMallDemo() {
           <button type="button" className={styles.collapseButton} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>{collapsed ? "展开导览 ↓" : "收起导览 ↑"}</button>
         </div>
         <div hidden={collapsed}>
-          <p className={styles.intro}>五栋玻璃幕墙商业建筑围合部分露天的中央商场，外圈首层商家直接面向城市道路；约 21 米宽的无门开放入口直通中庭，内部餐饮街通过玻璃雨棚、露台和空中连桥相互连接。小兔子骑车主角作为统一尺度参考。</p>
+          <p className={styles.intro}>五栋玻璃幕墙商业建筑围合部分露天的中央商场，62 个主题店铺具有独立收银、餐饮后厨、商品陈列、店内座席与灯光装修；约 21 米宽的无门开放入口直通中庭，楼梯、电梯、卫生间和导视服务连接餐饮街、露台与空中连桥。小兔子骑车主角作为统一尺度参考。</p>
           <div className={styles.actions}>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮商业夜景"}</button>
-            <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整外观" : "查看开放结构"}</button>
+            <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整外观" : "查看精装内部"}</button>
             <button type="button" className={autoRotate ? styles.active : ""} aria-pressed={autoRotate} onClick={toggleRotate}>{autoRotate ? "停止环游" : "自动环游"}</button>
             <button type="button" onClick={() => chooseFocus("overview")}>返回商场总览</button>
           </div>
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {night ? "NIGHT SHOPPING" : "CENTRE OPEN"} · {cutaway ? "开放结构观察中" : "完整建筑群"}</div>
-      <aside className={styles.metrics} aria-label="商业中心模型参数">
-        <span>OPEN-AIR RETAIL CENTRE</span>
+      <div className={styles.status}><span /> {focus === "interior" ? "INTERIOR DETAIL" : night ? "NIGHT SHOPPING" : "CENTRE OPEN"} · {cutaway ? "精装店铺与公共服务观察中" : "完整建筑群"}</div>
+      <aside className={styles.metrics} aria-label="商业中心规模、主题店铺和室内公共服务参数">
+        <span>62-TENANT INTERIOR RETAIL CENTRE</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>
-        <small>{metrics ? `${metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 62 个首层商铺 · ${referenceReady ? "兔子骑车主角整体外廓约 2.40 m" : "主角参考加载中"}` : "正在计算商业中心规模"}</small>
+        <small>{metrics ? `${metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 62 个主题店铺 · 收银 / 后厨 / 陈列 / 座席 · 楼梯电梯与公共服务 · ${referenceReady ? "兔子骑车主角整体外廓约 2.40 m" : "主角参考加载中"}` : "正在计算商业中心规模"}</small>
       </aside>
       <nav className={styles.zoneRail} aria-label="选择商业中心分区">
         {ZONES.map((zone) => <button key={zone.id} type="button" className={`${styles.zoneCard} ${focus === zone.id ? styles.selected : ""}`} onClick={() => chooseFocus(zone.id)}><span>{zone.number}</span><strong>{zone.title}</strong><small>{zone.summary}</small><em>{zone.detail}</em></button>)}

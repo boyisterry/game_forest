@@ -33,16 +33,16 @@ const FACILITY_CARDS: Array<{
   summary: string;
   detail: string;
 }> = [
-  { id: "overview", number: "PARK 00", title: "全园总览", summary: "12 项设施 · 都市天际线 · 环形游园动线", detail: "入口广场、中央喷泉、主题商街与四大游乐分区" },
-  { id: "coaster", number: "THRILL 01", title: "云际过山车", summary: "双轨道 · 4 节列车 · 高低落差", detail: "沿城市天际线连续穿梭的主力刺激项目" },
+  { id: "overview", number: "PARK 00", title: "全园总览", summary: "12 项设施 · 开放绿化边界 · 环形游园动线", detail: "入口广场、中央喷泉、主题商街与四大游乐分区；碰碰车具备完整车辆与顶棚供电结构，旋转杯配置三人座舱和独立控制转盘" },
+  { id: "coaster", number: "THRILL 01", title: "云际过山车", summary: "法向双轨 · 双侧站台 · 无障碍升降连接", detail: "轨道配置连续脊梁与 72 组横枕；直线站段设双侧高架站台、双坡雨棚、侧向楼梯与升降桥，游客中心提供售票、咨询、储物、急救和卫生间服务" },
   { id: "ferris", number: "ICON 02", title: "星环摩天轮", summary: "12 座六人轿厢 · 约 37 m 高", detail: "每厢两排共 6 座，保持水平并配置夜间轮廓灯" },
-  { id: "carousel", number: "FAMILY 03", title: "皇家旋转木马", summary: "12 匹大型木马 · 约 19 m 直径", detail: "木马长度超过主角骑行模型，上下起伏并配置锥顶华盖" },
-  { id: "pirate", number: "THRILL 04", title: "风暴海盗船", summary: "悬吊摆臂 · 船帆与桅杆", detail: "真实枢轴结构带来大角度往复摆动" },
-  { id: "playground", number: "KIDS 05", title: "彩虹翻斗乐", summary: "玻璃馆 · 攀爬塔 · 连通滑筒", detail: "全天候室内儿童攀爬与探索空间" },
+  { id: "carousel", number: "FAMILY 03", title: "皇家旋转木马", summary: "12 匹精细木马 · 鞍具脚蹬 · 装饰华盖", detail: "每匹木马具备完整头颈、四肢、马蹄、鬃尾、马鞍、缰具与脚蹬，并随旋转平台独立上下起伏" },
+  { id: "pirate", number: "THRILL 04", title: "风暴海盗船", summary: "24 座甲板 · 独立压杆 · 真实轴承摆臂", detail: "三层船体配置龙骨、甲板和舷窗；桅杆上的双面梯形帆由五幅帆布、上下横桁与帆索完整固定，6 排座椅均有独立安全压杆" },
+  { id: "playground", number: "KIDS 05", title: "彩虹翻斗乐", summary: "三层软包迷宫 · 安全网 · 滑筒 · 球池", detail: "按幼儿球池、攀爬迷宫和高层滑筒划分的全天候室内儿童活动空间" },
   { id: "circus", number: "SHOW 06", title: "大帐篷马戏团", summary: "16 边帐篷 · 演出入口 · 旗塔", detail: "乐园表演中心与家庭秀场" },
   { id: "shooting", number: "GAME 07", title: "西部射击游戏场", summary: "7 组升降靶 · 开放柜台", detail: "交错移动的目标组成轻竞技体验" },
-  { id: "karting", number: "RACE 08", title: "极速卡丁车场", summary: "封闭赛道 · 6 台赛车 · 维修区", detail: "多弯城市赛道与持续巡回赛车" },
-  { id: "drop-tower", number: "THRILL 09", title: "天空坠落塔", summary: "约 39 m 高 · 旋转座舱", detail: "高空停留与快速升降的地标设施" },
+  { id: "karting", number: "RACE 08", title: "极速卡丁车场", summary: "封闭赛道 · 6 台完整赛车 · 三车位维修站", detail: "赛车配置车轮、方向盘、座椅、发动机和防撞梁，在城市主题赛道持续巡回" },
+  { id: "drop-tower", number: "THRILL 09", title: "天空坠落塔", summary: "约 39 m 高 · 12 座旋转座舱 · 四导轨", detail: "具备独立座椅、肩部压杆、脚踏、装卸站台和结构导轨的高空升降设施" },
 ];
 
 const RIDER_POSITIONS: Record<Focus, THREE.Vector3> = {

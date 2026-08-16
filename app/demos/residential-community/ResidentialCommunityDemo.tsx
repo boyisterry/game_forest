@@ -13,17 +13,17 @@ type Focus = "overview" | ResidentialCommunityZone;
 const TREE_URL = "/models/forest/tree_normal_medium_redwood_a.glb";
 
 const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3; rider: THREE.Vector3 }> = {
-  overview: { target: new THREE.Vector3(0, 10, 0), camera: new THREE.Vector3(160, 120, 175), rider: new THREE.Vector3(0, 0.58, 68) },
-  residential: { target: new THREE.Vector3(-43, 10, -18), camera: new THREE.Vector3(-130, 55, 78), rider: new THREE.Vector3(-43, 0.58, 33) },
-  commercial: { target: new THREE.Vector3(0, 5, 51), camera: new THREE.Vector3(94, 33, 104), rider: new THREE.Vector3(15, 0.58, 68) },
-  kindergarten: { target: new THREE.Vector3(54, 6, -22), camera: new THREE.Vector3(126, 44, 55), rider: new THREE.Vector3(55, 0.58, 36) },
+  overview: { target: new THREE.Vector3(0, 11, 0), camera: new THREE.Vector3(166, 124, 184), rider: new THREE.Vector3(0, 0.58, 68) },
+  residential: { target: new THREE.Vector3(-43, 9, -4), camera: new THREE.Vector3(-135, 62, 82), rider: new THREE.Vector3(-43, 0.67, 29.4) },
+  commercial: { target: new THREE.Vector3(0, 4.5, 53), camera: new THREE.Vector3(128, 48, 132), rider: new THREE.Vector3(15, 0.58, 68) },
+  kindergarten: { target: new THREE.Vector3(55, 5, -19), camera: new THREE.Vector3(132, 52, 66), rider: new THREE.Vector3(72, 0.67, 33.4) },
 };
 
 const ZONES: Array<{ id: Focus; number: string; title: string; summary: string; detail: string }> = [
-  { id: "overview", number: "COMMUNITY 00", title: "林庭社区总览", summary: "190 × 145 m · 住宅 / 商业 / 幼儿园", detail: "完整社区以消防环路串联三个分区，住宅与幼儿园分别受控管理，南侧商业直接面向城市道路开放。" },
-  { id: "residential", number: "HOME 01", title: "完整住宅组团", summary: "8 栋住宅 · 368 户 · 中央花园", detail: "4 栋高层与 4 栋多层住宅统一朝向，配置地下车库、快递驿站、垃圾分类点及全龄活动场地。" },
-  { id: "commercial", number: "STREET 02", title: "社区商业街", summary: "14 个沿街店铺 · 18 个停车位", detail: "超市、药房、早餐、咖啡、餐饮、洗衣与社区诊所连续面向公共道路营业，不受住宅门禁阻挡。" },
-  { id: "kindergarten", number: "KIDS 03", title: "独立幼儿园", summary: "3 栋建筑 · 8 间教室 · 160 人", detail: "独立围栏、专用校门和接送区保护儿童流线，教学楼、多功能厅、后勤楼及室外活动场完整分离。" },
+  { id: "overview", number: "COMMUNITY 00", title: "林庭社区总览", summary: "190 × 145 m · 住宅 / 商业 / 幼儿园", detail: "消防环路保持完整净空，住宅主门经 13 m 开放门廊、连续车道和双侧步道直达城市道路，住宅与幼儿园仍分别受控管理。" },
+  { id: "residential", number: "HOME 01", title: "完整住宅组团", summary: "8 栋住宅 · 368 户 · 全龄花园", detail: "楼间步道重新避开建筑主体；中央水景配置有支撑的花园座椅，并细化复合儿童游具、攀爬架、秋千、摇摇马、适老健身设施和双车库入口。" },
+  { id: "commercial", number: "STREET 02", title: "社区商业街", summary: "14 个可进入店铺 · 18 个停车位", detail: "14 家店铺补齐独立玻璃门、柜台与室内陈设；两段连续停车港湾和专用灯岛避开社区门廊及幼儿园双向出入口。" },
+  { id: "kindergarten", number: "KIDS 03", title: "独立幼儿园", summary: "3 栋建筑 · 8 间教室 · 160 人", detail: "教学、多功能与后勤空间补齐内部设施；复合游具避开跑步环道，受保护等候广场与机动车接送车道分离，并由入口、出口两条单向道路形成环流。" },
 ];
 
 type DemoApi = {
@@ -218,7 +218,7 @@ export function ResidentialCommunityDemo() {
           <button type="button" className={styles.collapseButton} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>{collapsed ? "展开导览 ↓" : "收起导览 ↑"}</button>
         </div>
         <div hidden={collapsed}>
-          <p className={styles.intro}>按照现实完整社区规划，将住宅组团、沿街社区商业和独立幼儿园组织在同一城市街区。住宅与幼儿园分别设置围栏和受控入口，商业街保持对外开放；树木、花坛与路灯复用已有饰品模型，小兔子骑车主角作为统一比例参考。</p>
+          <p className={styles.intro}>按照现实完整社区规划，将住宅组团、沿街社区商业和独立幼儿园组织在同一城市街区。此次逐项校正建筑、步道、消防车道和家具的支撑与避让关系，住宅与幼儿园分别设置围栏和受控入口，商业街通过开放门廊保持对外开放；树木、花坛与路灯继续复用已有饰品模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮社区夜景"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整外观" : "查看建筑剖面"}</button>
