@@ -695,11 +695,31 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const ferris = new THREE.Group();
   ferris.name = "amusement-park-ferris-wheel";
   ferris.position.set(53, 0.5, 14);
+  const addSegmentedFerrisSupport = (start: THREE.Vector3, end: THREE.Vector3, legIndex: number) => {
+    const segmentCount = 6;
+    for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
+      const segmentStart = start.clone().lerp(end, segmentIndex / segmentCount);
+      const segmentEnd = start.clone().lerp(end, (segmentIndex + 1) / segmentCount);
+      const support = beamBetween(segmentStart, segmentEnd, 0.32, steel, "amusement-park-ferris-support", "ferris");
+      support.userData = { facility: "ferris", legIndex, segmentIndex, segmentedForBoardingClearance: true };
+      ferris.add(support);
+    }
+    const footing = parkMesh(new THREE.CylinderGeometry(0.78, 0.92, 0.28, 10), dark, "amusement-park-ferris-support-footing", "ferris");
+    // The wheel group itself is raised by 0.5 m. Keep the footing's world
+    // bottom on the 0.40 m site surface instead of leaving a visible gap.
+    footing.position.copy(start).setY(0.04);
+    footing.userData = { grounded: true, legIndex };
+    ferris.add(footing);
+  };
+  let ferrisLegIndex = 0;
   for (const x of [-6.2, 6.2]) {
-    ferris.add(
-      beamBetween(new THREE.Vector3(x, 0.2, -3.8), new THREE.Vector3(0, 19, -1.8), 0.32, steel, "amusement-park-ferris-support", "ferris"),
-      beamBetween(new THREE.Vector3(x, 0.2, 3.8), new THREE.Vector3(0, 19, 1.8), 0.32, steel, "amusement-park-ferris-support", "ferris"),
-    );
+    addSegmentedFerrisSupport(new THREE.Vector3(x, 0.2, -3.8), new THREE.Vector3(0, 19, -1.8), ferrisLegIndex++);
+  }
+  // Splay the rear pair farther out and behind the boarding circulation. This
+  // keeps the A-frame structurally legible without threading a diagonal leg
+  // through the accessible bridge or visitor pavilion.
+  for (const x of [-10, 10]) {
+    addSegmentedFerrisSupport(new THREE.Vector3(x, 0.2, 7), new THREE.Vector3(0, 19, 1.8), ferrisLegIndex++);
   }
   const ferrisWheel = new THREE.Group();
   ferrisWheel.name = "amusement-park-ferris-wheel-rotor";
@@ -708,6 +728,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   const rim = parkMesh(new THREE.TorusGeometry(ferrisRadius, 0.32, 8, 64), blue, "amusement-park-ferris-rim", "ferris");
   ferrisWheel.add(rim);
   const cabins: THREE.Group[] = [];
+  const cabinDoors: THREE.Mesh[] = [];
   for (let i = 0; i < 12; i += 1) {
     const angle = i / 12 * Math.PI * 2;
     const spoke = parkMesh(new THREE.CylinderGeometry(0.11, 0.11, ferrisRadius, 6), steel, "amusement-park-ferris-spoke", "ferris");
@@ -728,35 +749,45 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
 
     // A solid waist-high perimeter protects seated passengers. Four glazed
     // upper walls and a glazed roof close the cabin without losing the view.
-    for (const z of [-1.28, 1.28]) {
+    // The passenger door faces along the axle (+z), rather than into the
+    // wheel's rotating x/y plane. This gives the fixed boarding platform a
+    // permanently safe side and matches real observation-wheel stations.
+    const rearZ = -1.28;
+    {
       const lowerPanel = parkMesh(new THREE.BoxGeometry(4.72, 0.76, 0.16), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-safety-panel", "ferris");
-      lowerPanel.position.set(0, -0.08, z);
+      lowerPanel.position.set(0, -0.08, rearZ);
       const glazedWall = parkMesh(new THREE.BoxGeometry(4.5, 1.45, 0.08), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-wall", "ferris");
-      glazedWall.position.set(0, 1.02, z);
-      const handrail = parkMesh(new THREE.CylinderGeometry(0.055, 0.055, 4.55, 6), steel, "amusement-park-ferris-cabin-handrail", "ferris");
-      handrail.rotation.z = Math.PI * 0.5;
-      handrail.position.set(0, 0.36, z * 1.01);
-      cabin.add(lowerPanel, glazedWall, handrail);
+      glazedWall.position.set(0, 1.02, rearZ);
+      cabin.add(lowerPanel, glazedWall);
     }
     for (const x of [-2.32, 2.32]) {
-      if (x > 0) continue;
       const lowerPanel = parkMesh(new THREE.BoxGeometry(0.16, 0.76, 2.42), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-safety-panel", "ferris");
       lowerPanel.position.set(x, -0.08, 0);
       const glazedWall = parkMesh(new THREE.BoxGeometry(0.08, 1.45, 2.3), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-wall", "ferris");
       glazedWall.position.set(x, 1.02, 0);
-      cabin.add(lowerPanel, glazedWall);
+      const handrail = parkMesh(new THREE.CylinderGeometry(0.055, 0.055, 2.28, 6), steel, "amusement-park-ferris-cabin-handrail", "ferris");
+      handrail.rotation.x = Math.PI * 0.5;
+      handrail.position.set(x * 1.01, 0.36, 0);
+      cabin.add(lowerPanel, glazedWall, handrail);
     }
-    for (const z of [-0.96, 0.96]) {
-      const fixedLower = parkMesh(new THREE.BoxGeometry(0.16, 0.76, 0.5), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-safety-panel", "ferris");
-      fixedLower.position.set(2.32, -0.08, z);
-      const fixedGlass = parkMesh(new THREE.BoxGeometry(0.08, 1.45, 0.5), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-wall", "ferris");
-      fixedGlass.position.set(2.32, 1.02, z);
+    for (const x of [-1.52, 1.52]) {
+      const fixedLower = parkMesh(new THREE.BoxGeometry(1.68, 0.76, 0.16), bulbMaterials[i % bulbMaterials.length], "amusement-park-ferris-cabin-safety-panel", "ferris");
+      fixedLower.position.set(x, -0.08, 1.28);
+      const fixedGlass = parkMesh(new THREE.BoxGeometry(1.58, 1.45, 0.08), ferrisCabinGlass, "amusement-park-ferris-cabin-glass-wall", "ferris");
+      fixedGlass.position.set(x, 1.02, 1.28);
       cabin.add(fixedLower, fixedGlass);
     }
-    const cabinDoor = parkMesh(new THREE.BoxGeometry(0.12, 2.2, 1.25), ferrisCabinGlass, "amusement-park-ferris-cabin-door", "ferris");
-    cabinDoor.position.set(2.34, 0.55, 0);
-    cabinDoor.userData = { operable: true, clearWidth: 1.25, state: "closed" };
+    const cabinDoor = parkMesh(new THREE.BoxGeometry(1.25, 2.2, 0.12), ferrisCabinGlass, "amusement-park-ferris-cabin-door", "ferris");
+    cabinDoor.position.set(0, 0.63, 1.34);
+    cabinDoor.userData = {
+      operable: true,
+      clearWidth: 1.25,
+      state: "closed",
+      boardingSide: "+z-axis",
+      opensOnlyWhenCabinDocked: true,
+    };
     cabin.add(cabinDoor);
+    cabinDoors.push(cabinDoor);
     for (const x of [-2.25, 2.25]) {
       for (const z of [-1.15, 1.15]) {
         const post = parkMesh(new THREE.CylinderGeometry(0.09, 0.09, 2.25, 6), steel, "amusement-park-ferris-cabin-post", "ferris");
@@ -774,8 +805,8 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
       roofRail.position.set(x, 1.78, 0);
       cabin.add(roofRail);
     }
-    const doorFrame = parkMesh(new THREE.BoxGeometry(0.12, 1.45, 0.1), steel, "amusement-park-ferris-cabin-door-frame", "ferris");
-    doorFrame.position.set(2.38, 0.98, 0);
+    const doorFrame = parkMesh(new THREE.BoxGeometry(1.48, 0.12, 0.12), steel, "amusement-park-ferris-cabin-door-frame", "ferris");
+    doorFrame.position.set(0, 1.76, 1.39);
     cabin.add(doorFrame);
     for (let seat = 0; seat < 6; seat += 1) {
       const seatPad = parkMesh(new THREE.BoxGeometry(1.15, 0.32, 0.68), pink, "amusement-park-ferris-cabin-seat", "ferris");
@@ -788,20 +819,645 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   }
   ferris.add(ferrisWheel);
   park.add(ferris);
-  const ferrisPlatform = parkMesh(new THREE.BoxGeometry(5.8, 2.62, 6.2), paving, "amusement-park-ferris-loading-platform", "ferris");
-  ferrisPlatform.position.set(57.5, 1.71, 14);
-  park.add(ferrisPlatform);
-  for (let index = 0; index < 6; index += 1) {
-    const height = 0.4 * (index + 1);
-    const step = parkMesh(new THREE.BoxGeometry(2.8, height, 0.65), paving, "amusement-park-ferris-loading-step", "ferris");
-    step.position.set(61.1 + index * 0.48, 0.4 + height * 0.5, 14);
-    park.add(step);
+
+  // Ferris visitor and boarding centre. The former solid block has been
+  // replaced with a thin, column-supported dock behind the cabin doors, a
+  // staffed glass pavilion, separate entry/exit lanes, safe stairs and a
+  // five-flight 1:12 accessible route.
+  const ferrisStation = new THREE.Group();
+  ferrisStation.name = "amusement-park-ferris-boarding-centre";
+  ferrisStation.userData = {
+    facility: "ferris",
+    axialBoarding: true,
+    passengerFlowsSeparated: true,
+    boardingAlignmentToleranceDegrees: 0.08,
+  };
+  park.add(ferrisStation);
+
+  const ferrisPlatformTop = 3.03;
+  const ferrisPlatform = parkMesh(
+    new THREE.BoxGeometry(6.8, 0.2, 1.9),
+    paving,
+    "amusement-park-ferris-loading-platform",
+    "ferris",
+  );
+  ferrisPlatform.position.set(53, ferrisPlatformTop - 0.1, 16.42);
+  ferrisPlatform.userData = {
+    facility: "ferris",
+    barrierFreeBoarding: true,
+    separatedBoardingAndExit: true,
+    construction: "thin-column-supported-deck",
+    workingGapMeters: 0.07,
+  };
+  ferrisStation.add(ferrisPlatform);
+
+  for (const x of [50.15, 53, 55.85]) {
+    for (const z of [15.82, 17.02]) {
+      const deckSupport = parkMesh(
+        new THREE.CylinderGeometry(0.13, 0.18, 2.43, 8),
+        dark,
+        "amusement-park-ferris-deck-support",
+        "ferris",
+      );
+      deckSupport.position.set(x, 1.615, z);
+      deckSupport.userData = { grounded: true, supportsDeck: true };
+      ferrisStation.add(deckSupport);
+    }
   }
-  const ferrisAccessA = parkMesh(new THREE.BoxGeometry(3, 0.1, 12), paving, "amusement-park-ferris-access-walkway", "ferris");
-  ferrisAccessA.position.set(53, 0.51, 20);
-  const ferrisAccessB = parkMesh(new THREE.BoxGeometry(11, 0.1, 3), paving, "amusement-park-ferris-access-walkway", "ferris");
-  ferrisAccessB.position.set(58.5, 0.51, 14);
-  park.add(ferrisAccessA, ferrisAccessB);
+  for (const z of [15.72, 17.12]) {
+    const underframe = parkMesh(new THREE.BoxGeometry(6.3, 0.18, 0.16), steel, "amusement-park-ferris-deck-underframe", "ferris");
+    underframe.position.set(53, 2.77, z);
+    ferrisStation.add(underframe);
+  }
+  const ferrisWarningStrip = parkMesh(new THREE.BoxGeometry(6.25, 0.035, 0.14), yellow, "amusement-park-ferris-warning-strip", "ferris");
+  ferrisWarningStrip.position.set(53, 3.0475, 15.55);
+  ferrisWarningStrip.userData = { tactile: true, standBehind: true };
+  ferrisStation.add(ferrisWarningStrip);
+
+  const addFerrisDeckRail = (width: number, depth: number, x: number, z: number) => {
+    for (const [railY, railRole] of [[3.58, "mid"], [4.07, "top"]] as const) {
+      const rail = parkMesh(new THREE.BoxGeometry(width, 0.12, depth), dark, "amusement-park-ferris-boarding-rail", "ferris");
+      rail.position.set(x, railY, z);
+      rail.userData = { guardHeightMeters: 1.1, railRole };
+      ferrisStation.add(rail);
+    }
+    const postCount = Math.max(2, Math.ceil(Math.max(width, depth) / 1.5));
+    for (let index = 0; index <= postCount; index += 1) {
+      const ratio = index / postCount;
+      const post = parkMesh(new THREE.BoxGeometry(0.1, 1.15, 0.1), dark, "amusement-park-ferris-boarding-rail-post", "ferris");
+      post.position.set(
+        width > depth ? x - width * 0.5 + width * ratio : x,
+        3.605,
+        depth >= width ? z - depth * 0.5 + depth * ratio : z,
+      );
+      ferrisStation.add(post);
+    }
+  };
+  // Leave only a 1.4 m opening opposite the 1.25 m cabin door. The old
+  // 2.9 m gap exposed most of the platform whenever a cabin moved away.
+  addFerrisDeckRail(2.64, 0.1, 50.98, 15.53);
+  addFerrisDeckRail(2.64, 0.1, 55.02, 15.53);
+  addFerrisDeckRail(0.1, 1.75, 49.66, 16.47);
+  // The east side is the accessible transfer opening. Its sliding gate is
+  // parked clear of the 1.5 m connector instead of blocking the ramp.
+  addFerrisDeckRail(0.1, 0.14, 56.34, 17.3);
+  // Close every fixed portion of the rear deck edge; only the two 1.3 m
+  // stair gates remain as controlled openings.
+  addFerrisDeckRail(1.395, 0.1, 50.2975, 17.31);
+  addFerrisDeckRail(0.99, 0.1, 53.0, 17.31);
+  addFerrisDeckRail(1.395, 0.1, 55.7025, 17.31);
+
+  const platformInterlockGate = new THREE.Group();
+  platformInterlockGate.name = "amusement-park-ferris-platform-interlock-gate";
+  platformInterlockGate.position.set(53, ferrisPlatformTop, 15.53);
+  platformInterlockGate.userData = {
+    facility: "ferris",
+    interlocked: true,
+    opensOnlyWhenCabinDocked: true,
+    state: "closed",
+    clearWidthMeters: 1.3,
+  };
+  for (const x of [-0.7, 0.7]) {
+    const post = parkMesh(
+      new THREE.BoxGeometry(0.1, 1.15, 0.1),
+      dark,
+      "amusement-park-ferris-platform-interlock-gate-post",
+      "ferris",
+    );
+    post.position.set(x, 0.575, 0);
+    platformInterlockGate.add(post);
+  }
+  const interlockLeaf = parkMesh(
+    new THREE.BoxGeometry(1.28, 0.86, 0.08),
+    aqua,
+    "amusement-park-ferris-platform-interlock-gate-leaf",
+    "ferris",
+  );
+  interlockLeaf.position.set(0, 0.55, 0);
+  platformInterlockGate.add(interlockLeaf);
+  ferrisStation.add(platformInterlockGate);
+
+  const accessibleTransferGate = new THREE.Group();
+  accessibleTransferGate.name = "amusement-park-ferris-accessible-transfer-gate";
+  accessibleTransferGate.position.set(56.55, ferrisPlatformTop, 16.35);
+  accessibleTransferGate.userData = {
+    operable: true,
+    state: "closed",
+    clearWidthMeters: 1.56,
+    slidingPocket: "+z",
+    interlocked: true,
+    opensOnlyWhenCabinDocked: true,
+  };
+  for (const z of [-0.83, 0.83]) {
+    const post = parkMesh(new THREE.BoxGeometry(0.1, 1.15, 0.1), dark, "amusement-park-ferris-accessible-transfer-gate-post", "ferris");
+    post.position.set(0, 0.575, z);
+    accessibleTransferGate.add(post);
+  }
+  const accessibleTransferGateLeaf = parkMesh(
+    new THREE.BoxGeometry(0.08, 0.86, 1.54),
+    yellow,
+    "amusement-park-ferris-accessible-transfer-gate-leaf",
+    "ferris",
+  );
+  accessibleTransferGateLeaf.position.set(0, 0.55, 0);
+  accessibleTransferGate.add(accessibleTransferGateLeaf);
+  ferrisStation.add(accessibleTransferGate);
+
+  const platformFlowGates: THREE.Group[] = [];
+  const platformFlowGateLeaves: THREE.Mesh[] = [];
+  for (const [x, role] of [[51.75, "boarding"], [54.25, "exit"]] as const) {
+    const gate = new THREE.Group();
+    gate.name = "amusement-park-ferris-platform-boarding-gate";
+    gate.position.set(x, 3.03, 17.3);
+    gate.userData = {
+      facility: "ferris",
+      gateRole: role,
+      operable: true,
+      state: "closed",
+      clearWidthMeters: 1.3,
+      interlocked: true,
+      opensOnlyWhenCabinDocked: true,
+    };
+    const gatePostA = parkMesh(new THREE.BoxGeometry(0.11, 1.1, 0.11), dark, "amusement-park-ferris-platform-gate-post", "ferris");
+    gatePostA.position.set(-0.7, 0.55, 0);
+    const gatePostB = gatePostA.clone();
+    gatePostB.position.x = 0.7;
+    const gateLeaf = parkMesh(new THREE.BoxGeometry(1.28, 0.86, 0.08), role === "boarding" ? aqua : yellow, "amusement-park-ferris-platform-gate-leaf", "ferris");
+    gateLeaf.position.set(0, 0.55, 0);
+    gate.add(gatePostA, gatePostB, gateLeaf);
+    ferrisStation.add(gate);
+    platformFlowGates.push(gate);
+    platformFlowGateLeaves.push(gateLeaf);
+  }
+
+  const boardingBridge = parkMesh(new THREE.BoxGeometry(1.32, 0.08, 0.09), steel, "amusement-park-ferris-boarding-bridge", "ferris");
+  boardingBridge.position.set(53, 2.99, 15.62);
+  boardingBridge.userData = { retractable: true, extendsOnlyWhenStopped: true, state: "retracted", workingGapMeters: 0.07 };
+  ferrisStation.add(boardingBridge);
+
+  const platformStair = new THREE.Group();
+  platformStair.name = "amusement-park-ferris-platform-stair";
+  const ferrisStairRise = (ferrisPlatformTop - 0.4) / 15;
+  platformStair.userData = {
+    facility: "ferris",
+    connectsGroundToPlatform: true,
+    riserHeightMeters: ferrisStairRise,
+    treadDepthMeters: 0.34,
+    laneCount: 2,
+  };
+  for (const [stairX, role] of [[51.75, "entry"], [54.25, "exit"]] as const) {
+    for (let stepIndex = 0; stepIndex < 15; stepIndex += 1) {
+      const stepTop = 0.4 + ferrisStairRise * (stepIndex + 1);
+      const previousTop = 0.4 + ferrisStairRise * stepIndex;
+      const step = parkMesh(new THREE.BoxGeometry(1.6, 0.12, 0.34), paving, "amusement-park-ferris-platform-step", "ferris");
+      step.position.set(stairX, stepTop - 0.06, 22.468 - stepIndex * 0.352);
+      step.userData = { laneRole: role, stepNumber: stepIndex + 1, treadDepthMeters: 0.34, riserHeightMeters: ferrisStairRise };
+      const riser = parkMesh(new THREE.BoxGeometry(1.6, ferrisStairRise, 0.08), ivory, "amusement-park-ferris-platform-step-riser", "ferris");
+      riser.position.set(stairX, (previousTop + stepTop) * 0.5, step.position.z + 0.17);
+      riser.userData = { laneRole: role, stepNumber: stepIndex + 1, supportsTread: true };
+      platformStair.add(step, riser);
+    }
+    for (const side of [-0.62, 0.62]) {
+      const stringer = beamBetween(
+        new THREE.Vector3(stairX + side, 0.46, 22.62),
+        new THREE.Vector3(stairX + side, 2.92, 17.36),
+        0.075,
+        steel,
+        "amusement-park-ferris-stair-stringer",
+        "ferris",
+      );
+      stringer.userData = { laneRole: role, supportsTreads: true };
+      platformStair.add(stringer);
+    }
+    for (const side of [-0.84, 0.84]) {
+      const handrail = beamBetween(
+        new THREE.Vector3(stairX + side, 1.55, 22.62),
+        new THREE.Vector3(stairX + side, 4.08, 17.32),
+        0.055,
+        dark,
+        "amusement-park-ferris-stair-handrail",
+        "ferris",
+      );
+      handrail.userData = { laneRole: role, continuous: true };
+      platformStair.add(handrail);
+      for (let postIndex = 0; postIndex < 5; postIndex += 1) {
+        const ratio = postIndex / 4;
+        const treadTop = 0.4 + ferrisStairRise * (1 + ratio * 14);
+        const post = parkMesh(new THREE.CylinderGeometry(0.045, 0.045, 1.05, 7), dark, "amusement-park-ferris-stair-handrail-post", "ferris");
+        post.position.set(stairX + side, treadTop + 0.525, 22.468 - ratio * 4.928);
+        platformStair.add(post);
+      }
+    }
+  }
+  ferrisStation.add(platformStair);
+
+  const visitorCentre = new THREE.Group();
+  visitorCentre.name = "amusement-park-ferris-visitor-centre";
+  visitorCentre.userData = {
+    facility: "ferris",
+    services: ["tickets", "information", "accessibility-assistance"],
+    circulation: "separated-entry-exit",
+    barrierFree: true,
+  };
+  const ferrisVisitorFloor = parkMesh(new THREE.BoxGeometry(11, 0.18, 5.2), paving, "amusement-park-ferris-visitor-floor", "ferris");
+  ferrisVisitorFloor.position.set(53, 0.49, 23.1);
+  const ferrisVisitorRoof = parkMesh(new THREE.BoxGeometry(11.6, 0.36, 5.75), blue, "amusement-park-ferris-visitor-roof", "ferris");
+  ferrisVisitorRoof.position.set(53, 4.5, 23.05);
+  const ferrisVisitorRoofCap = parkMesh(new THREE.BoxGeometry(10.9, 0.18, 5.1), aqua, "amusement-park-ferris-visitor-roof-cap", "ferris");
+  ferrisVisitorRoofCap.position.set(53, 4.74, 23.05);
+  visitorCentre.add(ferrisVisitorFloor, ferrisVisitorRoof, ferrisVisitorRoofCap);
+
+  for (const [x, width] of [[48.6, 2.2], [53, 0.7]] as const) {
+    const rearWall = parkMesh(new THREE.BoxGeometry(width, 3.72, 0.2), ivory, "amusement-park-ferris-visitor-wall", "ferris");
+    rearWall.position.set(x, 2.44, 20.55);
+    visitorCentre.add(rearWall);
+  }
+  // A real observation window gives the operator a direct view of the
+  // boarding deck; the previous full-height wall made that sightline false.
+  const operatorViewPlinth = parkMesh(new THREE.BoxGeometry(2.2, 0.72, 0.2), ivory, "amusement-park-ferris-visitor-wall", "ferris");
+  operatorViewPlinth.position.set(57.4, 0.94, 20.55);
+  const operatorViewWindow = parkMesh(new THREE.BoxGeometry(2.08, 2.2, 0.08), ferrisCabinGlass, "amusement-park-ferris-operator-view-window", "ferris");
+  operatorViewWindow.position.set(57.4, 2.38, 20.43);
+  const operatorViewHeader = parkMesh(new THREE.BoxGeometry(2.2, 0.76, 0.2), ivory, "amusement-park-ferris-visitor-wall", "ferris");
+  operatorViewHeader.position.set(57.4, 4.06, 20.55);
+  visitorCentre.add(operatorViewPlinth, operatorViewWindow, operatorViewHeader);
+  for (const [x, width] of [[49.275, 3.55], [53, 0.9], [56.725, 3.55]] as const) {
+    const frontWall = parkMesh(new THREE.BoxGeometry(width, 3.72, 0.18), ivory, "amusement-park-ferris-visitor-wall", "ferris");
+    frontWall.position.set(x, 2.44, 25.61);
+    visitorCentre.add(frontWall);
+  }
+  for (const x of [47.58]) {
+    const sidePlinth = parkMesh(new THREE.BoxGeometry(0.18, 0.86, 5.02), ivory, "amusement-park-ferris-visitor-wall", "ferris");
+    sidePlinth.position.set(x, 1.01, 23.08);
+    const sideWindow = parkMesh(new THREE.BoxGeometry(0.08, 2.55, 4.65), ferrisCabinGlass, "amusement-park-ferris-visitor-window", "ferris");
+    sideWindow.position.set(x + (x < 53 ? -0.055 : 0.055), 2.7, 23.08);
+    const sideHeader = parkMesh(new THREE.BoxGeometry(0.2, 0.5, 5.1), dark, "amusement-park-ferris-visitor-window-frame", "ferris");
+    sideHeader.position.set(x, 4.05, 23.08);
+    visitorCentre.add(sidePlinth, sideWindow, sideHeader);
+  }
+  // Split the east elevation around a genuine step-free side door rather
+  // than letting the accessible path terminate against a glass wall.
+  for (const [z, depth] of [[21.61, 2.08], [24.97, 1.24]] as const) {
+    const sidePlinth = parkMesh(new THREE.BoxGeometry(0.18, 0.86, depth), ivory, "amusement-park-ferris-visitor-wall", "ferris");
+    sidePlinth.position.set(58.42, 1.01, z);
+    const sideWindow = parkMesh(new THREE.BoxGeometry(0.08, 2.55, Math.max(0.2, depth - 0.12)), ferrisCabinGlass, "amusement-park-ferris-visitor-window", "ferris");
+    sideWindow.position.set(58.475, 2.7, z);
+    visitorCentre.add(sidePlinth, sideWindow);
+  }
+  const eastSideHeader = parkMesh(new THREE.BoxGeometry(0.2, 0.5, 5.1), dark, "amusement-park-ferris-visitor-window-frame", "ferris");
+  eastSideHeader.position.set(58.42, 4.05, 23.08);
+  const accessibleDoorHeader = parkMesh(new THREE.BoxGeometry(0.2, 0.62, 1.7), ivory, "amusement-park-ferris-visitor-wall", "ferris");
+  accessibleDoorHeader.position.set(58.42, 3.5, 23.5);
+  const accessibleDoor = parkMesh(new THREE.BoxGeometry(0.08, 2.62, 1.6), ferrisCabinGlass, "amusement-park-ferris-visitor-accessible-door", "ferris");
+  accessibleDoor.position.set(58.53, 1.89, 23.5);
+  accessibleDoor.userData = {
+    operable: true,
+    thresholdFree: true,
+    clearWidthMeters: 1.5,
+    connectsAccessibleApproachToVisitorCentre: true,
+  };
+  visitorCentre.add(eastSideHeader, accessibleDoorHeader, accessibleDoor);
+  for (const [x, name, role] of [
+    [51.8, "amusement-park-ferris-visitor-entrance-door", "entry"],
+    [54.2, "amusement-park-ferris-visitor-exit-door", "exit"],
+  ] as const) {
+    const door = parkMesh(new THREE.BoxGeometry(1.5, 2.62, 0.08), ferrisCabinGlass, name, "ferris");
+    door.position.set(x, 1.89, 25.72);
+    door.userData = { operable: true, thresholdFree: true, laneRole: role, clearWidthMeters: 1.5 };
+    const header = parkMesh(new THREE.BoxGeometry(1.72, 0.14, 0.12), dark, "amusement-park-ferris-visitor-door-frame", "ferris");
+    header.position.set(x, 3.27, 25.7);
+    visitorCentre.add(door, header);
+  }
+
+  const ferrisVisitorPorch = parkMesh(new THREE.BoxGeometry(4.4, 0.12, 0.9), paving, "amusement-park-ferris-visitor-porch", "ferris");
+  ferrisVisitorPorch.position.set(53, 0.52, 26.05);
+  const ferrisVisitorCanopy = parkMesh(new THREE.BoxGeometry(4.4, 0.28, 2.2), yellow, "amusement-park-ferris-visitor-canopy", "ferris");
+  ferrisVisitorCanopy.position.set(53, 3.88, 26.45);
+  visitorCentre.add(ferrisVisitorPorch, ferrisVisitorCanopy);
+  for (const x of [50.92, 55.08]) {
+    for (const z of [26, 27.3]) {
+      const supportTop = 3.74;
+      const groundTop = 0.58;
+      const postHeight = supportTop - groundTop;
+      const canopyPost = parkMesh(new THREE.CylinderGeometry(0.075, 0.09, postHeight, 8), dark, "amusement-park-ferris-visitor-canopy-post", "ferris");
+      canopyPost.position.set(x, groundTop + postHeight * 0.5, z);
+      canopyPost.userData = { groundedOnPorch: true, supportsCanopy: true };
+      visitorCentre.add(canopyPost);
+    }
+  }
+
+  for (const [x, accessibleCounter, serviceRole] of [
+    [49.2, true, "tickets-and-accessibility"],
+    [56.8, false, "tickets-and-information"],
+  ] as const) {
+    const booth = new THREE.Group();
+    booth.name = "amusement-park-ferris-ticket-booth";
+    booth.position.set(x, 0, 24.05);
+    booth.userData = { staffed: true, serviceRole, accessibleCounter };
+    const boothBody = parkMesh(new THREE.BoxGeometry(1.85, accessibleCounter ? 0.72 : 0.92, 0.72), x < 53 ? aqua : yellow, "amusement-park-ferris-ticket-counter", "ferris");
+    boothBody.position.y = 0.58 + (accessibleCounter ? 0.36 : 0.46);
+    const boothScreen = parkMesh(new THREE.BoxGeometry(1.55, 1.25, 0.08), ferrisCabinGlass, "amusement-park-ferris-ticket-window", "ferris");
+    boothScreen.position.set(0, 2.05, 0.34);
+    const terminal = parkMesh(new THREE.BoxGeometry(0.36, 0.42, 0.18), dark, "amusement-park-ferris-ticket-terminal", "ferris");
+    terminal.position.set(0.48, 1.2, 0.18);
+    booth.add(boothBody, boothScreen, terminal);
+    visitorCentre.add(booth);
+  }
+  const ferrisInformationDesk = parkMesh(new THREE.BoxGeometry(1.4, 0.78, 0.65), blue, "amusement-park-ferris-information-desk", "ferris");
+  ferrisInformationDesk.position.set(48.9, 0.97, 21.6);
+  ferrisInformationDesk.userData = { staffed: true, lowCounterSection: true };
+  visitorCentre.add(ferrisInformationDesk);
+
+  const operatorBooth = new THREE.Group();
+  operatorBooth.name = "amusement-park-ferris-operator-booth";
+  operatorBooth.position.set(56.7, 0.58, 21.65);
+  operatorBooth.userData = { staffed: true, viewsBoardingPlatform: true };
+  const operatorWindow = parkMesh(new THREE.BoxGeometry(2.2, 1.8, 0.08), ferrisCabinGlass, "amusement-park-ferris-operator-window", "ferris");
+  operatorWindow.position.set(0, 1.75, -0.72);
+  const operatorConsole = parkMesh(new THREE.BoxGeometry(1.7, 0.72, 0.62), dark, "amusement-park-ferris-control-console", "ferris");
+  operatorConsole.position.set(0, 0.36, -0.25);
+  const emergencyStop = parkMesh(new THREE.CylinderGeometry(0.14, 0.14, 0.16, 10), red, "amusement-park-ferris-emergency-stop", "ferris");
+  emergencyStop.position.set(0.48, 0.82, -0.3);
+  const statusLight = parkMesh(new THREE.SphereGeometry(0.13, 8, 6), bulbMaterials[2], "amusement-park-ferris-status-light", "ferris");
+  statusLight.position.set(-0.5, 1.0, -0.3);
+  operatorBooth.add(operatorWindow, operatorConsole, emergencyStop, statusLight);
+  visitorCentre.add(operatorBooth);
+
+  const ferrisVisitorSign = new THREE.Group();
+  ferrisVisitorSign.name = "amusement-park-ferris-visitor-sign";
+  ferrisVisitorSign.position.set(53, 3.8, 25.78);
+  const signBoard = parkMesh(new THREE.BoxGeometry(4.6, 0.62, 0.1), blue, "amusement-park-ferris-visitor-sign-board", "ferris");
+  const signWheel = parkMesh(new THREE.TorusGeometry(0.22, 0.045, 6, 16), yellow, "amusement-park-ferris-visitor-sign-wheel", "ferris");
+  signWheel.position.set(-1.75, 0, 0.08);
+  ferrisVisitorSign.add(signBoard, signWheel);
+  visitorCentre.add(ferrisVisitorSign);
+  ferrisStation.add(visitorCentre);
+
+  const buildFerrisQueueLane = (role: "entry" | "exit", x: number) => {
+    const lane = new THREE.Group();
+    lane.name = `amusement-park-ferris-${role}-queue-lane`;
+    lane.userData = {
+      facility: "ferris",
+      laneRole: role,
+      oneWay: true,
+      separatedFromOpposingFlow: true,
+      connectsVisitorCentreToLoadingPlatform: true,
+      clearWidthMeters: 1.5,
+    };
+    const floor = parkMesh(new THREE.BoxGeometry(1.6, 0.045, 2.75), role === "entry" ? aqua : yellow, `amusement-park-ferris-${role}-queue-floor`, "ferris");
+    floor.position.set(x, 0.6025, 24.075);
+    floor.userData = { laneRole: role, slipResistant: true };
+    lane.add(floor);
+    for (const side of [-0.8, 0.8]) {
+      for (const [z, railLength] of [[23.35, 0.9], [24.65, 0.9]] as const) {
+        const queueRail = parkMesh(new THREE.BoxGeometry(0.08, 0.12, railLength), dark, `amusement-park-ferris-${role}-queue-rail`, "ferris");
+        queueRail.position.set(x + side, 1.42, z);
+        lane.add(queueRail);
+        for (const endOffset of [-railLength * 0.5 + 0.09, railLength * 0.5 - 0.09]) {
+          const queuePost = parkMesh(new THREE.CylinderGeometry(0.045, 0.055, 0.92, 7), dark, "amusement-park-ferris-queue-post", "ferris");
+          queuePost.position.set(x + side, 1.0, z + endOffset);
+          lane.add(queuePost);
+        }
+      }
+    }
+    ferrisStation.add(lane);
+    return lane;
+  };
+  buildFerrisQueueLane("entry", 51.75);
+  buildFerrisQueueLane("exit", 54.25);
+
+  const rampGroundTop = 0.58;
+  const rampRun = 6.312;
+  const rampRise = (ferrisPlatformTop - rampGroundTop) / 5;
+  const accessibleRamp = new THREE.Group();
+  accessibleRamp.name = "amusement-park-ferris-accessible-ramp";
+  accessibleRamp.userData = {
+    facility: "ferris",
+    barrierFree: true,
+    connectsGroundToPlatform: true,
+    clearWidthMeters: 1.5,
+    maxGradient: rampRise / rampRun,
+    flightCount: 5,
+    alternateRoute: "five-flight-switchback",
+  };
+  const rampWestX = 61;
+  const rampEastX = rampWestX + rampRun;
+  const rampFlightZ = [4, 5.8, 7.6, 9.4, 11.2];
+  const rampLandingPoints: Array<[number, number, number]> = [[rampEastX, 3.1, rampGroundTop]];
+  for (let flightIndex = 0; flightIndex < 5; flightIndex += 1) {
+    const startsEast = flightIndex % 2 === 0;
+    const startX = startsEast ? rampEastX : rampWestX;
+    const endX = startsEast ? rampWestX : rampEastX;
+    const startTop = rampGroundTop + rampRise * flightIndex;
+    const endTop = rampGroundTop + rampRise * (flightIndex + 1);
+    const directionX = endX - startX;
+    const slopeAngle = Math.atan2(endTop - startTop, directionX);
+    const flightLength = Math.hypot(directionX, endTop - startTop);
+    const flight = parkMesh(new THREE.BoxGeometry(flightLength, 0.14, 1.7), paving, "amusement-park-ferris-accessible-ramp-flight", "ferris");
+    flight.position.set((startX + endX) * 0.5, (startTop + endTop) * 0.5 - 0.07, rampFlightZ[flightIndex]);
+    flight.rotation.z = slopeAngle;
+    flight.userData = { flightNumber: flightIndex + 1, gradient: rampRise / rampRun, clearWidthMeters: 1.5 };
+    accessibleRamp.add(flight);
+    for (const side of [-0.82, 0.82]) {
+      const stringer = beamBetween(
+        new THREE.Vector3(startX, startTop - 0.18, rampFlightZ[flightIndex] + side),
+        new THREE.Vector3(endX, endTop - 0.18, rampFlightZ[flightIndex] + side),
+        0.075,
+        steel,
+        "amusement-park-ferris-accessible-ramp-stringer",
+        "ferris",
+      );
+      stringer.userData = { supportsFlight: flightIndex + 1 };
+      accessibleRamp.add(stringer);
+      const handrail = beamBetween(
+        new THREE.Vector3(startX, startTop + 1.0, rampFlightZ[flightIndex] + side),
+        new THREE.Vector3(endX, endTop + 1.0, rampFlightZ[flightIndex] + side),
+        0.05,
+        dark,
+        "amusement-park-ferris-accessible-ramp-handrail",
+        "ferris",
+      );
+      accessibleRamp.add(handrail);
+      for (const ratio of [0, 0.5, 1]) {
+        const surfaceTop = THREE.MathUtils.lerp(startTop, endTop, ratio);
+        const handrailPost = parkMesh(
+          new THREE.CylinderGeometry(0.04, 0.05, 0.96, 7),
+          dark,
+          "amusement-park-ferris-accessible-ramp-handrail-post",
+          "ferris",
+        );
+        handrailPost.position.set(
+          THREE.MathUtils.lerp(startX, endX, ratio),
+          surfaceTop + 0.48,
+          rampFlightZ[flightIndex] + side,
+        );
+        handrailPost.userData = { groundedOnRamp: true, flightNumber: flightIndex + 1 };
+        accessibleRamp.add(handrailPost);
+      }
+    }
+    const landingZ = flightIndex === 4 ? 11.1 : rampFlightZ[flightIndex] + 0.9;
+    rampLandingPoints.push([endX, landingZ, endTop]);
+  }
+  rampLandingPoints.forEach(([x, z, top], index) => {
+    const landing = parkMesh(new THREE.BoxGeometry(1.8, 0.14, 1.72), paving, "amusement-park-ferris-accessible-ramp-landing", "ferris");
+    landing.position.set(x, top - 0.07, z);
+    landing.userData = { landingNumber: index + 1, turningSpaceMeters: 1.8 };
+    accessibleRamp.add(landing);
+    const columnHeight = top - 0.54;
+    if (columnHeight > 0.12) {
+      for (const columnZ of [z - 0.55, z + 0.55]) {
+        const landingColumn = parkMesh(
+          new THREE.CylinderGeometry(0.09, 0.13, columnHeight, 8),
+          steel,
+          "amusement-park-ferris-accessible-ramp-support-column",
+          "ferris",
+        );
+        landingColumn.position.set(x, 0.4 + columnHeight * 0.5, columnZ);
+        landingColumn.userData = { grounded: true, supportsLanding: index + 1 };
+        accessibleRamp.add(landingColumn);
+      }
+    }
+    const outsideX = x < (rampWestX + rampEastX) * 0.5 ? x - 0.9 : x + 0.9;
+    const turnRail = beamBetween(
+      new THREE.Vector3(outsideX, top + 1, z - 0.82),
+      new THREE.Vector3(outsideX, top + 1, z + 0.82),
+      0.05,
+      dark,
+      "amusement-park-ferris-accessible-ramp-handrail",
+      "ferris",
+    );
+    accessibleRamp.add(turnRail);
+    for (const railZ of [z - 0.78, z + 0.78]) {
+      const turnPost = parkMesh(new THREE.CylinderGeometry(0.04, 0.05, 0.96, 7), dark, "amusement-park-ferris-accessible-ramp-handrail-post", "ferris");
+      turnPost.position.set(outsideX, top + 0.48, railZ);
+      turnPost.userData = { groundedOnLanding: true, landingNumber: index + 1 };
+      accessibleRamp.add(turnPost);
+    }
+  });
+  // The elevated connection deliberately takes a U-shaped route: first east
+  // below the cabin plane, then north outside the wheel radius, and finally
+  // west on the axle side. A direct diagonal/L-shaped link would enter the
+  // moving gondola envelope between the coarse animation samples.
+  const rampSouthBridge = parkMesh(new THREE.BoxGeometry(rampRun, 0.14, 1.7), paving, "amusement-park-ferris-accessible-ramp-top-connector", "ferris");
+  rampSouthBridge.position.set((rampWestX + rampEastX) * 0.5, ferrisPlatformTop - 0.07, 11.1);
+  const rampEastBridge = parkMesh(new THREE.BoxGeometry(1.7, 0.14, 5.15), paving, "amusement-park-ferris-accessible-ramp-top-connector", "ferris");
+  rampEastBridge.position.set(rampEastX, ferrisPlatformTop - 0.07, 13.675);
+  const rampAxialBridgeLength = rampEastX - 56.4;
+  const rampAxialBridge = parkMesh(new THREE.BoxGeometry(rampAxialBridgeLength, 0.14, 1.7), paving, "amusement-park-ferris-accessible-ramp-top-connector", "ferris");
+  rampAxialBridge.position.set((rampEastX + 56.4) * 0.5, ferrisPlatformTop - 0.07, 16.35);
+  accessibleRamp.add(rampSouthBridge, rampEastBridge, rampAxialBridge);
+
+  // Ground the elevated U-link with a small steel substructure. Its supports
+  // remain behind the axial cabin plane and outside the wheel legs.
+  for (const [x, z] of [
+    [62, 11.1], [64.2, 11.1], [66.3, 11.1],
+    [rampEastX, 12.5], [rampEastX, 14.3], [rampEastX, 15.8],
+    [58.2, 16.35], [61.2, 16.35], [64.2, 16.35],
+  ] as const) {
+    const connectorColumn = parkMesh(
+      new THREE.CylinderGeometry(0.09, 0.14, ferrisPlatformTop - 0.54, 8),
+      steel,
+      "amusement-park-ferris-accessible-ramp-support-column",
+      "ferris",
+    );
+    connectorColumn.position.set(x, 0.4 + (ferrisPlatformTop - 0.54) * 0.5, z);
+    connectorColumn.userData = { grounded: true, supportsTopConnector: true };
+    accessibleRamp.add(connectorColumn);
+  }
+
+  const addRampConnectorRail = (start: THREE.Vector3, end: THREE.Vector3) => {
+    const rail = beamBetween(start, end, 0.05, dark, "amusement-park-ferris-accessible-ramp-handrail", "ferris");
+    accessibleRamp.add(rail);
+    for (const ratio of [0, 0.5, 1]) {
+      const post = parkMesh(new THREE.CylinderGeometry(0.04, 0.05, 0.96, 7), dark, "amusement-park-ferris-accessible-ramp-handrail-post", "ferris");
+      post.position.copy(start).lerp(end, ratio).setY(ferrisPlatformTop + 0.48);
+      post.userData = { groundedOnTopConnector: true };
+      accessibleRamp.add(post);
+    }
+  };
+  addRampConnectorRail(new THREE.Vector3(rampWestX, 4.03, 10.22), new THREE.Vector3(rampEastX, 4.03, 10.22));
+  addRampConnectorRail(new THREE.Vector3(rampWestX, 4.03, 11.98), new THREE.Vector3(rampEastX, 4.03, 11.98));
+  addRampConnectorRail(new THREE.Vector3(rampEastX - 0.88, 4.03, 11.1), new THREE.Vector3(rampEastX - 0.88, 4.03, 16.35));
+  addRampConnectorRail(new THREE.Vector3(rampEastX + 0.88, 4.03, 11.1), new THREE.Vector3(rampEastX + 0.88, 4.03, 16.35));
+  // Near the wheel, the south rail retracts with the ride interlock. Keeping
+  // its fixed section east of x=59 avoids the narrow 1-degree collision
+  // windows that a coarse animation test previously missed.
+  addRampConnectorRail(new THREE.Vector3(59, 4.03, 15.45), new THREE.Vector3(rampEastX, 4.03, 15.45));
+  addRampConnectorRail(new THREE.Vector3(56.4, 4.03, 17.25), new THREE.Vector3(rampEastX, 4.03, 17.25));
+  const connectorInterlock = new THREE.Group();
+  connectorInterlock.name = "amusement-park-ferris-accessible-connector-interlock";
+  connectorInterlock.position.set(59, ferrisPlatformTop, 16.35);
+  connectorInterlock.userData = {
+    interlocked: true,
+    closesWhenRideMoves: true,
+    opensOnlyWhenCabinDocked: true,
+    state: "closed",
+    clearWidthMeters: 1.54,
+  };
+  for (const z of [-0.82, 0.82]) {
+    const post = parkMesh(new THREE.BoxGeometry(0.1, 1.12, 0.1), dark, "amusement-park-ferris-accessible-connector-gate-post", "ferris");
+    post.position.set(0, 0.56, z);
+    connectorInterlock.add(post);
+  }
+  const connectorInterlockGateLeaf = parkMesh(new THREE.BoxGeometry(0.08, 0.86, 1.54), aqua, "amusement-park-ferris-accessible-connector-gate-leaf", "ferris");
+  connectorInterlockGateLeaf.position.y = 0.55;
+  connectorInterlock.add(connectorInterlockGateLeaf);
+  accessibleRamp.add(connectorInterlock);
+
+  const connectorMovableGuard = new THREE.Group();
+  connectorMovableGuard.name = "amusement-park-ferris-accessible-connector-movable-guard";
+  connectorMovableGuard.position.set(60.3, ferrisPlatformTop, 17.15);
+  connectorMovableGuard.userData = { interlocked: true, deploysOnlyWhenCabinDocked: true, state: "stored" };
+  for (const railY of [0.58, 1.05]) {
+    const movableRail = parkMesh(new THREE.BoxGeometry(2.6, 0.08, 0.08), dark, "amusement-park-ferris-accessible-connector-movable-rail", "ferris");
+    movableRail.position.y = railY;
+    connectorMovableGuard.add(movableRail);
+  }
+  for (const x of [-1.25, 0, 1.25]) {
+    const movablePost = parkMesh(new THREE.BoxGeometry(0.08, 1.1, 0.08), dark, "amusement-park-ferris-accessible-connector-movable-post", "ferris");
+    movablePost.position.set(x, 0.55, 0);
+    connectorMovableGuard.add(movablePost);
+  }
+  accessibleRamp.add(connectorMovableGuard);
+  for (const [width, depth, x, z] of [
+    [rampRun, 0.08, (rampWestX + rampEastX) * 0.5, 10.28],
+    [rampRun, 0.08, (rampWestX + rampEastX) * 0.5, 11.92],
+    [0.08, 5.15, rampEastX - 0.82, 13.675],
+    [0.08, 5.15, rampEastX + 0.82, 13.675],
+    [rampEastX - 59, 0.06, (rampEastX + 59) * 0.5, 15.53],
+    [rampAxialBridgeLength, 0.06, (rampEastX + 56.4) * 0.5, 17.17],
+  ] as const) {
+    const curb = parkMesh(new THREE.BoxGeometry(width, 0.18, depth), yellow, "amusement-park-ferris-accessible-ramp-edge-curb", "ferris");
+    curb.position.set(x, ferrisPlatformTop + 0.09, z);
+    accessibleRamp.add(curb);
+  }
+  ferrisStation.add(accessibleRamp);
+
+  const ferrisArrivalWalk = new THREE.Group();
+  ferrisArrivalWalk.name = "amusement-park-ferris-access-walkway";
+  ferrisArrivalWalk.userData = { barrierFree: true, connectsCrossWalkToVisitorCentre: true, clearWidthMeters: 3.6 };
+  const arrivalWalkSlab = parkMesh(new THREE.BoxGeometry(4.2, 0.1, 2.55), paving, "amusement-park-ferris-arrival-walk-slab", "ferris");
+  arrivalWalkSlab.position.set(53, 0.53, 26.925);
+  const arrivalTransitionRun = 1.2;
+  const arrivalTransitionDrop = 0.055;
+  const arrivalTransition = parkMesh(new THREE.BoxGeometry(4.0, 0.08, arrivalTransitionRun), paving, "amusement-park-ferris-arrival-transition-ramp", "ferris");
+  arrivalTransition.position.set(53, 0.5125, 28.8);
+  arrivalTransition.rotation.x = Math.asin(arrivalTransitionDrop / arrivalTransitionRun);
+  arrivalTransition.userData = { barrierFree: true, gradient: arrivalTransitionDrop / arrivalTransitionRun, connectsToCrossWalk: true };
+  ferrisArrivalWalk.add(arrivalWalkSlab, arrivalTransition);
+  park.add(ferrisArrivalWalk);
+
+  const ferrisAccessibleWalk = new THREE.Group();
+  ferrisAccessibleWalk.name = "amusement-park-ferris-access-walkway";
+  ferrisAccessibleWalk.userData = { barrierFree: true, connectsVisitorCentreToRamp: true, clearWidthMeters: 1.6 };
+  const accessibleWalkEast = parkMesh(new THREE.BoxGeometry(1.6, 0.1, 21.0), paving, "amusement-park-ferris-accessible-approach-slab", "ferris");
+  accessibleWalkEast.position.set(68.75, 0.53, 13.55);
+  const accessibleWalkNorth = parkMesh(new THREE.BoxGeometry(10.4, 0.1, 1.6), paving, "amusement-park-ferris-accessible-approach-slab", "ferris");
+  accessibleWalkNorth.position.set(63.65, 0.53, 23.5);
+  const accessibleWalkSouth = parkMesh(new THREE.BoxGeometry(2, 0.1, 1.6), paving, "amusement-park-ferris-accessible-approach-slab", "ferris");
+  accessibleWalkSouth.position.set(67.95, 0.53, 3.1);
+  ferrisAccessibleWalk.add(accessibleWalkEast, accessibleWalkNorth, accessibleWalkSouth);
+  park.add(ferrisAccessibleWalk);
 
   // Circus tent and family show plaza.
   const circus = new THREE.Group();
@@ -1685,7 +2341,18 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   addRideSafetyFence("pirate", -15, 18, 30, 24);
   addRideSafetyFence("overview", 18, 17, 18, 18);
   addRideSafetyFence("overview", -68, 17, 18, 14);
-  addRideSafetyFence("ferris", 53, 14, 34, 24, 4.2);
+  // Pull the front fence two metres forward to create a real covered arrival
+  // forecourt, while keeping it clear of the public cross-walk at z=32.
+  const ferrisSafetyFence = addRideSafetyFence("ferris", 53, 15, 34, 26, 4.2);
+  const ferrisSafetyGate = ferrisSafetyFence.getObjectByName("amusement-park-ride-loading-gate");
+  if (ferrisSafetyGate) {
+    // Park the sliding leaf beside the 4.2 m opening. The old inward-swinging
+    // leaf cut across the visitor-centre approach even while marked "open".
+    ferrisSafetyGate.position.set(46.7, 0, 28);
+    ferrisSafetyGate.rotation.y = 0;
+    ferrisSafetyGate.userData.gateType = "sliding";
+    ferrisSafetyGate.userData.separatedEntryExit = true;
+  }
   addRideSafetyFence("drop-tower", 69, -8, 13, 17);
   addRideSafetyFence("coaster", -78, -49, 14, 16, 4.2, "right");
 
@@ -1693,6 +2360,55 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   let rideTime = 0;
   const tempPoint = new THREE.Vector3();
   const tempTangent = new THREE.Vector3();
+  const updateFerrisBoardingState = () => {
+    const cabinInterval = Math.PI * 2 / cabins.length;
+    const normalizedAngle = ((ferrisWheel.rotation.z % cabinInterval) + cabinInterval) % cabinInterval;
+    const alignmentError = Math.min(normalizedAngle, cabinInterval - normalizedAngle);
+    // The 1.25 m cabin door has only 2.5 cm of lateral tolerance on either
+    // side of the 1.30 m platform opening. At a 16 m wheel radius even one
+    // degree produces roughly 28 cm of offset, so boarding may only unlock
+    // when the cabin is accurately docked.
+    const alignmentTolerance = THREE.MathUtils.degToRad(0.08);
+    const stationOpen = !motionEnabled && alignmentError <= alignmentTolerance;
+
+    accessibleTransferGate.userData.state = stationOpen ? "open" : "closed";
+    accessibleTransferGateLeaf.position.z = stationOpen ? 1.7 : 0;
+
+    connectorInterlock.userData.state = stationOpen ? "open" : "closed";
+    connectorInterlockGateLeaf.position.z = stationOpen ? 1.7 : 0;
+    connectorMovableGuard.userData.state = stationOpen ? "deployed" : "stored";
+    connectorMovableGuard.position.set(
+      stationOpen ? 57.7 : 60.3,
+      ferrisPlatformTop,
+      stationOpen ? 15.45 : 17.15,
+    );
+
+    platformFlowGates.forEach((gate, index) => {
+      gate.userData.state = stationOpen ? "open" : "closed";
+      const leaf = platformFlowGateLeaves[index];
+      leaf.rotation.y = stationOpen ? Math.PI * 0.5 : 0;
+      leaf.position.set(stationOpen ? -0.64 : 0, 0.55, stationOpen ? -0.64 : 0);
+    });
+    platformInterlockGate.userData.state = stationOpen ? "open" : "closed";
+    interlockLeaf.rotation.y = stationOpen ? Math.PI * 0.5 : 0;
+    interlockLeaf.position.set(stationOpen ? -0.64 : 0, 0.55, stationOpen ? 0.64 : 0);
+    boardingBridge.position.z = stationOpen ? 15.46 : 15.62;
+    boardingBridge.userData.state = stationOpen ? "extended" : "retracted";
+
+    cabinDoors.forEach((door, index) => {
+      const cabinAngle = cabins[index].userData.angle + ferrisWheel.rotation.z;
+      const dockingError = Math.abs(Math.atan2(
+        Math.sin(cabinAngle + Math.PI * 0.5),
+        Math.cos(cabinAngle + Math.PI * 0.5),
+      ));
+      const doorOpen = stationOpen && dockingError <= alignmentTolerance;
+      door.userData.state = doorOpen ? "open" : "closed";
+      // The glazed leaf slides completely into its concealed side pocket.
+      // Hiding only the leaf preserves the frame and makes the clear opening
+      // visually truthful without intersecting the fixed glazing.
+      door.visible = !doorOpen;
+    });
+  };
 
   park.userData = {
     modelType: "amusement-park",
@@ -1735,6 +2451,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     },
     setMotionEnabled(enabled: boolean) {
       motionEnabled = enabled;
+      updateFerrisBoardingState();
     },
     update(delta: number, elapsed: number) {
       if (motionEnabled) rideTime += Math.min(delta, 0.05);
@@ -1745,6 +2462,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
       piratePivot.rotation.z = Math.sin(time * 0.88) * 0.3;
       ferrisWheel.rotation.z = time * 0.14;
       cabins.forEach((cabin) => { cabin.rotation.z = -ferrisWheel.rotation.z; });
+      updateFerrisBoardingState();
       dropCarriage.position.y = 0.42 + (Math.sin(time * 0.78 - Math.PI * 0.5) * 0.5 + 0.5) * 18.08;
       dropCarriage.rotation.y = time * 0.34;
       cups.rotation.y = time * 0.42;

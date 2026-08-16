@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { buildLowPolyResidentialCommunity, type ResidentialCommunityZone } from "../../lib/map/residentialCommunity";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import styles from "./ResidentialCommunityDemo.module.css";
 
 type Focus = "overview" | ResidentialCommunityZone;
@@ -31,6 +32,7 @@ type DemoApi = {
   setNight: (night: boolean) => void;
   setCutaway: (cutaway: boolean) => void;
   setGatesOpen: (open: boolean) => void;
+  setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
 };
 
@@ -41,6 +43,7 @@ export function ResidentialCommunityDemo() {
   const [night, setNight] = useState(false);
   const [cutaway, setCutaway] = useState(false);
   const [gatesOpen, setGatesOpen] = useState(false);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -94,7 +97,9 @@ export function ResidentialCommunityDemo() {
     scene.add(hemi, sun, fill);
 
     const community = buildLowPolyResidentialCommunity();
-    scene.add(community);
+    const pair = createSceneShatterPair(community, { seed: 404, spread: 5.5 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(community));
 
     const riderAnchor = new THREE.Group();
@@ -158,6 +163,7 @@ export function ResidentialCommunityDemo() {
       setNight: setNightMode,
       setCutaway: (on) => community.userData.setInteriorCutaway(on),
       setGatesOpen: (on) => community.userData.setAccessGatesOpen(on),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.45; },
     };
     setNightMode(false);
@@ -167,7 +173,9 @@ export function ResidentialCommunityDemo() {
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
-      community.userData.update(Math.min(clock.getDelta(), 0.05));
+      const delta = Math.min(clock.getDelta(), 0.05);
+      community.userData.update(delta);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -207,6 +215,7 @@ export function ResidentialCommunityDemo() {
   const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
   const toggleGates = () => { const next = !gatesOpen; setGatesOpen(next); apiRef.current?.setGatesOpen(next); };
+  const toggleShattered = () => { const next = !shattered; setShattered(next); apiRef.current?.setShattered(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -220,6 +229,7 @@ export function ResidentialCommunityDemo() {
         <div hidden={collapsed}>
           <p className={styles.intro}>按照现实完整社区规划，将住宅组团、沿街社区商业和独立幼儿园组织在同一城市街区。此次逐项校正建筑、步道、消防车道和家具的支撑与避让关系，住宅与幼儿园分别设置围栏和受控入口，商业街通过开放门廊保持对外开放；树木、花坛与路灯继续复用已有饰品模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复住宅社区" : "破碎住宅社区"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮社区夜景"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整外观" : "查看建筑剖面"}</button>
             <button type="button" className={gatesOpen ? styles.active : ""} aria-pressed={gatesOpen} onClick={toggleGates}>{gatesOpen ? "关闭社区门禁" : "打开社区门禁"}</button>
@@ -229,7 +239,7 @@ export function ResidentialCommunityDemo() {
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {night ? "COMMUNITY NIGHT" : "NEIGHBOURHOOD OPEN"} · {cutaway ? "剖面观察中" : "完整建筑外观"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED COMMUNITY" : night ? "COMMUNITY NIGHT" : "NEIGHBOURHOOD OPEN"} · {shattered ? "破碎态" : cutaway ? "剖面观察中" : "完整建筑外观"}</div>
       <aside className={styles.metrics} aria-label="住宅社区模型参数">
         <span>RESIDENTIAL COMMUNITY MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>

@@ -6,7 +6,7 @@
 | 作者 | Forest Courier · Map Workshop |
 | 日期 | 2026-08-15 |
 | 状态 | Draft — open questions resolved |
-| 修订 | 2026-08-16 r7（1 格 = 1 m²；花坛 4×1、兔子电动车 2×1 为游戏标尺；院区保留占地但场地可骑；道路改为预设 + 组合式剖面） |
+| 修订 | 2026-08-16 r8（树占地改为 1×1；兔子 2 格 / 1 格 = 1 m 再确认；150 mesh 降为 LOD spike 测量目标，不再当合并门闩） |
 | 产品 | Forest Courier · Map Workshop (`forest-courier-map-studio`) |
 | 范围 | 城市地图（`mapType === "city"`，「雨港新城」/ Rain Harbor） |
 | 非范围 | 森林地图程序化生成、展示区 `/demos` 视觉重做、骑行物理重写 |
@@ -17,7 +17,7 @@
 
 当前雨港新城由 `app/lib/map/city.ts` 的 `buildCityWorld()` **一次性程序化生成**：五条南北脊路 `ROAD_X = [-820, -360, 120, 500, 820]`、四条东西脊路 `ROAD_Z = [-640, -180, 280, 700]`，街区里塞的是按城区染色的盒子楼（`addBuildings`），不是展示区院区。工坊侧 `MapStudio.tsx` 只有 `cityDensity` / `roadWidth` / `seed` 滑条，导入导出只序列化 `MapSettings`（`format: "forest-courier-map", version: 2`）。
 
-本设计把城市路径改成 **格子占用 + 世界米路网 + 展示区目录** 的 3D 地图编辑器：用户面对的最小编辑单元是 **1 m × 1 m** 地面方格（路灯 1×1、花坛 **4×1**、兔子电动车 **2×1**；圆形占地收成 n×n 正方形并补四角场地）。花坛和兔子是**游戏标尺**，不是当前 mesh AABB 的直接 `ceil`；地图用 prototype 必须统一缩放或重做视觉包络，使可碰撞本体落在声明格内。现有院区 **不裁 mesh**，编辑保留区按实际 `siteSize`；保留区不可叠放其它建筑，但草地、广场、内路可骑，碰撞只来自楼体、围墙、树干和设施等 `collisionZones`。道路节点与导入物件的位姿存在**世界米**里，再按统一的 world-AABB 半开区间规则栅格化。道路 UI 使用常见预设，文档存左右车道/自行车道/人行道等组合式剖面。渲染必须直接调用 `/demos` 同一套 `buildLowPoly*` 工厂，再派生真正的地图 LOD 或 InstancedMesh/BatchedMesh。森林地图保持程序化；骑行、追逐相机、小地图、破碎（仅森林）保持不变；i18n **只加键、不重写框架**。
+本设计把城市路径改成 **格子占用 + 世界米路网 + 展示区目录** 的 3D 地图编辑器：用户面对的最小编辑单元是 **1 m × 1 m** 地面方格（路灯 1×1、**行道树 1×1**、花坛 **4×1**、兔子电动车 **2×1**；其它圆形占地收成 n×n 正方形并补四角场地）。花坛、兔子、树是**游戏标尺**，不是当前 mesh AABB 的直接 `ceil`；树冠可越出占地格，但不占邻格、不挡路。现有院区 **不裁 mesh**，编辑保留区按实际 `siteSize`；保留区不可叠放其它建筑，但草地、广场、内路可骑，碰撞只来自楼体、围墙、树干和设施等 `collisionZones`。道路节点与导入物件的位姿存在**世界米**里，再按统一的 world-AABB 半开区间规则栅格化。道路 UI 使用常见预设，文档存左右车道/自行车道/人行道等组合式剖面。渲染必须直接调用 `/demos` 同一套 `buildLowPoly*` 工厂，再派生真正的地图 LOD 或 InstancedMesh/BatchedMesh。森林地图保持程序化；骑行、追逐相机、小地图、破碎（仅森林）保持不变；i18n **只加键、不重写框架**。
 
 城市工坊**默认打开空白镜框**（地面、海、禁区/海堤，无路无楼），并使用固定安全出生点；不能再假定 `roadPoints[0]` 存在。`importRainHarborDocument(settings)` 仍把脊路、`CityRoadProfile` 米制、灯/树/体块的世界坐标原样写入文档，由面板「导入默认雨港」显式调用；该导入结果在 Play 下与现城等价（允许 instance 矩阵浮点差）。`USE_CITY_DOCUMENT` 等价测试用导入器产出作夹具，不用空白默认档。新画道路由预设生成组合式规范剖面（标准机动车道 **3.0 m = 3 格**）；导入边仍冻结现城 2.9–3.8 m 与左右横断面，再按实际世界区间栅格化，禁止把 `ceil(corridorWidth)` 当作完整覆盖规则。森林路径不受影响。
 
@@ -61,7 +61,7 @@
 
 ### Goals
 
-1. 用户最小编辑单元 = 一块 **1 m × 1 m** 地面方格。游戏标尺：路灯 1×1、花坛 4×1、兔子电动车 2×1；其余条目默认按地图 prototype 的地面包络向上取整，允许有审计过的语义 override。**圆形占地在地图上永远是 n×n 正方形**；圆与方之间的空地用场地补白设计。现有展示区建筑/院区 **不裁 mesh、不按入口宽裁内部路**，编辑保留区按实际 `siteSize` / AABB 修正。
+1. 用户最小编辑单元 = 一块 **1 m × 1 m** 地面方格。游戏标尺：路灯 1×1、**行道树 1×1**、花坛 4×1、兔子电动车 2×1；其余条目默认按地图 prototype 的地面包络向上取整，允许有审计过的语义 override。**圆形占地默认是 n×n 正方形**；树是例外，只占树干那 1 格。现有展示区建筑/院区 **不裁 mesh、不按入口宽裁内部路**，编辑保留区按实际 `siteSize` / AABB 修正。
 2. 单一 `CityCatalog`：catalog id → 展示区工厂 + 占用 + 吸附 + 碰撞 + 分类。加模型 = 加一条注册，绝不复制几何。
 3. 道路是轴对齐折线/图（v1 不做自由曲线）。**节点存世界米**；占用栅到格子。UI 提供单行 1 车道、双向 1/2/3 车道/向等预设；文档持久化组合式 `RoadCrossSection`（A→B/B→A 车道数、左右自行车道、人行道、隔离带、停车带）。导入边冻结当时的完整左右米制剖面。
 4. 道路可自延伸；碰到院区**场地边缘路缘开口**时自动接路，不把沥青刷进草坪。
@@ -93,9 +93,9 @@
 
 | # | 决策 | 理由 |
 |---|---|---|
-| D1 | 占用尺 `TILE_SIZE_METERS = 1`；花坛 4×1、兔子电动车 2×1 是游戏标尺 | 1 格 = 1 m 边长、1 m²。标尺优先于当前展示 mesh AABB；地图 prototype 必须缩放/简化到声明包络内，或明确登记不参与碰撞的视觉 overhang。其它条目默认按地图 prototype 地面 AABB `ceil`。新画车道规范 3.0 m = 3 格。 |
+| D1 | 占用尺 `TILE_SIZE_METERS = 1`；路灯/树 1×1、花坛 4×1、兔子电动车 2×1 是游戏标尺 | 2026-08-16 用户拍板：1 格 = 1 m；树占 1 格；兔子占 2 格。标尺优先于 mesh AABB。树冠是无碰撞 visual overhang，不把邻格算进占用。其它条目默认按地图 prototype 地面 AABB `ceil`。新画车道规范 3.0 m = 3 格。 |
 | D2 | 方案 A：格子占用 + 目录（不用 B/C） | 满足「最小单元是方格」和「直接复用工厂」。B 留不下道路类型；C 工期不匹配。 |
-| D3 | 占用格永远是轴对齐矩形。圆形占地：直径 D → **n×n**，`n = ceil(D / TILE)` | 格子编辑器没有圆形格。外接正方形是唯一占地；四角用 `sitePad` 补成完整方形场地。灯臂等点状家具才用 `footprintOverride`（1×1），**禁止**用 override 缩小院区/楼。 |
+| D3 | 占用格永远是轴对齐矩形。圆形占地默认：直径 D → **n×n**。**行道树例外：1×1** | 格子没有圆形格。喷泉/圆塔仍走外接正方形。树按用户标尺只占树干格，树冠登记为 `nonCollidingOverhang`，可压人行道/路缘视觉，但不与 asphalt 冲突、不能阻止邻格再放灯。**禁止**用 override 缩小院区/楼。 |
 | D4 | 单一 `CITY_CATALOG`，工厂字段是无参 `buildLowPoly*` 引用 | 加模型 = 加条目。信号灯**不**走 `factoryArgs`，由 `citySignals.ts` 直接调 `buildLowPolyTrafficLight(-1)` + `setPhase`。 |
 | D5 | 模板缓存：每 catalogId 调一次工厂；地图 prototype 有独立资源所有者；invalidate 后强制重建 instance/batch | `prototype.clone(true)` 共享 geometry/material。cache 是共享资源唯一 owner；placement 删除只 detach，不能 dispose 借用资源。HMR 是**新工作**，不是现成钩子。 |
 | D6 | 道路节点存世界米；占用再栅到 1 m 格 | TILE=1 时全部脊路相对 origin 落在**格边**（整数米）。新画吸附格心会偏 0.5 m，故仍存世界米：导入无损，延长已有边锁世界轴。`mergeSlop` 默认 0.9 m（> 半格 0.5 m），才能焊上导入脊路。 |
@@ -111,8 +111,8 @@
 | D16 | `CityEditorSession` 拥有文档并提供 `subscribe/getSnapshot/revision`；`ForestScene` 只是视图 | 避免 React/editor/scene 三份权威。命令是 `{ apply, revert }` delta；每次 apply/revert 增 revision 并通知 React/renderer。旋转绕 footprint 中心改写 `(i,j)`。 |
 | D17 | 院区保留区与骑行碰撞彻底分离；`CollisionWorld` 原生支持静态 circle + OBB | 整个 `siteSize` 只用于编辑 reservation。草地、广场、内路可骑；楼体/围墙/设施由 catalog `collisionZones` 描述并直接注册 circle/OBB。避免圆阵列近似矩形造成穿缝、外溢和大量 collider；不改车辆动力学。 |
 | D18 | 导入器在每个 `roadsIntersect` 点插节点并打断两边；刷路撞上异向中心线同样打断 | 「一条脊路一条边」没有共享顶点，度数检测会得到 0 个路口。与 `addSidewalkNetwork` 同一拓扑。 |
-| D19 | 现有展示区建筑/院区不裁 mesh；院区 reservation = `ceil(siteSize/TILE)`；语义标尺允许审计过的 `footprintOverride` | 院区保留区禁止缩小。路灯/公园灯/信号 1×1、花坛 4×1、兔子电动车 2×1 是明确的游戏标尺；地图 prototype 必须与 override 视觉包络一致。 |
-| D20 | 圆形占地：编辑占用 = 外接正方形；骑行碰撞仍用圆；四角补白可骑、不可再落 solid | 树冠/喷泉/圆塔在格子上是 n×n。补白（铺装/草地/树池）是该条目场地的一部分，不是地图空隙。碰撞：树用树干半径；圆建筑用 `D/2`；补白不加圆。 |
+| D19 | 现有展示区建筑/院区不裁 mesh；院区 reservation = `ceil(siteSize/TILE)`；语义标尺允许审计过的 `footprintOverride` | 院区保留区禁止缩小。路灯/公园灯/信号/树 1×1、花坛 4×1、兔子电动车 2×1 是明确的游戏标尺。花坛地图 prototype 必须落入 4×1；树只约束树干落在 1×1，树冠允许 overhang。 |
+| D20 | 圆形占地默认外接正方形；**树不走这条**。骑行碰撞：树 = 树干圆，圆建筑 = `D/2` | 用户已定树占 1 格。喷泉/圆塔仍 n×n + sitePad。树冠视觉可越格，邻格仍可放灯/花坛（只与树干 1×1 冲突）。 |
 | D21 | 交叉口由图节点派生；只持久化 `intersectionOverrides[nodeId]` | `Intersection{x,z}` 与 `RoadNode{x,z}` 双份坐标会漂。道路拆分/移动后，信号灯覆盖跟随 node id；不再序列化派生交叉口列表。 |
 | D22 | 所有占用统一走 world-AABB 半开区间栅格器 | `ceil(width/TILE)` 只算尺寸，不决定格索引。路中心可能在格边或格心，冻结宽度是小数；幽灵、冲突、道路层、碰撞和导入测试必须共享 `rasterizeWorldAabb([min,max))`。 |
 | D23 | 默认空白镜框使用固定安全出生点；小地图接收独立线段而非单 polyline | 空文档无 `roadPoints[0]`。Play/相机/配送需有无路回退；小地图不得把不相邻 edges 连成假路。 |
@@ -199,9 +199,10 @@ MapStudio 持有 CityEditorSession
 
 | 参照物 | 用户标尺 | 当前展示尺寸 | 地图规则 |
 |---|---|---|---|
-| 路灯 | **1×1** | 基座底半径 0.56 m；悬臂到约 x=2.73 m | 占用/碰撞按杆位；灯臂登记为无碰撞 visual overhang，不得拿来缩小其它 solid |
-| 路边花坛 | **4×1** | `roadside-planter-foundation` = 6.35 × 1.75 m | catalog 的地图 prototype 单独等比缩放到 4×1 包络内；测试 `Box3.x≤4 && Box3.z≤1`，禁止只改占用数字 |
-| 骑电动车的小兔子 | **2×1** | 当前展示参考长度 2.4 m | 将 `RABBIT_RIDER_REFERENCE_LENGTH_METERS` 与 rider 渲染目标长度改为 2.0 m；它不是 v1 可摆 placement，骑行物理半径仍独立为 0.55 m，不改车辆动力学 |
+| 路灯 | **1×1** | 基座底半径 0.56 m；悬臂到约 x=2.73 m | 占用/碰撞按杆位；灯臂登记为无碰撞 visual overhang |
+| 行道树 | **1×1** | 叶冠 D≈4.7 m，树干更窄 | 只占树干那一格；树冠 overhang，不挡邻格、不挡路。碰撞仍是树干圆 |
+| 路边花坛 | **4×1** | `roadside-planter-foundation` = 6.35 × 1.75 m | 地图 prototype 缩进 4×1 包络；测试 `Box3.x≤4 && Box3.z≤1` |
+| 骑电动车的小兔子 | **2×1** | 展示参考长度仍 2.4 m | 编辑占用 = 2 m × 1 m。**不改**全局 `RABBIT_RIDER_REFERENCE_LENGTH_METERS`。不是 v1 可摆物件；骑行半径仍 0.55 m |
 
 取 **`TILE_SIZE_METERS = 1`**。一格面积 1 m²。
 
@@ -292,13 +293,9 @@ export function squareTilesFromCircle(diameterMeters: number): { n: number; padM
 
 院区内部的旋转木马、体育场跑道、喷泉 **不** 升为城市层圆形条目：它们已经画在矩形 `siteSize` 里，院区占地仍按矩形 siteSize。
 
-v1 城市层圆形条目：
+**行道树不走 n×n。** 用户 2026-08-16 拍板：树占地 **1×1**（树干所在格）。叶冠是 `nonCollidingOverhang`，可画出 1 m 格，但不写入占用层、不与 asphalt/bike 冲突、邻格仍可放路灯。骑行碰撞仍是树干圆（现城约 `r=0.7 * scale`）。导入树无论 `scale` 多少，占用都是 1×1，中心落在世界位姿所在格。
 
-| id | 直径来源 | n×n | sitePad |
-|---|---|---|---|
-| `street-tree` | 叶冠 xz AABB；无 GLB 时 fallback `IcosahedronGeometry(2.35)` → D=4.7 m | **5×5**（5 m 场地） | `soil-grate` 方形树池，居中；树干仍在格心 |
-
-导入树带 `scale` 时：直径按 `4.7 * scale` 再 `ceil`，占用可以是 4×4 或 5×5；碰撞仍是 `trunkRadius * scale`。城市行道树 scale≈0.75–0.86 → D≈3.5–4.0 m → **4×4**。
+v1 其它圆形条目（喷泉、圆塔，若进城市层）仍用上表 n×n + `sitePad`。
 
 #### 编辑保留区、视觉包络与骑行碰撞分离（D17 / D19）
 
@@ -465,7 +462,7 @@ catalog 变换顺序固定：先构建 factory 与读取 `userData.mapCollisionZ
 | `hot-dog-kiosk` | `buildLowPolyHotDogKiosk` | 3.5 × 2.5 | **4×3** | |
 | `newsstand` | `buildLowPolyNewsstand` | 3.5 × 2.5 | **4×3** | |
 | `phone-booth` | `buildLowPolyPhoneBooth` | 缩放后 1.84 × 1.69 | **2×2** | |
-| `street-tree` | `tree_normal_medium_redwood_a` showroom wood | 叶冠 D≈4.7 m | **5×5** | 圆形占地收方；`sitePad: soil-grate`；碰撞仍树干 ~0.7。唯一非 `buildLowPoly*` |
+| `street-tree` | `tree_normal_medium_redwood_a` showroom wood | 树干格 | **1×1** | 用户标尺。树冠 overhang，不占邻格；碰撞仍树干 ~0.7。唯一非 `buildLowPoly*` |
 
 **COLLECTION 09 共享（公园灯）**
 
@@ -509,10 +506,10 @@ catalog 变换顺序固定：先构建 factory 与读取 `userData.mapCollisionZ
 - 每条带 `connectsInternalRoad` 的切口线段与对应 `InternalRoad` 矩形相交。
 - `stretchInternalRoadToKerb`：outward 轴变长，垂直轴等于工厂宽度（学校 158、公园南广场 48、市镇南环 169、城市中心南大道 204）。
 - 院区占用 `w,d` ≥ `ceil(siteSize / TILE)`，禁止更小裁切框。
-- `street-tree`：`footprintKind==="circle"`，占用 n×n 且 n≥5（D=4.7），`sitePad.material==="soil-grate"`。
+- `street-tree`：占用 **1×1**；树冠可越出 Box3，但不写入占用；与 asphalt 相邻的人行道格仍可落树。
 - `factory ===` 导出函数；`siteSize` 对齐 `userData.siteSize`（商场断言 `x===184`、`z===138`）。
 - 商场南切口 `(0, 69)` 在缩放后 AABB 上，**不**在 `69*1.15`。
-- 花坛地图 prototype 的 solid `Box3` ≤ 4×1；兔子比例尺长度 === 2 m。
+- 花坛地图 prototype 的 solid `Box3` ≤ 4×1。兔子编辑占用 2×1；展示区参考长度仍为 2.4 m，不改全局展厅尺。
 - 每个 `reservation:"site"` 工厂必须在 `userData.mapCollisionZones` 暴露楼体/围墙/设施的语义碰撞；catalog 只声明 `source:"factory-userData"`，避免几何改了而碰撞清单留旧。点状家具/GLB 可用 catalog zones。collisionZones 的 union 不得等于整个 siteSize；草地/广场/内路可骑夹具必须存在。
 - traverse 同时记录 `showcaseMeshCount` 与 `mapVisibleMeshCount`；后者在加 `sitePad` 前统计，并受性能门槛约束。
 
@@ -910,15 +907,15 @@ type CityMapDocument = {
 | 道路 + 派生路口 | instance 条带 / 坡 / 斑马线 | 与现 `addSidewalkNetwork` 同量级 |
 | 城市层装饰 | 每 id 一套 part InstancedMesh | 300 灯 ≈ 十余 dc |
 | 行道树 | wood+leaves instance | 2 |
-| 院区 | tagged map layers + 隐藏 interior/micro detail + 静态同材质合并 + 重复家具 batch | 单院区 `mapVisibleMeshCount ≤ 150` 且增量 draw calls ≤ 80；超标不得进入调色板 |
+| 院区 | tagged map layers + 隐藏 interior/micro detail + 静态同材质合并 + 重复家具 batch | **150 / 80 是 spike 测量目标，不是合并门闩。** 先用居民社区做出一个 map LOD 样本，记下真实 mesh/draw-call；再按实测定调色板门槛 |
 | 遗留体块 | **7** 个 InstancedMesh | 7 |
 | 点光 | `setPowered(false)` | 0 盏城市点光 |
 
-硬约束（在用户能拖院区的 PR 之前落地）：
+性能落地顺序：
 
-1. 先做“居民社区 + 游乐园 + 公园”最坏三类的 map LOD 技术验证；`setInteriorCutaway`/`setServiceCutaway` 不计为通过。
-2. catalog 测试快照 `showcaseMeshCount/mapVisibleMeshCount`；浏览器基准夹具记录 `renderer.info.render.calls` 与 frame time。默认雨港 + 10 个重院区在约定基准机 1080p 达不到 60 fps，则院区拖放功能不解锁。
-3. `sports-center` / `city-center` 已有1座时再落确认；其它重院区遵守 `maxRecommendedCount`。
+1. **Spike（先量，再定门槛）**：只拿居民社区做一遍真正的 map LOD（tag/hide/merge/batch）。`setInteriorCutaway` 不算通过。记下 `mapVisibleMeshCount` 和增量 draw calls。150 / 80 是这次试探的**目标**，达不到也不阻塞目录/文档/道路 PR。
+2. 用实测数字写进 catalog 的 `maxRecommendedCount` / 调色板解锁条件。浏览器夹具记 `renderer.info.render.calls` 与 frame time。
+3. `sports-center` / `city-center` 已有 1 座时再落确认。
 4. 增量：落一座院区只加一个 mapPrototype clone；改路只重建路网 + derived；删除 placement 不 dispose cache 共享资源。
 
 后续（非 v1）：视距外 `siteSize` 盒子；城市 chunk。
@@ -1007,7 +1004,7 @@ API 改为 `setCityWorld(segments, stops)`；每条 edge 是独立 `{a,b}` 线�
 
 ### 测试
 
-- `tests/city-tiles.test.mjs` — 花坛4×1、兔子2×1、路灯1×1、树冠4.7→5×5、旋转中心、typed bitmask；格边/格心中心与30.2 m 小数宽度均按半开 AABB 得到确定覆盖
+- `tests/city-tiles.test.mjs` — 花坛4×1、兔子2×1、路灯1×1、**树1×1**、旋转中心、typed bitmask；格边/格心中心与30.2 m 小数宽度均按半开 AABB 得到确定覆盖
 - `tests/city-catalog.test.mjs` — factory 身份、siteSize、4×1 花坛 map Box3、入口/内路、collisionZones 不填满院区、0/90/180/270 局部变换、mapVisibleMeshCount 性能门槛
 - `tests/city-document.test.mjs` — 位姿判别联合、混合位姿拒读、schema/catalog migration、v3 round-trip、intersectionOverrides node key、empty spawn 与空 graph
 - `tests/city-roads.test.mjs` — 预设生成组合剖面、左右编辑、显式反转、拆边保方向、格边/格心栅格、单行/不对称 T 路口、默认雨港坡回归
@@ -1119,7 +1116,7 @@ cityEditor: {
 | 启动默认是导入雨港还是空白画布？ | **空白镜框。** 地面 + 海 + 边界可骑，无路无楼。「导入默认雨港」为显式动作；「清空为镜框」仍保留，回到同一空档。 | 2026-08-15 |
 | 圆形建筑在格子上怎么占？ | **外接正方形 n×n** + 四角 `sitePad` 补白。碰撞仍用圆；补白可骑、占用算在该物件上。院区内的圆设施不单独占城市格。 | 2026-08-15 |
 | 现有院区要不要按入口裁占地/内部路？ | **不要。** mesh 不裁；占地按实际 siteSize ceil；内部路只拉边，宽度保持工厂原值。城侧 driveway 仍用大门净宽。 | 2026-08-15 |
-| 一格等于多少米？花坛/电动车占几格？ | **1 格 = 1 m × 1 m。** 花坛 **4×1**、兔子电动车 **2×1**、路灯1×1；它们是游戏标尺，地图 prototype 必须适配标尺。 | 2026-08-16 |
+| 一格等于多少米？花坛/电动车/树占几格？ | **1 格 = 1 m × 1 m。** 花坛 **4×1**、兔子电动车 **2×1**、路灯 **1×1**、**行道树 1×1**。树冠不占邻格。 | 2026-08-16 |
 | 院区是否可骑？ | **可骑。** 整个 siteSize 只做编辑 reservation；草地、广场、内路、步行路径默认可骑，只有 collisionZones 阻挡。 | 2026-08-16 |
 | 道路存固定类型还是可组合剖面？ | **UI 用预设，文档存组合式剖面。** 初始预设为单行1与双向1/2/3；左右设施、方向车道数、隔离/停车可扩展。 | 2026-08-16 |
 
@@ -1129,13 +1126,13 @@ cityEditor: {
 
 | 风险 | 严重度 | 缓解 |
 |---|---|---|
-| 大型院区 + 嵌套灯拖垮 GPU | 高 | 先做最坏三类 map LOD spike；tag/hide/merge/batch；单院区 mesh/draw-call 门槛与真实浏览器 fixture，不用 cutaway 代替 |
+| 大型院区 + 嵌套灯拖垮 GPU | 高 | 先做居民社区一个 map LOD spike，用实测数字定门槛；150/80 只是试探目标 |
 | 导入 0 路口 | 高 | D18：每个 `roadsIntersect` 插点拆边；导入测试对 live 剖面计数 |
 | 格边/格心 + 小数宽导致占用差一格 | 高 | D22：统一半开 world-AABB 栅格器；幽灵/道路/碰撞/导入共享；30.2m 格边夹具 |
 | 矩形障碍用近似圆导致穿缝或侵占草地 | 高 | D17：原生 circle/OBB；局部 clamp 接触解析；四边/四角/内点/旋转与 zone 外双向测试 |
 | 数千 static collider 每帧线性扫描 | 高 | D24：16m uniform spatial hash；bike AABB 局部查询、id 去重；10000远处 collider 候选数夹具 |
 | 院区 reservation 被误当成碰撞 | 高 | Catalog 强制 collisionZones；医院/学校/公园草地、广场、内路可骑回归 |
-| 圆形占地四角未定义 | 中 | D20：TemplateCache 加 sitePad；占用 n×n；测试树 5×5 |
+| 圆形占地四角未定义 | 中 | 树已改为 1×1，不再走 n×n。其余圆物仍 n×n + sitePad |
 | 按入口裁内部路导致假连接 | 高 | D9/D19：stretch 禁止裁宽；catalog 单测工厂宽度与入口连通 |
 | T 字/单行/不对称路口沿用固定8坡 | 高 | approach 式路口生成；只有真实人行道端点生坡；默认四向仅作迁移回归 |
 | 共享 clone 被 scene teardown dispose | 高 | cache 资源 owner + borrower detach；资源生命周期专项测试；城市不走通用深遍历 dispose |
@@ -1167,16 +1164,16 @@ cityEditor: {
 ### PR 1 — 格子数学与占用
 
 - **标题**：`Add city tile math and occupancy helpers`
-- **影响**：`app/lib/map/cityTiles.ts`、`rabbitRiderReference.ts`、rider 渲染标尺、`tests/city-tiles.test.mjs`、`tests/rabbit-scale-reference.test.mjs`
+- **影响**：`app/lib/map/cityTiles.ts`、`tests/city-tiles.test.mjs`
 - **依赖**：无
-- **内容**：TILE=1、2200×1940 typed layer bitmask、world-AABB 半开栅格器、reservation owner 分块、旋转中心；兔子渲染参考长度从2.4m改为2.0m但不改0.55m物理半径。断言花坛4×1、兔子2×1、树5×5；格边/格心中心和30.2m小数宽度得到确定覆盖。
+- **内容**：TILE=1、2200×1940 typed layer bitmask、world-AABB 半开栅格器、reservation owner 分块、旋转中心。断言花坛4×1、兔子2×1、路灯/树1×1。**不改** `RABBIT_RIDER_REFERENCE_LENGTH_METERS`（展厅仍 2.4 m）。格边/格心中心和30.2m小数宽度得到确定覆盖。
 
 ### PR 2 — 目录、真实 map LOD 与资源所有权技术门槛
 
 - **标题**：`Add city catalog bound to showcase buildLowPoly factories`
 - **影响**：`cityCatalog.ts`、各工厂 mapLayer/collision 元数据、`cityTemplateCache.ts`、`tests/city-catalog.test.mjs`、`tests/city-resources.test.mjs`、性能 fixture
 - **依赖**：PR 1
-- **内容**：先完成居民社区/游乐园/公园最坏三类 map LOD：tag/hide/merge/batch，禁止 cutaway 冒充；通过 `mapVisibleMeshCount≤150`、增量 draw calls≤80 结构门槛。再补全 catalog：花坛4×1 mapScale/Box3、reservation、collisionZones、入口/InternalRoad、schema version。cache 是共享资源唯一 owner；placement detach 不 dispose。无 UI。
+- **内容**：居民社区做一个 map LOD **spike**（tag/hide/merge/batch，cutaway 不算），记下真实 mesh/draw-call；150/80 是测量目标不是合入条件。同时补全 catalog 数字：树1×1、花坛4×1、reservation、入口/InternalRoad、schema version。cache 是共享资源唯一 owner。无 UI。
 
 ### PR 3 — CityMapDocument 与 v3 写出器
 

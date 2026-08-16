@@ -5,8 +5,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { buildLowPolyAmusementPark, type AmusementFacility } from "../../lib/map/amusementPark";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import styles from "./AmusementParkDemo.module.css";
 
 const PARK_TREE_URL = "/models/forest/tree_normal_medium_redwood_a.glb";
@@ -22,7 +23,7 @@ const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3 }> = {
   circus: { target: new THREE.Vector3(-56, 8, -10), camera: new THREE.Vector3(-27, 27, 25) },
   shooting: { target: new THREE.Vector3(12, 4, -10), camera: new THREE.Vector3(34, 16, 22) },
   karting: { target: new THREE.Vector3(45, 3, -36), camera: new THREE.Vector3(79, 29, 21) },
-  ferris: { target: new THREE.Vector3(53, 18, 14), camera: new THREE.Vector3(94, 46, 66) },
+  ferris: { target: new THREE.Vector3(55, 7, 21), camera: new THREE.Vector3(84, 25, 48) },
   "drop-tower": { target: new THREE.Vector3(69, 17, -8), camera: new THREE.Vector3(101, 42, 37) },
 };
 
@@ -35,7 +36,7 @@ const FACILITY_CARDS: Array<{
 }> = [
   { id: "overview", number: "PARK 00", title: "全园总览", summary: "12 项设施 · 开放绿化边界 · 环形游园动线", detail: "入口广场、中央喷泉、主题商街与四大游乐分区；碰碰车具备完整车辆与顶棚供电结构，旋转杯配置三人座舱和独立控制转盘" },
   { id: "coaster", number: "THRILL 01", title: "云际过山车", summary: "法向双轨 · 双侧站台 · 无障碍升降连接", detail: "轨道配置连续脊梁与 72 组横枕；直线站段设双侧高架站台、双坡雨棚、侧向楼梯与升降桥，游客中心提供售票、咨询、储物、急救和卫生间服务" },
-  { id: "ferris", number: "ICON 02", title: "星环摩天轮", summary: "12 座六人轿厢 · 约 37 m 高", detail: "每厢两排共 6 座，保持水平并配置夜间轮廓灯" },
+  { id: "ferris", number: "ICON 02", title: "星环摩天轮", summary: "12 座六人轿厢 · 轴向安全登乘 · 无障碍到达", detail: "玻璃游客服务亭配置双售票窗口、进出分流候乘、操作台、薄型登乘甲板、规范双楼梯与五跑折返坡道" },
   { id: "carousel", number: "FAMILY 03", title: "皇家旋转木马", summary: "12 匹精细木马 · 鞍具脚蹬 · 装饰华盖", detail: "每匹木马具备完整头颈、四肢、马蹄、鬃尾、马鞍、缰具与脚蹬，并随旋转平台独立上下起伏" },
   { id: "pirate", number: "THRILL 04", title: "风暴海盗船", summary: "24 座甲板 · 独立压杆 · 真实轴承摆臂", detail: "三层船体配置龙骨、甲板和舷窗；桅杆上的双面梯形帆由五幅帆布、上下横桁与帆索完整固定，6 排座椅均有独立安全压杆" },
   { id: "playground", number: "KIDS 05", title: "彩虹翻斗乐", summary: "三层软包迷宫 · 安全网 · 滑筒 · 球池", detail: "按幼儿球池、攀爬迷宫和高层滑筒划分的全天候室内儿童活动空间" },
@@ -54,13 +55,14 @@ const RIDER_POSITIONS: Record<Focus, THREE.Vector3> = {
   circus: new THREE.Vector3(-43, 0.46, -1),
   shooting: new THREE.Vector3(23, 0.46, -1),
   karting: new THREE.Vector3(25, 0.46, -20),
-  ferris: new THREE.Vector3(34, 0.46, 14),
+  ferris: new THREE.Vector3(53, 0.53, 29.4),
   "drop-tower": new THREE.Vector3(58, 0.46, 0),
 };
 
 type DemoApi = {
   setNight: (night: boolean) => void;
   setMotion: (running: boolean) => void;
+  setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
   focus: (focus: Focus) => void;
 };
@@ -71,6 +73,7 @@ export function AmusementParkDemo() {
   const [focus, setFocus] = useState<Focus>("overview");
   const [night, setNight] = useState(false);
   const [motion, setMotion] = useState(true);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [metrics, setMetrics] = useState<ModelGeometryMetrics | null>(null);
@@ -130,7 +133,9 @@ export function AmusementParkDemo() {
     scene.add(hemi, sun, fill);
 
     const park = buildLowPolyAmusementPark();
-    scene.add(park);
+    const pair = createSceneShatterPair(park, { seed: 401, spread: 6.5 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(park));
 
     const riderReference = new THREE.Group();
@@ -203,6 +208,7 @@ export function AmusementParkDemo() {
     apiRef.current = {
       setNight: setNightMode,
       setMotion: (running) => park.userData.setMotionEnabled(running),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => {
         rotating = enabled;
         controls.autoRotate = enabled;
@@ -223,6 +229,7 @@ export function AmusementParkDemo() {
       const delta = Math.min(clock.getDelta(), 0.05);
       const elapsed = clock.elapsedTime;
       park.userData.update(delta, elapsed);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -273,6 +280,11 @@ export function AmusementParkDemo() {
     setMotion(next);
     apiRef.current?.setMotion(next);
   };
+  const toggleShattered = () => {
+    const next = !shattered;
+    setShattered(next);
+    apiRef.current?.setShattered(next);
+  };
   const toggleAutoRotate = () => {
     const next = !autoRotate;
     setAutoRotate(next);
@@ -296,6 +308,7 @@ export function AmusementParkDemo() {
         <div hidden={collapsed}>
           <p className={styles.intro}>独立城市模型展示区，以中央大道串联四个游乐片区，并设置连续周界保护围栏与受控主入口；园林树木、花坛、餐车和路灯均复用项目现有饰品模型，并放置游戏主角兔子骑车作为统一尺度参考。</p>
           <div className={styles.actions}>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复游乐园" : "破碎游乐园"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮夜景"}</button>
             <button type="button" className={!motion ? styles.paused : ""} aria-pressed={!motion} onClick={toggleMotion}>{motion ? "暂停所有设施" : "启动所有设施"}</button>
             <button type="button" className={autoRotate ? styles.active : ""} aria-pressed={autoRotate} onClick={toggleAutoRotate}>{autoRotate ? "停止环游" : "自动环游"}</button>
@@ -305,7 +318,7 @@ export function AmusementParkDemo() {
       </header>
 
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {night ? "NIGHT PARADE" : "PARK OPEN"} · {motion ? "设施运行中" : "设施已暂停"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED PARK" : night ? "NIGHT PARADE" : "PARK OPEN"} · {shattered ? "破碎态" : motion ? "设施运行中" : "设施已暂停"}</div>
 
       <aside className={styles.metrics} aria-label="游乐园模型参数">
         <span>WONDER CITY MODEL</span>

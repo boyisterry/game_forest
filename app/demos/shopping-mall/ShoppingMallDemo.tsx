@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { buildLowPolyShoppingMall, type MallZone } from "../../lib/map/shoppingMall";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import styles from "./ShoppingMallDemo.module.css";
 
 type Focus = MallZone;
@@ -30,7 +31,7 @@ const ZONES: Array<{ id: Focus; number: string; title: string; summary: string; 
   { id: "interior", number: "INTERIOR 06", title: "主题店铺精装内部", summary: "62 个主题店铺 · 后厨与陈列", detail: "剖开北翼观察收银柜台、餐饮后厨、零售陈列、店内座席与灯光，并串联楼梯、电梯、卫生间和导视等公共服务。" },
 ];
 
-type DemoApi = { focus: (focus: Focus) => void; setNight: (night: boolean) => void; setCutaway: (cutaway: boolean) => void; setAutoRotate: (enabled: boolean) => void };
+type DemoApi = { focus: (focus: Focus) => void; setNight: (night: boolean) => void; setCutaway: (cutaway: boolean) => void; setShattered: (shattered: boolean) => void; setAutoRotate: (enabled: boolean) => void };
 
 export function ShoppingMallDemo() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -38,6 +39,7 @@ export function ShoppingMallDemo() {
   const [focus, setFocus] = useState<Focus>("overview");
   const [night, setNight] = useState(false);
   const [cutaway, setCutaway] = useState(false);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -54,7 +56,7 @@ export function ShoppingMallDemo() {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.04;
-    renderer.domElement.setAttribute("aria-label", "都会里大型商业中心三维展示场景，包含六十二个主题店铺、精装室内、中庭和公共服务设施");
+    renderer.domElement.setAttribute("aria-label", "都会里大型商业中心三维展示场景，包含六十二个主题店铺、精装室内、中庭、公共服务设施与持续营业的商业夜景照明");
     renderer.domElement.tabIndex = 0;
     host.appendChild(renderer.domElement);
 
@@ -71,7 +73,8 @@ export function ShoppingMallDemo() {
     controls.maxDistance = 290;
     controls.maxPolarAngle = Math.PI * 0.49;
 
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(160, 64), new THREE.MeshStandardMaterial({ color: 0xa7b5a5, roughness: 0.98 }));
+    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xa7b5a5, roughness: 0.98 });
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(160, 64), groundMaterial);
     ground.rotation.x = -Math.PI * 0.5;
     ground.position.y = -0.02;
     ground.receiveShadow = true;
@@ -88,10 +91,14 @@ export function ShoppingMallDemo() {
     sun.shadow.camera.far = 280;
     const fill = new THREE.DirectionalLight(0x93bbce, 0.72);
     fill.position.set(58, 26, -48);
-    scene.add(hemi, sun, fill);
+    const moon = new THREE.DirectionalLight(0x8fb6df, 0);
+    moon.position.set(46, 64, -72);
+    scene.add(hemi, sun, fill, moon);
 
     const mall = buildLowPolyShoppingMall();
-    scene.add(mall);
+    const pair = createSceneShatterPair(mall, { seed: 403, spread: 6 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(mall));
     const riderAnchor = new THREE.Group();
     riderAnchor.name = "shopping-mall-rabbit-rider-reference-anchor";
@@ -113,26 +120,38 @@ export function ShoppingMallDemo() {
     controls.addEventListener("start", () => { interacting = true; focusBlend = 0; });
     controls.addEventListener("end", () => { interacting = false; });
     const setNightMode = (on: boolean) => {
-      const color = on ? 0x101c28 : 0xc8dadd;
-      scene.background = new THREE.Color(color);
-      scene.fog = new THREE.Fog(color, on ? 150 : 175, on ? 305 : 345);
-      hemi.intensity = on ? 0.42 : 2.08;
-      sun.intensity = on ? 0.24 : 4.7;
-      fill.intensity = on ? 0.22 : 0.72;
-      renderer.toneMappingExposure = on ? 0.88 : 1.04;
+      const skyColor = on ? 0x07131f : 0xc8dadd;
+      scene.background = new THREE.Color(skyColor);
+      scene.fog = new THREE.Fog(on ? 0x0a1825 : skyColor, on ? 180 : 175, on ? 345 : 345);
+      hemi.color.setHex(on ? 0x6f8bab : 0xf8fbff);
+      hemi.groundColor.setHex(on ? 0x16222a : 0x566657);
+      hemi.intensity = on ? 0.68 : 2.08;
+      sun.color.setHex(on ? 0x9cb9d5 : 0xffead0);
+      sun.intensity = on ? 0.12 : 4.7;
+      sun.castShadow = !on;
+      fill.intensity = on ? 0.28 : 0.72;
+      moon.intensity = on ? 1.2 : 0;
+      groundMaterial.color.setHex(on ? 0x405159 : 0xa7b5a5);
+      groundMaterial.emissive.setHex(on ? 0x101b21 : 0x000000);
+      groundMaterial.emissiveIntensity = on ? 0.2 : 0;
+      renderer.toneMappingExposure = on ? 1.22 : 1.04;
       mall.userData.setPowered(on);
     };
     apiRef.current = {
       focus: (next) => { desiredTarget.copy(FOCUS[next].target); desiredCamera.copy(FOCUS[next].camera); riderAnchor.position.copy(FOCUS[next].rider); focusBlend = 1; },
       setNight: setNightMode,
       setCutaway: (on) => mall.userData.setInteriorCutaway(on),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.48; },
     };
     setNightMode(false);
 
+    const clock = new THREE.Clock();
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
+      const delta = Math.min(clock.getDelta(), 0.05);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -174,8 +193,15 @@ export function ShoppingMallDemo() {
     }
     apiRef.current?.focus(next);
   };
-  const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
+  const toggleNight = () => {
+    const api = apiRef.current;
+    if (!api) return;
+    const next = !night;
+    setNight(next);
+    api.setNight(next);
+  };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
+  const toggleShattered = () => { const next = !shattered; setShattered(next); apiRef.current?.setShattered(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -187,9 +213,10 @@ export function ShoppingMallDemo() {
           <button type="button" className={styles.collapseButton} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>{collapsed ? "展开导览 ↓" : "收起导览 ↑"}</button>
         </div>
         <div hidden={collapsed}>
-          <p className={styles.intro}>五栋玻璃幕墙商业建筑围合部分露天的中央商场，62 个主题店铺具有独立收银、餐饮后厨、商品陈列、店内座席与灯光装修；约 21 米宽的无门开放入口直通中庭，楼梯、电梯、卫生间和导视服务连接餐饮街、露台与空中连桥。小兔子骑车主角作为统一尺度参考。</p>
+          <p className={styles.intro}>五栋玻璃幕墙商业建筑围合部分露天的中央商场，62 个主题店铺具有独立收银、餐饮后厨、商品陈列、店内座席与灯光装修；夜间店铺、外立面、连廊、中庭、入口和导视持续点亮。约 21 米宽的无门开放入口直通中庭，楼梯、电梯、卫生间和导视服务连接餐饮街、露台与空中连桥。小兔子骑车主角作为统一尺度参考。</p>
           <div className={styles.actions}>
-            <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮商业夜景"}</button>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复商业中心" : "破碎商业中心"}</button>
+            <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "关闭商业夜景" : "点亮商业夜景"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整外观" : "查看精装内部"}</button>
             <button type="button" className={autoRotate ? styles.active : ""} aria-pressed={autoRotate} onClick={toggleRotate}>{autoRotate ? "停止环游" : "自动环游"}</button>
             <button type="button" onClick={() => chooseFocus("overview")}>返回商场总览</button>
@@ -197,7 +224,7 @@ export function ShoppingMallDemo() {
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {focus === "interior" ? "INTERIOR DETAIL" : night ? "NIGHT SHOPPING" : "CENTRE OPEN"} · {cutaway ? "精装店铺与公共服务观察中" : "完整建筑群"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED CENTRE" : focus === "interior" ? "INTERIOR DETAIL" : night ? "NIGHT BUSINESS OPEN" : "CENTRE OPEN"} · {shattered ? "破碎态" : night ? "全场营业照明已开启" : cutaway ? "精装店铺与公共服务观察中" : "完整建筑群"}</div>
       <aside className={styles.metrics} aria-label="商业中心规模、主题店铺和室内公共服务参数">
         <span>62-TENANT INTERIOR RETAIL CENTRE</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>

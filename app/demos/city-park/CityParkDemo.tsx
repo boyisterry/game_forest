@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { buildLowPolyCityPark, type CityParkZone } from "../../lib/map/cityPark";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import styles from "../residential-community/ResidentialCommunityDemo.module.css";
 
 type Focus = "overview" | CityParkZone;
@@ -37,6 +38,7 @@ type DemoApi = {
   setNight: (night: boolean) => void;
   setWater: (enabled: boolean) => void;
   setCutaway: (cutaway: boolean) => void;
+  setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
 };
 
@@ -47,6 +49,7 @@ export function CityParkDemo() {
   const [night, setNight] = useState(false);
   const [waterEnabled, setWaterEnabled] = useState(true);
   const [cutaway, setCutaway] = useState(false);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -99,7 +102,9 @@ export function CityParkDemo() {
     scene.add(hemi, sun, fill);
 
     const park = buildLowPolyCityPark();
-    scene.add(park);
+    const pair = createSceneShatterPair(park, { seed: 406, spread: 5.5 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(park));
     const riderAnchor = new THREE.Group();
     riderAnchor.name = "city-park-rabbit-rider-reference-anchor";
@@ -157,6 +162,7 @@ export function CityParkDemo() {
       setNight: setNightMode,
       setWater: (enabled) => park.userData.setWaterMotionEnabled(enabled),
       setCutaway: (on) => park.userData.setServiceCutaway(on),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.44; },
     };
     setNightMode(false);
@@ -165,7 +171,9 @@ export function CityParkDemo() {
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
-      park.userData.update(clock.getElapsedTime());
+      const delta = Math.min(clock.getDelta(), 0.05);
+      park.userData.update(clock.elapsedTime);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -205,6 +213,7 @@ export function CityParkDemo() {
   const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
   const toggleWater = () => { const next = !waterEnabled; setWaterEnabled(next); apiRef.current?.setWater(next); };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
+  const toggleShattered = () => { const next = !shattered; setShattered(next); apiRef.current?.setShattered(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -218,6 +227,7 @@ export function CityParkDemo() {
         <div hidden={collapsed}>
           <p className={styles.intro}>参考现实综合性城市公园规划，以中央生态湖为核心，串联步行、骑行、儿童活动、开放草坪、植物展示、文化演出与游客服务。湖边座椅和树木按观景、安全与通行需求重新分区，四个入口保持开放；树木、花坛、路灯和餐车复用已有模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复城市公园" : "破碎城市公园"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮公园夜景"}</button>
             <button type="button" className={waterEnabled ? styles.active : ""} aria-pressed={waterEnabled} onClick={toggleWater}>{waterEnabled ? "暂停湖面喷泉" : "启动湖面喷泉"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复服务建筑" : "查看游客中心内部"}</button>
@@ -227,7 +237,7 @@ export function CityParkDemo() {
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {night ? "PARK NIGHT" : "PARK OPEN"} · {waterEnabled ? "生态水景运行中" : "水景已暂停"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED PARK" : night ? "PARK NIGHT" : "PARK OPEN"} · {shattered ? "破碎态" : waterEnabled ? "生态水景运行中" : "水景已暂停"}</div>
       <aside className={styles.metrics} aria-label="城市公园模型参数">
         <span>URBAN PARK MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>

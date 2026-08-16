@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import { buildLowPolySportsCenter, type SportsCenterZone } from "../../lib/map/sportsCenter";
 import styles from "../residential-community/ResidentialCommunityDemo.module.css";
 
@@ -37,6 +38,7 @@ type DemoApi = {
   setNight: (night: boolean) => void;
   setEvent: (event: boolean) => void;
   setCutaway: (cutaway: boolean) => void;
+  setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
 };
 
@@ -47,6 +49,7 @@ export function SportsCenterDemo() {
   const [night, setNight] = useState(false);
   const [event, setEvent] = useState(false);
   const [cutaway, setCutaway] = useState(false);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -99,7 +102,9 @@ export function SportsCenterDemo() {
     scene.add(hemi, sun, fill);
 
     const sportsCenter = buildLowPolySportsCenter();
-    scene.add(sportsCenter);
+    const pair = createSceneShatterPair(sportsCenter, { seed: 407, spread: 5 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(sportsCenter));
     const riderAnchor = new THREE.Group();
     riderAnchor.name = "sports-center-rabbit-rider-reference-anchor";
@@ -157,6 +162,7 @@ export function SportsCenterDemo() {
       setNight: setNightMode,
       setEvent: (active) => sportsCenter.userData.setEventMode(active),
       setCutaway: (on) => sportsCenter.userData.setInteriorCutaway(on),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.42; },
     };
     setNightMode(false);
@@ -165,7 +171,9 @@ export function SportsCenterDemo() {
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
-      sportsCenter.userData.update(clock.getElapsedTime());
+      const delta = Math.min(clock.getDelta(), 0.05);
+      sportsCenter.userData.update(clock.elapsedTime);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -205,6 +213,7 @@ export function SportsCenterDemo() {
   const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
   const toggleEvent = () => { const next = !event; setEvent(next); apiRef.current?.setEvent(next); };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
+  const toggleShattered = () => { const next = !shattered; setShattered(next); apiRef.current?.setShattered(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -218,6 +227,7 @@ export function SportsCenterDemo() {
         <div hidden={collapsed}>
           <p className={styles.intro}>参考现实城市级体育中心，将专业赛事与全民健身组合在同一独立建筑群。主体育场、综合体育馆、公共游泳馆、室外运动区和赛事服务区拥有独立人流与车辆组织；树木、花坛、路灯和餐车复用已有模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复体育中心" : "破碎体育中心"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮体育中心夜景"}</button>
             <button type="button" className={event ? styles.active : ""} aria-pressed={event} onClick={toggleEvent}>{event ? "结束赛事模式" : "启动大型赛事"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整场馆" : "查看场馆剖面"}</button>
@@ -227,7 +237,7 @@ export function SportsCenterDemo() {
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {event ? "EVENT IN PROGRESS" : night ? "VENUE NIGHT" : "SPORTS CENTRE OPEN"} · {cutaway ? "剖面观察中" : "完整场馆"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED SPORTS CENTRE" : event ? "EVENT IN PROGRESS" : night ? "VENUE NIGHT" : "SPORTS CENTRE OPEN"} · {shattered ? "破碎态" : cutaway ? "剖面观察中" : "完整场馆"}</div>
       <aside className={styles.metrics} aria-label="体育中心模型参数">
         <span>METROPOLITAN SPORTS CENTER MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>

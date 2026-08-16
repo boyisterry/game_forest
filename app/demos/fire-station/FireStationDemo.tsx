@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { buildLowPolyFireStation, type FireStationZone } from "../../lib/map/fireStation";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import styles from "../residential-community/ResidentialCommunityDemo.module.css";
 
 type Focus = "overview" | FireStationZone;
@@ -35,6 +36,7 @@ type DemoApi = {
   setDoorsOpen: (open: boolean) => void;
   setAccessOpen: (open: boolean) => void;
   setAlert: (active: boolean) => void;
+  setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
 };
 
@@ -47,6 +49,7 @@ export function FireStationDemo() {
   const [doorsOpen, setDoorsOpen] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
   const [alert, setAlert] = useState(false);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -100,7 +103,9 @@ export function FireStationDemo() {
     scene.add(hemi, sun, fill);
 
     const station = buildLowPolyFireStation();
-    scene.add(station);
+    const pair = createSceneShatterPair(station, { seed: 405, spread: 5 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(station));
     const riderAnchor = new THREE.Group();
     riderAnchor.name = "fire-station-rabbit-rider-reference-anchor";
@@ -163,6 +168,7 @@ export function FireStationDemo() {
         station.userData.setServiceGateOpen(open);
       },
       setAlert: (active) => station.userData.setAlertActive(active),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.46; },
     };
     setNightMode(false);
@@ -171,7 +177,9 @@ export function FireStationDemo() {
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
-      station.userData.update(clock.getElapsedTime());
+      const delta = Math.min(clock.getDelta(), 0.05);
+      station.userData.update(clock.elapsedTime);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -218,6 +226,7 @@ export function FireStationDemo() {
     setDoorsOpen(next);
     apiRef.current?.setAlert(next);
   };
+  const toggleShattered = () => { const next = !shattered; setShattered(next); apiRef.current?.setShattered(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -231,6 +240,7 @@ export function FireStationDemo() {
         <div hidden={collapsed}>
           <p className={styles.intro}>参考现实城市一级消防站，将接警指挥、消防车辆、执勤生活、装备后勤和专业训练组织为独立完整院区。六条出警车道直接连接城市道路，访客和后勤流线与消防车分离；树木、花坛与路灯复用已有饰品模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复消防站" : "破碎消防站"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮消防站夜景"}</button>
             <button type="button" className={doorsOpen ? styles.active : ""} aria-pressed={doorsOpen} onClick={toggleDoors}>{doorsOpen ? "关闭车库门" : "打开全部车库门"}</button>
             <button type="button" className={accessOpen ? styles.active : ""} aria-pressed={accessOpen} onClick={toggleAccess}>{accessOpen ? "关闭访客与后勤门禁" : "打开访客与后勤门禁"}</button>
@@ -242,7 +252,7 @@ export function FireStationDemo() {
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {alert ? "EMERGENCY RESPONSE" : night ? "NIGHT WATCH" : "STATION READY"} · {doorsOpen ? "车库已开启" : "待命状态"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED STATION" : alert ? "EMERGENCY RESPONSE" : night ? "NIGHT WATCH" : "STATION READY"} · {shattered ? "破碎态" : doorsOpen ? "车库已开启" : "待命状态"}</div>
       <aside className={styles.metrics} aria-label="消防局模型参数">
         <span>FIRE STATION CAMPUS MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>

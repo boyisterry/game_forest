@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import { buildLowPolyTownCenter, type TownCenterZone } from "../../lib/map/townCenter";
 import styles from "../residential-community/ResidentialCommunityDemo.module.css";
 
@@ -39,6 +40,7 @@ type DemoApi = {
   setNight: (night: boolean) => void;
   setMarketDay: (active: boolean) => void;
   setCutaway: (cutaway: boolean) => void;
+  setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
 };
 
@@ -49,6 +51,7 @@ export function TownCenterDemo() {
   const [night, setNight] = useState(false);
   const [marketDay, setMarketDay] = useState(false);
   const [cutaway, setCutaway] = useState(false);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -101,7 +104,9 @@ export function TownCenterDemo() {
     scene.add(hemi, sun, fill);
 
     const townCenter = buildLowPolyTownCenter();
-    scene.add(townCenter);
+    const pair = createSceneShatterPair(townCenter, { seed: 409, spread: 4.8 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(townCenter));
     const riderAnchor = new THREE.Group();
     riderAnchor.name = "town-center-rabbit-rider-reference-anchor";
@@ -159,6 +164,7 @@ export function TownCenterDemo() {
       setNight: setNightMode,
       setMarketDay: (active) => townCenter.userData.setMarketDay(active),
       setCutaway: (on) => townCenter.userData.setInteriorCutaway(on),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.4; },
     };
     setNightMode(false);
@@ -167,7 +173,9 @@ export function TownCenterDemo() {
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
-      townCenter.userData.update(clock.getElapsedTime());
+      const delta = Math.min(clock.getDelta(), 0.05);
+      townCenter.userData.update(clock.elapsedTime);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -207,6 +215,7 @@ export function TownCenterDemo() {
   const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
   const toggleMarketDay = () => { const next = !marketDay; setMarketDay(next); apiRef.current?.setMarketDay(next); };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
+  const toggleShattered = () => { const next = !shattered; setShattered(next); apiRef.current?.setShattered(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -220,6 +229,7 @@ export function TownCenterDemo() {
         <div hidden={collapsed}>
           <p className={styles.intro}>参考现实小城市与卫星镇中心，以低层市政、文化和商业建筑围合钟楼广场。市政厅、图书馆、文化礼堂、集市、商业街、便民服务和公共到达各自完整，中心无车、外围慢行；树木、花坛、路灯、餐车、新闻亭与电话亭复用已有模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复市镇中心" : "破碎市镇中心"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮市镇夜景"}</button>
             <button type="button" className={marketDay ? styles.active : ""} aria-pressed={marketDay} onClick={toggleMarketDay}>{marketDay ? "结束周末集市" : "开启周末集市"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整建筑" : "查看建筑剖面"}</button>
@@ -229,7 +239,7 @@ export function TownCenterDemo() {
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {marketDay ? "WEEKEND MARKET OPEN" : night ? "TOWN CENTRE NIGHT" : "TOWN CENTRE OPEN"} · {cutaway ? "剖面观察中" : "完整街区"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED TOWN CENTRE" : marketDay ? "WEEKEND MARKET OPEN" : night ? "TOWN CENTRE NIGHT" : "TOWN CENTRE OPEN"} · {shattered ? "破碎态" : cutaway ? "剖面观察中" : "完整街区"}</div>
       <aside className={styles.metrics} aria-label="市镇中心模型参数">
         <span>WALKABLE TOWN CENTER MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>

@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { buildLowPolySchoolCampus, type SchoolZone } from "../../lib/map/schoolCampus";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import styles from "./SchoolCampusDemo.module.css";
 
 type Focus = "overview" | SchoolZone;
@@ -36,6 +37,7 @@ type DemoApi = {
   focus: (focus: Focus) => void;
   setNight: (night: boolean) => void;
   setCutaway: (cutaway: boolean) => void;
+  setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
 };
 
@@ -45,6 +47,7 @@ export function SchoolCampusDemo() {
   const [focus, setFocus] = useState<Focus>("overview");
   const [night, setNight] = useState(false);
   const [cutaway, setCutaway] = useState(false);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -102,7 +105,9 @@ export function SchoolCampusDemo() {
     scene.add(hemi, sun, fill);
 
     const campus = buildLowPolySchoolCampus();
-    scene.add(campus);
+    const pair = createSceneShatterPair(campus, { seed: 402, spread: 5.5 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(campus));
 
     const riderAnchor = new THREE.Group();
@@ -167,6 +172,7 @@ export function SchoolCampusDemo() {
       },
       setNight: setNightMode,
       setCutaway: (on) => campus.userData.setInteriorCutaway(on),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => {
         rotating = enabled;
         controls.autoRotate = enabled;
@@ -176,9 +182,12 @@ export function SchoolCampusDemo() {
     setNightMode(false);
     campus.userData.setInteriorCutaway(false);
 
+    const clock = new THREE.Clock();
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
+      const delta = Math.min(clock.getDelta(), 0.05);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -217,6 +226,7 @@ export function SchoolCampusDemo() {
   const chooseFocus = (next: Focus) => { setFocus(next); apiRef.current?.focus(next); };
   const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
+  const toggleShattered = () => { const next = !shattered; setShattered(next); apiRef.current?.setShattered(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -235,6 +245,7 @@ export function SchoolCampusDemo() {
         <div hidden={collapsed}>
           <p className={styles.intro}>参考现实高中与大学进修校园规划，将教学、实验、行政、住宿和运动功能组织成独立完整院区；主体建筑统一朝向校园主轴，周界以围栏和受控校门保护。树木、花坛与路灯复用已有饰品模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复学校模型" : "破碎学校模型"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮校园夜景"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整外观" : "查看建筑剖面"}</button>
             <button type="button" className={autoRotate ? styles.active : ""} aria-pressed={autoRotate} onClick={toggleRotate}>{autoRotate ? "停止环游" : "自动环游"}</button>
@@ -243,7 +254,7 @@ export function SchoolCampusDemo() {
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {night ? "EVENING STUDY" : "CAMPUS OPEN"} · {cutaway ? "剖面观察中" : "完整建筑外观"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED CAMPUS" : night ? "EVENING STUDY" : "CAMPUS OPEN"} · {shattered ? "破碎态" : cutaway ? "剖面观察中" : "完整建筑外观"}</div>
       <aside className={styles.metrics} aria-label="学校模型参数">
         <span>SCHOOL CAMPUS MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>

@@ -742,6 +742,125 @@ test("supports commercial night lighting and structural cutaway", () => {
   assert.ok(namedObjects(mall, "shopping-mall-glass-curtain-panel").every((object) => object.visible));
 });
 
+test("lights every customer-facing commercial zone at night and restores its daytime state", () => {
+  const mall = buildLowPolyShoppingMall();
+  const fixtureNamesByZone = new Map([
+    ["storefront", "shopping-mall-night-storefront-light"],
+    ["facade", "shopping-mall-night-facade-wash-light"],
+    ["arcade", "shopping-mall-night-arcade-ceiling-light"],
+    ["courtyard", "shopping-mall-night-courtyard-light"],
+    ["entry", "shopping-mall-night-entry-light"],
+    ["wayfinding", "shopping-mall-night-wayfinding-light"],
+  ]);
+  const requiredZones = [...fixtureNamesByZone.keys()];
+
+  assert.deepEqual(new Set(mall.userData.nightLightingZones), new Set(requiredZones));
+  const fixtures = [];
+  for (const [zone, objectName] of fixtureNamesByZone) {
+    const zoneFixtures = namedObjects(mall, objectName);
+    assert.ok(zoneFixtures.length > 0, `${zone} needs visible night-light fixtures`);
+    assert.ok(zoneFixtures.every((fixture) => fixture instanceof THREE.Mesh));
+    assert.ok(zoneFixtures.every((fixture) => fixture.userData.nightLightingZone === zone));
+    fixtures.push(...zoneFixtures);
+  }
+
+  const lightSources = namedObjects(mall, "shopping-mall-night-light-source");
+  assert.ok(lightSources.length >= requiredZones.length);
+  assert.ok(lightSources.every((light) => light instanceof THREE.PointLight));
+  for (const zone of requiredZones) {
+    assert.ok(lightSources.some((light) => light.userData.zone === zone), `${zone} needs a real light source`);
+  }
+
+  const daytimeFixtureLevels = fixtures.map((fixture) => fixture.material.emissiveIntensity);
+  assert.ok(daytimeFixtureLevels.every(Number.isFinite));
+  assert.ok(lightSources.every((light) => light.intensity === 0));
+
+  mall.userData.setPowered(true);
+  assert.ok(fixtures.every((fixture, index) => fixture.material.emissiveIntensity > daytimeFixtureLevels[index]));
+  assert.ok(lightSources.every((light) => light.intensity === light.userData.onIntensity && light.intensity > 0));
+  const firstPoweredFixtureLevels = fixtures.map((fixture) => fixture.material.emissiveIntensity);
+  const firstPoweredSourceLevels = lightSources.map((light) => light.intensity);
+
+  // Repeated UI events must not progressively over-brighten the centre.
+  mall.userData.setPowered(true);
+  assert.deepEqual(fixtures.map((fixture) => fixture.material.emissiveIntensity), firstPoweredFixtureLevels);
+  assert.deepEqual(lightSources.map((light) => light.intensity), firstPoweredSourceLevels);
+
+  mall.userData.setPowered(false);
+  assert.deepEqual(fixtures.map((fixture) => fixture.material.emissiveIntensity), daytimeFixtureLevels);
+  assert.ok(lightSources.every((light) => light.intensity === 0));
+});
+
+test("keeps the late-night light rig bounded, shadow-free and dormant during daytime", () => {
+  const mall = buildLowPolyShoppingMall();
+  const nightSources = namedObjects(mall, "shopping-mall-night-light-source");
+  const streetSources = namedObjects(mall, "street-light-point-light");
+  const allPointLights = [];
+  mall.traverse((object) => { if (object instanceof THREE.PointLight) allPointLights.push(object); });
+
+  assert.equal(mall.userData.nightLightSourceCount, nightSources.length);
+  assert.ok(nightSources.length <= 6, "the six semantic zones should share at most six broad night sources");
+  assert.deepEqual(
+    new Set(nightSources.map((light) => light.userData.zone)),
+    new Set(mall.userData.nightLightingZones),
+  );
+  assert.ok(allPointLights.length <= 19, "six mall sources plus thirteen reused street lights is the complete budget");
+  assert.ok(allPointLights.every((light) => light.castShadow === false));
+  assert.ok(allPointLights.every((light) => light.intensity === 0 && light.visible === false));
+
+  mall.userData.setPowered(true);
+  assert.ok(nightSources.every((light) => light.visible && light.intensity === light.userData.onIntensity));
+  assert.ok(streetSources.every((light) => light.visible && light.intensity > 0));
+
+  mall.userData.setPowered(false);
+  assert.ok(allPointLights.every((light) => light.intensity === 0 && light.visible === false));
+});
+
+test("mounts commercial night fixtures to real surfaces and keeps vehicle routes clear", () => {
+  const mall = buildLowPolyShoppingMall();
+  const fixtures = [
+    ...namedObjects(mall, "shopping-mall-night-storefront-light"),
+    ...namedObjects(mall, "shopping-mall-night-facade-wash-light"),
+    ...namedObjects(mall, "shopping-mall-night-arcade-ceiling-light"),
+    ...namedObjects(mall, "shopping-mall-night-courtyard-light"),
+    ...namedObjects(mall, "shopping-mall-night-entry-light"),
+    ...namedObjects(mall, "shopping-mall-night-wayfinding-light"),
+  ];
+  const mountTypes = new Set(fixtures.map((fixture) => fixture.userData.mountType));
+  assert.ok(mountTypes.has("ground"));
+  assert.ok(mountTypes.has("ceiling"));
+  assert.ok(mountTypes.has("wall"));
+
+  for (const fixture of fixtures) {
+    assert.ok(Number.isFinite(fixture.userData.mountSurfaceY), `${fixture.name} needs an explicit mounting datum`);
+    const surfaceY = fixture.userData.mountSurfaceY * mall.scale.y;
+    const bounds = worldBounds(fixture);
+    if (fixture.userData.mountType === "ground") {
+      assert.ok(Math.abs(bounds.min.y - surfaceY) <= 0.025, `${fixture.name} should stand on its paving surface`);
+      assert.equal(fixture.userData.clearOfVehicleRoutes, true);
+    } else if (fixture.userData.mountType === "ceiling") {
+      assert.ok(Math.abs(bounds.max.y - surfaceY) <= 0.025, `${fixture.name} should meet the underside above it`);
+    } else {
+      assert.equal(fixture.userData.mountType, "wall");
+    }
+  }
+
+  const vehicleRoutes = [
+    ...namedObjects(mall, "shopping-mall-perimeter-road"),
+    ...namedObjects(mall, "shopping-mall-dropoff-layby"),
+    ...namedObjects(mall, "shopping-mall-parking-space"),
+    ...namedObjects(mall, "shopping-mall-loading-apron"),
+    ...namedObjects(mall, "shopping-mall-loading-access-lane"),
+  ];
+  const groundFixtures = fixtures.filter((fixture) => fixture.userData.mountType === "ground");
+  assert.ok(groundFixtures.length > 0);
+  for (const fixture of groundFixtures) {
+    for (const route of vehicleRoutes) {
+      assert.equal(overlapsXZ(worldBounds(fixture), worldBounds(route)), false, `${fixture.name} should not occupy a vehicle route`);
+    }
+  }
+});
+
 test("uses the rabbit rider scale and fills an independent city site", () => {
   const mall = buildLowPolyShoppingMall();
   const metrics = measureModelGeometry(mall);

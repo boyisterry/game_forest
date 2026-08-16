@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
+import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { buildLowPolyCityCenter, type CityCenterZone } from "../../lib/map/cityCenter";
+import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import styles from "../residential-community/ResidentialCommunityDemo.module.css";
 
 type Focus = "overview" | CityCenterZone;
@@ -37,6 +38,7 @@ type DemoApi = {
   setNight: (night: boolean) => void;
   setRushHour: (active: boolean) => void;
   setCutaway: (cutaway: boolean) => void;
+  setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
 };
 
@@ -47,6 +49,7 @@ export function CityCenterDemo() {
   const [night, setNight] = useState(false);
   const [rushHour, setRushHour] = useState(false);
   const [cutaway, setCutaway] = useState(false);
+  const [shattered, setShattered] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [referenceReady, setReferenceReady] = useState(false);
@@ -99,7 +102,9 @@ export function CityCenterDemo() {
     scene.add(hemi, sun, fill);
 
     const cityCenter = buildLowPolyCityCenter();
-    scene.add(cityCenter);
+    const pair = createSceneShatterPair(cityCenter, { seed: 408, spread: 5.5 });
+    const shatterMorph = new ShatterMorphController(0);
+    scene.add(pair.root);
     setMetrics(measureModelGeometry(cityCenter));
     const riderAnchor = new THREE.Group();
     riderAnchor.name = "city-center-rabbit-rider-reference-anchor";
@@ -157,6 +162,7 @@ export function CityCenterDemo() {
       setNight: setNightMode,
       setRushHour: (active) => cityCenter.userData.setRushHour(active),
       setCutaway: (on) => cityCenter.userData.setInteriorCutaway(on),
+      setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.4; },
     };
     setNightMode(false);
@@ -165,7 +171,9 @@ export function CityCenterDemo() {
     let frame = 0;
     const animate = () => {
       frame = requestAnimationFrame(animate);
-      cityCenter.userData.update(clock.getElapsedTime());
+      const delta = Math.min(clock.getDelta(), 0.05);
+      cityCenter.userData.update(clock.elapsedTime);
+      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
@@ -205,6 +213,7 @@ export function CityCenterDemo() {
   const toggleNight = () => { const next = !night; setNight(next); apiRef.current?.setNight(next); };
   const toggleRushHour = () => { const next = !rushHour; setRushHour(next); apiRef.current?.setRushHour(next); };
   const toggleCutaway = () => { const next = !cutaway; setCutaway(next); apiRef.current?.setCutaway(next); };
+  const toggleShattered = () => { const next = !shattered; setShattered(next); apiRef.current?.setShattered(next); };
   const toggleRotate = () => { const next = !autoRotate; setAutoRotate(next); apiRef.current?.setAutoRotate(next); };
 
   return (
@@ -218,6 +227,7 @@ export function CityCenterDemo() {
         <div hidden={collapsed}>
           <p className={styles.intro}>参考现实城市 CBD 与站城一体化街区，对云港城市中心的建筑立面、入口、公共空间、交通换乘与人车流线进行整体精细化。云帆潮汐环艺术喷泉成为中央地标，综合交通枢纽、公交总站、出租车停车点和地图入口各自拥有完整场地与服务细节；树木、花坛、路灯、信号灯和餐车继续复用已有模型，小兔子骑车主角作为统一比例参考。</p>
           <div className={styles.actions}>
+            <button type="button" className={shattered ? styles.active : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复城市中心" : "破碎城市中心"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白昼" : "点亮城市中心夜景"}</button>
             <button type="button" className={rushHour ? styles.active : ""} aria-pressed={rushHour} onClick={toggleRushHour}>{rushHour ? "结束高峰运营" : "启动交通高峰"}</button>
             <button type="button" className={cutaway ? styles.active : ""} aria-pressed={cutaway} onClick={toggleCutaway}>{cutaway ? "恢复完整建筑" : "查看建筑剖面"}</button>
@@ -227,7 +237,7 @@ export function CityCenterDemo() {
         </div>
       </header>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
-      <div className={styles.status}><span /> {rushHour ? "RUSH HOUR ACTIVE" : night ? "CITY CENTRE NIGHT" : "CITY CENTRE OPEN"} · {cutaway ? "剖面观察中" : "完整建筑群"}</div>
+      <div className={styles.status} aria-live="polite"><span /> {shattered ? "SHATTERED CITY CENTRE" : rushHour ? "RUSH HOUR ACTIVE" : night ? "CITY CENTRE NIGHT" : "CITY CENTRE OPEN"} · {shattered ? "破碎态" : cutaway ? "剖面观察中" : "完整建筑群"}</div>
       <aside className={styles.metrics} aria-label="城市中心模型参数">
         <span>METROPOLITAN CITY CENTER MODEL</span>
         <strong>{metrics ? `${metrics.size.x.toFixed(0)} × ${metrics.size.y.toFixed(0)} × ${metrics.size.z.toFixed(0)} m` : "统计中…"}</strong>

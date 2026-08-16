@@ -61,8 +61,11 @@ type ShatterMaterial = THREE.Material & {
 export function enableShatterMaterial<T extends THREE.Material>(material: T): T {
   const shatterMaterial = material as ShatterMaterial;
   const amount = { value: 0 };
+  const previousOnBeforeCompile = material.onBeforeCompile.bind(material);
+  const previousProgramCacheKey = material.customProgramCacheKey.bind(material);
   shatterMaterial.userData.shatterAmount = amount;
-  material.onBeforeCompile = (shader) => {
+  material.onBeforeCompile = (shader, renderer) => {
+    previousOnBeforeCompile(shader, renderer);
     shader.uniforms.uShatterAmount = amount;
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -84,6 +87,15 @@ vec3 rotateShard(vec3 point, vec3 axis, float angle) {
 float forestShardHash(vec2 point) {
   return fract(sin(dot(point, vec2(127.1, 311.7))) * 43758.5453);
 }`,
+      )
+      .replace(
+        "#include <beginnormal_vertex>",
+        `#include <beginnormal_vertex>
+objectNormal = rotateShard(
+  objectNormal,
+  normalize(shardAxisAngle.xyz),
+  shardAxisAngle.w * clamp(uShatterAmount + shardScaleStagger.y, 0.0, 1.0)
+);`,
       )
       .replace(
         "#include <begin_vertex>",
@@ -112,7 +124,7 @@ vec3 shardTreeTarget = shardBlast;
 vec3 transformed = shardRotated * shardPieceScale + mix(shardRepair, shardTreeTarget, shardLocalAmount);`,
       );
   };
-  material.customProgramCacheKey = () => "forest-real-tree-shatter-v2";
+  material.customProgramCacheKey = () => `${previousProgramCacheKey()}-forest-real-tree-shatter-v3`;
   material.needsUpdate = true;
   return material;
 }

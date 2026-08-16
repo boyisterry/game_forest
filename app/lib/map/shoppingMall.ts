@@ -5,6 +5,7 @@ export const SHOPPING_MALL_SCALE = 1.15;
 
 export type MallZone = "overview" | "exterior" | "courtyard" | "food-street" | "lifestyle" | "upper-arcade" | "interior";
 export type MallTenant = "fast-food" | "coffee" | "burger" | "milk-tea" | "bakery" | "convenience" | "restaurant" | "fashion";
+export type MallNightLightingZone = "storefront" | "facade" | "arcade" | "courtyard" | "entry" | "wayfinding";
 
 export type ShoppingMallModel = THREE.Group & {
   userData: {
@@ -35,6 +36,11 @@ export type ShoppingMallModel = THREE.Group & {
     fireStairCount: number;
     familyRestroomCount: number;
     wayfindingCount: number;
+    nightLightingZones: MallNightLightingZone[];
+    nightLightSourceCount: number;
+    nightFixtureCount: number;
+    lateNightOperational: true;
+    powered: boolean;
     scaleReferenceLengthMeters: number;
     scaleStandard: "rabbit-rider";
     scaleMultiplier: number;
@@ -49,6 +55,15 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
   mall.name = "city-shopping-mall-lowpoly";
   const cutawayShell: THREE.Object3D[] = [];
   const reusedStreetLights: ReturnType<typeof buildLowPolyStreetLight>[] = [];
+  const nightLightSources: THREE.PointLight[] = [];
+  const nightLightIntents: Array<{
+    parent: THREE.Object3D;
+    position: THREE.Vector3;
+    zone: MallNightLightingZone;
+    onIntensity: number;
+    distance: number;
+  }> = [];
+  const nightFixtures: THREE.Mesh[] = [];
   const sharedGeometryTypes = new Set([
     "BoxGeometry",
     "CapsuleGeometry",
@@ -93,11 +108,18 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
   const safetyYellow = new THREE.MeshStandardMaterial({ color: 0xe4b94c, roughness: 0.58, metalness: 0.18 });
   const timber = new THREE.MeshStandardMaterial({ color: 0x9d714d, roughness: 0.85 });
   const water = new THREE.MeshStandardMaterial({ color: 0x4da3b9, emissive: 0x174657, emissiveIntensity: 0.12, roughness: 0.2, transparent: true, opacity: 0.78 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x76aeb9, emissive: 0x274e59, emissiveIntensity: 0.1, roughness: 0.22, transparent: true, opacity: 0.52, depthWrite: false, side: THREE.DoubleSide });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x76aeb9, emissive: 0x274e59, emissiveIntensity: 0.025, roughness: 0.22, transparent: true, opacity: 0.52, depthWrite: false, side: THREE.DoubleSide });
+  // Storefront glazing has its own material so night mode never makes
+  // escalator guards, display cases, lift cabins or glass roofs self-illuminate.
+  const storefrontGlass = glass.clone();
+  storefrontGlass.color.setHex(0x82b8bf);
+  storefrontGlass.emissive.setHex(0x7d512b);
+  storefrontGlass.emissiveIntensity = 0.025;
+  storefrontGlass.opacity = 0.42;
   const curtainGlass = new THREE.MeshPhysicalMaterial({
     color: 0x6da9b7,
     emissive: 0x244d59,
-    emissiveIntensity: 0.1,
+    emissiveIntensity: 0.035,
     roughness: 0.12,
     metalness: 0.05,
     transmission: 0.32,
@@ -119,6 +141,40 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
   const restroomBlue = new THREE.MeshStandardMaterial({ color: 0x6b91a3, roughness: 0.72 });
   const emergencyGreen = new THREE.MeshStandardMaterial({ color: 0x3c8b65, emissive: 0x1b5d3c, emissiveIntensity: 0.24, roughness: 0.52 });
   const fashionFabric = new THREE.MeshStandardMaterial({ color: 0x566d8d, roughness: 0.78 });
+  const nightWarm = new THREE.MeshStandardMaterial({ color: 0xffd8a1, emissive: 0xff9b3f, emissiveIntensity: 0.04, roughness: 0.3 });
+  const nightCool = new THREE.MeshStandardMaterial({ color: 0xc8efff, emissive: 0x56c8ff, emissiveIntensity: 0.03, roughness: 0.25 });
+  const nightAmber = new THREE.MeshStandardMaterial({ color: 0xffbd69, emissive: 0xff6f32, emissiveIntensity: 0.04, roughness: 0.35 });
+
+  const registerNightFixture = (
+    fixture: THREE.Mesh,
+    nightLightingZone: MallNightLightingZone,
+    mountType: "ceiling" | "wall" | "ground" | "water",
+    mountSurfaceY: number,
+  ) => {
+    fixture.userData = {
+      ...fixture.userData,
+      nightLightingZone,
+      mountType,
+      mountSurfaceY,
+      clearOfVehicleRoutes: mountType === "ground" ? true : undefined,
+    };
+    fixture.castShadow = false;
+    fixture.receiveShadow = false;
+    nightFixtures.push(fixture);
+    return fixture;
+  };
+
+  const addNightLightSource = (
+    parent: THREE.Object3D,
+    position: THREE.Vector3,
+    zone: MallNightLightingZone,
+    color: number,
+    onIntensity: number,
+    distance: number,
+  ) => {
+    void color;
+    nightLightIntents.push({ parent, position: position.clone(), zone, onIntensity, distance });
+  };
 
   const FLOOR_PITCH = 4.25;
   const GROUND_SLAB_TOP = 0.61;
@@ -137,6 +193,9 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
   };
   const tenantMaterials = Object.fromEntries(
     Object.entries(tenantColors).map(([type, color]) => [type, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.08, roughness: 0.68 })]),
+  ) as Record<MallTenant, THREE.MeshStandardMaterial>;
+  const tenantAwningMaterials = Object.fromEntries(
+    Object.entries(tenantColors).map(([type, color]) => [type, new THREE.MeshStandardMaterial({ color, roughness: 0.72 })]),
   ) as Record<MallTenant, THREE.MeshStandardMaterial>;
   const tenantFloorColors: Record<MallTenant, number> = {
     "fast-food": 0xead3be,
@@ -850,6 +909,32 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
       luminaire.userData = { floorNumber: level + 1, suspendedFromStructure: true };
       upperZone.add(luminaire);
       const ceilingUnderside = level < floors - 1 ? floorFinishY(level + 1) - 0.22 : GROUND_SLAB_TOP + height;
+
+      // Neutral-white bands just inside both glass elevations reveal the
+      // occupied upper floors while leaving the curtain glass itself dark.
+      for (const facadeSign of [-1, 1]) {
+        const facadeWash = registerNightFixture(
+          mallMesh(
+            wingAxisBox(Math.max(5, longLength - 9), 2.82, 0.08),
+            (level + (facadeSign > 0 ? 1 : 0)) % 2 === 0 ? nightWarm : nightCool,
+            "shopping-mall-night-facade-wash-light",
+            "upper-arcade",
+          ),
+          "facade",
+          "wall",
+          floorFinishY(level),
+        );
+        positionOnWingAxes(
+          facadeWash,
+          0,
+          facadeSign * (shortLength * 0.5 - 0.34),
+          floorFinishY(level) + 1.72,
+        );
+        facadeWash.userData.floorNumber = level + 1;
+        facadeWash.userData.wingName = name;
+        upperZone.add(facadeWash);
+        cutawayShell.push(facadeWash);
+      }
       const mountBottom = floorFinishY(level) + 3.66;
       const mountHeight = Math.max(0.12, ceilingUnderside - mountBottom);
       for (const mountOffset of [-2.8, 2.8]) {
@@ -874,6 +959,34 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
   const southEast = addWing({ name: "shopping-mall-southeast-wing", x: 34, z: 37, width: 42, depth: 20, floors: 3, innerSide: "-z", outerSide: "+z" });
   const wings = [north, west, east, southWest, southEast];
 
+  // A few broad, shadow-free sources provide actual illumination behind the
+  // glowing shop and floor proxies. Keeping these clustered by wing avoids
+  // the cost of one real light per shop while still making the whole complex
+  // read as occupied.
+  wings.forEach((wing) => {
+    const horizontalWing = wing.width >= wing.depth;
+    const longLength = horizontalWing ? wing.width : wing.depth;
+    const storefrontOffsets = longLength > 80 ? [-28, 28] : [0];
+    storefrontOffsets.forEach((offset) => {
+      addNightLightSource(
+        wing.group,
+        new THREE.Vector3(horizontalWing ? offset : 0, 2.65, horizontalWing ? 0 : offset),
+        "storefront",
+        0xffc77a,
+        4.2,
+        longLength > 80 ? 34 : 30,
+      );
+    });
+    addNightLightSource(
+      wing.group,
+      new THREE.Vector3(0, 1.2 + wing.floors * FLOOR_PITCH * 0.5, 0),
+      "facade",
+      0xb8dcff,
+      3.5,
+      Math.max(32, longLength * 0.58),
+    );
+  });
+
   const tenants: MallTenant[] = ["fast-food", "coffee", "burger", "milk-tea", "bakery", "convenience", "restaurant", "fashion"];
   let storefrontIndex = 0;
   let exteriorCount = 0;
@@ -881,6 +994,7 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
   const addStorefront = (wing: Wing, side: Wing["innerSide"], offset: number, tenant: MallTenant, exterior: boolean) => {
     const horizontal = side.endsWith("z");
     const signMaterial = tenantMaterials[tenant];
+    const awningMaterial = tenantAwningMaterials[tenant];
     const frontage = 4.6;
     const depth = 0.24;
     const frontX = horizontal ? offset : side === "+x" ? wing.width * 0.5 + 0.16 : -wing.width * 0.5 - 0.16;
@@ -891,17 +1005,42 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     store.userData = { tenantType: tenant, exterior, storefrontIndex, frontSide: side, inwardDirection, enterable: true };
     store.position.set(frontX, 0, frontZ);
     wing.group.add(store);
-    const window = mallMesh(new THREE.BoxGeometry(horizontal ? 3.05 : depth, 2.55, horizontal ? depth : 3.05), glass, "shopping-mall-storefront-glass", exterior ? "exterior" : "courtyard");
+    const window = mallMesh(new THREE.BoxGeometry(horizontal ? 3.05 : depth, 2.55, horizontal ? depth : 3.05), storefrontGlass, "shopping-mall-storefront-glass", exterior ? "exterior" : "courtyard");
     window.position.set(horizontal ? -0.72 : 0, GROUND_FINISH_Y + 1.275, horizontal ? 0 : -0.72);
-    const door = mallMesh(new THREE.BoxGeometry(horizontal ? 1.22 : depth + 0.03, 2.55, horizontal ? depth + 0.03 : 1.22), glass, "shopping-mall-storefront-door", exterior ? "exterior" : "courtyard");
+    const door = mallMesh(new THREE.BoxGeometry(horizontal ? 1.22 : depth + 0.03, 2.55, horizontal ? depth + 0.03 : 1.22), storefrontGlass, "shopping-mall-storefront-door", exterior ? "exterior" : "courtyard");
     door.position.set(horizontal ? 1.58 : 0, GROUND_FINISH_Y + 1.275, horizontal ? 0 : 1.58);
     door.userData = { tenantType: tenant, storefrontIndex, clearWidth: 1.22 * SHOPPING_MALL_SCALE, operable: true, thresholdFree: true };
     const sign = mallMesh(new THREE.BoxGeometry(horizontal ? frontage : 0.3, 0.72, horizontal ? 0.3 : frontage), signMaterial, "shopping-mall-store-sign", exterior ? "exterior" : "courtyard");
     sign.position.y = 3.82;
-    const awning = mallMesh(new THREE.BoxGeometry(horizontal ? frontage + 0.5 : 1.45, 0.18, horizontal ? 1.45 : frontage + 0.5), signMaterial, "shopping-mall-store-awning", exterior ? "exterior" : "courtyard");
+    const awning = mallMesh(new THREE.BoxGeometry(horizontal ? frontage + 0.5 : 1.45, 0.18, horizontal ? 1.45 : frontage + 0.5), awningMaterial, "shopping-mall-store-awning", exterior ? "exterior" : "courtyard");
     awning.position.set(horizontal ? 0 : side === "+x" ? 0.78 : -0.78, 3.25, horizontal ? side === "+z" ? 0.78 : -0.78 : 0);
     store.add(window, door, sign, awning);
     cutawayShell.push(window, sign, awning);
+
+    // A warm occupied-shop panel sits behind each window. It lights the
+    // interior through neutral glass instead of making the glazing itself
+    // glow blue, so all 62 businesses read as open after dark.
+    const inwardOffset = 0.16;
+    const storefrontGlow = registerNightFixture(
+      mallMesh(
+        new THREE.BoxGeometry(horizontal ? 2.92 : 0.05, 2.38, horizontal ? 0.05 : 2.92),
+        nightWarm,
+        "shopping-mall-night-storefront-light",
+        "interior",
+      ),
+      "storefront",
+      "wall",
+      GROUND_FINISH_Y,
+    );
+    storefrontGlow.position.set(
+      horizontal ? -0.72 : side === "+x" ? -inwardOffset : inwardOffset,
+      GROUND_FINISH_Y + 1.22,
+      horizontal ? side === "+z" ? -inwardOffset : inwardOffset : -0.72,
+    );
+    storefrontGlow.userData.storefrontIndex = storefrontIndex;
+    storefrontGlow.userData.tenantType = tenant;
+    store.add(storefrontGlow);
+    cutawayShell.push(storefrontGlow);
 
     const interior = new THREE.Group();
     interior.name = "shopping-mall-store-interior-module";
@@ -1146,6 +1285,23 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     const fountainWater = mallMesh(new THREE.BoxGeometry(9.2, 0.18, 3.6), water, "shopping-mall-courtyard-fountain-water", "courtyard");
     fountainWater.position.set(x, 1.28, 2);
     courtyard.add(fountain, fountainWater);
+    for (const lightX of [-3.2, -1.05, 1.05, 3.2]) {
+      const underwaterLight = registerNightFixture(
+        mallMesh(
+          new THREE.CylinderGeometry(0.18, 0.22, 0.08, 10),
+          nightCool,
+          "shopping-mall-night-courtyard-light",
+          "courtyard",
+        ),
+        "courtyard",
+        "ground",
+        1.31,
+      );
+      underwaterLight.position.set(x + lightX, 1.35, 2);
+      underwaterLight.userData.waterMounted = true;
+      courtyard.add(underwaterLight);
+    }
+    addNightLightSource(courtyard, new THREE.Vector3(x, 1.72, 2), "courtyard", 0x54d9ff, 2.8, 12);
   }
   const courtyardFurnitureLift = GROUND_FINISH_Y - GROUND_SLAB_TOP;
   const diningPositions: Array<[number, number]> = [[-25, -7], [-15, -7], [15, -7], [25, -7], [-25, 13], [-15, 8], [15, 8], [25, 13]];
@@ -1177,7 +1333,14 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
       umbrella.userData = { apexDirection: "+y", undersideVisible: true };
       const finial = mallMesh(new THREE.SphereGeometry(0.13, 10, 7), charcoal, "shopping-mall-dining-umbrella-finial", "food-street");
       finial.position.y = 3.76;
-      umbrellaAssembly.add(umbrellaPole, umbrella, finial);
+      const umbrellaPendant = registerNightFixture(
+        mallMesh(new THREE.BoxGeometry(0.52, 0.12, 0.52), nightWarm, "shopping-mall-night-courtyard-light", "food-street"),
+        "courtyard",
+        "ceiling",
+        3.025,
+      );
+      umbrellaPendant.position.y = 2.94;
+      umbrellaAssembly.add(umbrellaPole, umbrella, finial, umbrellaPendant);
       courtyard.add(table, umbrellaAssembly);
       for (const [dx, dz] of [[-1.55, 0], [1.55, 0], [0, -1.55], [0, 1.55]]) {
         const chair = new THREE.Group();
@@ -1199,6 +1362,12 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
       }
   }
 
+  // Four shared warm pools cover pairs of dining umbrellas. This keeps the
+  // tables readable at night without paying for one real light per table.
+  for (const [x, z] of [[-20, -7], [20, -7], [-20, 10.5], [20, 10.5]] as Array<[number, number]>) {
+    addNightLightSource(courtyard, new THREE.Vector3(x, 3.05, z), "courtyard", 0xffc782, 3.2, 13.5);
+  }
+
   for (const x of [-31, 31]) {
     const canopy = mallMesh(new THREE.BoxGeometry(13, 0.28, 41), glass, "shopping-mall-partial-glass-canopy", "courtyard");
     canopy.position.set(x, 8.4, 4);
@@ -1207,6 +1376,32 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
       const post = mallMesh(new THREE.BoxGeometry(0.28, 7.8, 0.28), charcoal, "shopping-mall-canopy-post", "courtyard");
       post.position.set(x, 4.45, z);
       courtyard.add(post);
+    }
+    for (const z of [-12, 4, 20]) {
+      const canopyLight = registerNightFixture(
+        mallMesh(new THREE.BoxGeometry(2.4, 0.1, 0.34), nightWarm, "shopping-mall-night-courtyard-light", "courtyard"),
+        "courtyard",
+        "ceiling",
+        8.26,
+      );
+      canopyLight.position.set(x, 8.21, z);
+      courtyard.add(canopyLight);
+    }
+    addNightLightSource(courtyard, new THREE.Vector3(x, 6.7, 4), "courtyard", 0xffbd72, 3.8, 24);
+  }
+
+  // Low bollards keep the open-air promenade legible without occupying its
+  // ten-metre clear centre line or any vehicle surface.
+  for (const x of [-6.5, 6.5]) {
+    for (const z of [-10, 2, 14, 26]) {
+      const bollardLight = registerNightFixture(
+        mallMesh(new THREE.CylinderGeometry(0.13, 0.16, 0.82, 10), nightAmber, "shopping-mall-night-courtyard-light", "courtyard"),
+        "courtyard",
+        "ground",
+        GROUND_FINISH_Y,
+      );
+      bollardLight.position.set(x, GROUND_FINISH_Y + 0.41, z);
+      courtyard.add(bollardLight);
     }
   }
   const openSkyMarker = new THREE.Group();
@@ -1257,7 +1452,15 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     screen.position.y = 1.95;
     const cap = mallMesh(new THREE.BoxGeometry(1.18, 0.15, 0.32), brass, "shopping-mall-wayfinding-cap", "interior");
     cap.position.y = 3.28;
-    pylon.add(base, screen, cap);
+    const wayfindingLight = registerNightFixture(
+      mallMesh(new THREE.BoxGeometry(0.92, 0.06, 0.24), nightWarm, "shopping-mall-night-wayfinding-light", "interior"),
+      "wayfinding",
+      "ceiling",
+      3.245,
+    );
+    wayfindingLight.position.y = 3.175;
+    pylon.add(base, screen, cap, wayfindingLight);
+    addNightLightSource(pylon, new THREE.Vector3(0, 2.15, 0.38), "wayfinding", 0xffca82, 1.25, 5.5);
     courtyard.add(pylon);
   }
 
@@ -1458,6 +1661,30 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
         arcade.add(upperPost);
       }
     }
+
+    acceptedOffsets.forEach((offset) => {
+      const arcadeLight = registerNightFixture(
+        mallMesh(
+          new THREE.BoxGeometry(horizontal ? 1.2 : 0.18, 0.08, horizontal ? 0.18 : 1.2),
+          nightWarm,
+          "shopping-mall-night-arcade-ceiling-light",
+          "upper-arcade",
+        ),
+        "arcade",
+        "ceiling",
+        7.56,
+      );
+      arcadeLight.position.set(horizontal ? offset : 0, 7.52, horizontal ? 0 : offset);
+      arcade.add(arcadeLight);
+    });
+    addNightLightSource(
+      arcade,
+      new THREE.Vector3(0, 6.35, 0),
+      "arcade",
+      0xffc879,
+      3.6,
+      Math.min(36, Math.max(18, length * 0.6)),
+    );
   });
 
   const addCornerBridge = (start: THREE.Vector3, end: THREE.Vector3) => {
@@ -1540,7 +1767,7 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
       const t = stepIndex / (stepCount - 1);
       const step = mallMesh(new THREE.BoxGeometry(2.2, 0.16, 0.68), escalatorTread, "shopping-mall-escalator-step", "upper-arcade");
       step.position.set(0, THREE.MathUtils.lerp(lowerY, upperY, t), THREE.MathUtils.lerp(-run * 0.5, run * 0.5, t));
-      const edge = mallMesh(new THREE.BoxGeometry(2.12, 0.035, 0.07), safetyYellow, "shopping-mall-escalator-step-safety-edge", "upper-arcade");
+      const edge = mallMesh(new THREE.BoxGeometry(2.12, 0.035, 0.07), nightAmber, "shopping-mall-escalator-step-safety-edge", "upper-arcade");
       edge.position.set(0, step.position.y + 0.095, step.position.z - 0.29);
       escalator.add(step, edge);
     }
@@ -1555,7 +1782,32 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
       );
       const handrail = mallMesh(new THREE.TubeGeometry(handrailCurve, 1, 0.07, 8, false), charcoal, "shopping-mall-escalator-handrail", "upper-arcade");
       escalator.add(rail, handrail);
+      const skirtLightCurve = new THREE.LineCurve3(
+        new THREE.Vector3(side * 1.08, lowerY + 0.26, -run * 0.5),
+        new THREE.Vector3(side * 1.08, upperY + 0.26, run * 0.5),
+      );
+      const skirtLight = registerNightFixture(
+        mallMesh(
+          new THREE.TubeGeometry(skirtLightCurve, 1, 0.045, 6, false),
+          nightCool,
+          "shopping-mall-night-arcade-ceiling-light",
+          "upper-arcade",
+        ),
+        "arcade",
+        "wall",
+        GROUND_FINISH_Y,
+      );
+      skirtLight.userData.escalatorIndex = index;
+      escalator.add(skirtLight);
     }
+    addNightLightSource(
+      escalator,
+      new THREE.Vector3(0, (lowerY + upperY) * 0.5 + 1.15, 0),
+      "arcade",
+      0xffc679,
+      2.6,
+      13,
+    );
   }
 
   const entry = new THREE.Group();
@@ -1570,6 +1822,35 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
   const entryBeam = mallMesh(new THREE.BoxGeometry(26, 1.1, 1.4), charcoal, "shopping-mall-entry-sign-beam", "exterior");
   entryBeam.position.y = 12.6;
   entry.add(entryBeam);
+  const entryMarquee = registerNightFixture(
+    mallMesh(new THREE.BoxGeometry(19.5, 0.42, 0.08), nightAmber, "shopping-mall-night-entry-light", "exterior"),
+    "entry",
+    "wall",
+    12.6,
+  );
+  entryMarquee.position.set(0, 12.62, 0.74);
+  entry.add(entryMarquee);
+  for (const x of [-10.9, 10.9]) {
+    const towerWash = registerNightFixture(
+      mallMesh(new THREE.BoxGeometry(0.16, 8.2, 0.12), nightCool, "shopping-mall-night-entry-light", "exterior"),
+      "entry",
+      "wall",
+      GROUND_FINISH_Y,
+    );
+    towerWash.position.set(x, 5.2, 1.08);
+    entry.add(towerWash);
+  }
+  for (const x of [-7, 0, 7]) {
+    const soffit = registerNightFixture(
+      mallMesh(new THREE.BoxGeometry(1.5, 0.1, 0.42), nightWarm, "shopping-mall-night-entry-light", "exterior"),
+      "entry",
+      "ceiling",
+      12.05,
+    );
+    soffit.position.set(x, 12, 0.4);
+    entry.add(soffit);
+    addNightLightSource(entry, new THREE.Vector3(x, 10.8, 1.1), "entry", 0xffb96f, 4.5, 18);
+  }
   const openEntry = new THREE.Group();
   openEntry.name = "shopping-mall-open-entry-void";
   openEntry.userData = {
@@ -1605,7 +1886,23 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     serviceLink.userData = { staffOnly: true, connectsDoorToBackOfHouse: true, clearWidth: 2.2 };
     const serviceSign = mallMesh(new THREE.BoxGeometry(0.18, 0.55, 2.2), emergencyGreen, "shopping-mall-loading-service-sign", "interior");
     serviceSign.position.set(sideSign * 0.2, GROUND_FINISH_Y + 3.55, 0);
-    loadingCourt.add(apron, accessLane, dock, shutter, serviceLink, serviceSign);
+    const loadingWallLight = registerNightFixture(
+      mallMesh(new THREE.BoxGeometry(0.18, 0.42, 2.65), nightCool, "shopping-mall-night-facade-wash-light", "exterior"),
+      "facade",
+      "wall",
+      GROUND_FINISH_Y,
+    );
+    loadingWallLight.position.set(sideSign * 0.32, GROUND_FINISH_Y + 4.05, 0);
+    loadingWallLight.userData.loadingCourtIndex = index;
+    loadingCourt.add(apron, accessLane, dock, shutter, serviceLink, serviceSign, loadingWallLight);
+    addNightLightSource(
+      loadingCourt,
+      new THREE.Vector3(sideSign * 1.45, GROUND_FINISH_Y + 3.7, 0),
+      "facade",
+      0xd8eeff,
+      3.2,
+      14,
+    );
     for (const bollardZ of [-2.65, 2.65]) {
       const bollard = mallMesh(new THREE.CylinderGeometry(0.12, 0.14, 0.9, 8), safetyYellow, "shopping-mall-loading-bollard", "interior");
       bollard.position.set(sideSign * 1.9, GROUND_FINISH_Y + 0.45, bollardZ);
@@ -1635,6 +1932,40 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     planter.scale.setScalar(1.12);
     planter.userData.sourceCollection = "city-street-furniture";
     mall.add(planter);
+  });
+
+  // Merge the many authored lighting intents into one broad, shadow-free
+  // source per customer-facing zone. Emissive fixtures preserve the local
+  // pools and colour accents while the six real lights provide illumination
+  // without multiplying the fragment-lighting cost across every mall mesh.
+  mall.updateMatrixWorld(true);
+  const nightZoneColors: Record<MallNightLightingZone, number> = {
+    storefront: 0xffc77a,
+    facade: 0xc7e5ff,
+    arcade: 0xffc879,
+    courtyard: 0xffc782,
+    entry: 0xffb96f,
+    wayfinding: 0xffca82,
+  };
+  const nightZones: MallNightLightingZone[] = ["storefront", "facade", "arcade", "courtyard", "entry", "wayfinding"];
+  nightZones.forEach((zone) => {
+    const intents = nightLightIntents.filter((intent) => intent.zone === zone);
+    if (intents.length === 0) return;
+    const positions = intents.map((intent) => mall.worldToLocal(intent.parent.localToWorld(intent.position.clone())));
+    const centre = positions.reduce((sum, position) => sum.add(position), new THREE.Vector3()).multiplyScalar(1 / positions.length);
+    const coverage = intents.reduce(
+      (largest, intent, index) => Math.max(largest, centre.distanceTo(positions[index]) + intent.distance),
+      0,
+    );
+    const onIntensity = Math.min(90, Math.max(18, intents.reduce((sum, intent) => sum + intent.onIntensity, 0) * 4.5));
+    const source = new THREE.PointLight(nightZoneColors[zone], 0, Math.min(125, coverage), 1.8);
+    source.name = "shopping-mall-night-light-source";
+    source.position.copy(centre);
+    source.castShadow = false;
+    source.visible = false;
+    source.userData = { zone, onIntensity, powered: false, mergedIntentCount: intents.length };
+    mall.add(source);
+    nightLightSources.push(source);
   });
 
   const restaurantTenants: MallTenant[] = ["fast-food", "coffee", "burger", "milk-tea", "bakery", "restaurant"];
@@ -1681,19 +2012,37 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     fireStairCount: countNamed("shopping-mall-fire-stair"),
     familyRestroomCount: countNamed("shopping-mall-family-restroom-core"),
     wayfindingCount: countNamed("shopping-mall-wayfinding-pylon"),
+    nightLightingZones: ["storefront", "facade", "arcade", "courtyard", "entry", "wayfinding"],
+    nightLightSourceCount: nightLightSources.length,
+    nightFixtureCount: nightFixtures.length,
+    lateNightOperational: true,
+    powered: false,
     scaleReferenceLengthMeters: 2.4,
     scaleStandard: "rabbit-rider",
     scaleMultiplier: SHOPPING_MALL_SCALE,
     siteSize: new THREE.Vector3(160, 18, 120).multiplyScalar(SHOPPING_MALL_SCALE),
     setPowered: (powered) => {
-      glass.emissiveIntensity = powered ? 0.65 : 0.1;
-      curtainGlass.emissiveIntensity = powered ? 0.82 : 0.1;
-      warmWindow.emissiveIntensity = powered ? 2.2 : 0.12;
-      warmLamp.emissiveIntensity = powered ? 2.8 : 0.18;
-      water.emissiveIntensity = powered ? 0.62 : 0.12;
-      Object.values(tenantMaterials).forEach((material) => { material.emissiveIntensity = powered ? 1.15 : 0.08; });
-      Object.values(tenantAccentMaterials).forEach((material) => { material.emissiveIntensity = powered ? 0.42 : 0.04; });
-      reusedStreetLights.forEach((light) => light.userData.setPowered(powered));
+      mall.userData.powered = powered;
+      storefrontGlass.emissiveIntensity = powered ? 0.12 : 0.025;
+      warmWindow.emissiveIntensity = powered ? 3.4 : 0.12;
+      warmLamp.emissiveIntensity = powered ? 4.6 : 0.18;
+      water.emissiveIntensity = powered ? 0.9 : 0.12;
+      emergencyGreen.emissiveIntensity = powered ? 1.15 : 0.24;
+      Object.values(tenantMaterials).forEach((material) => { material.emissiveIntensity = powered ? 2.35 : 0.08; });
+      nightWarm.emissiveIntensity = powered ? 4.4 : 0.04;
+      nightCool.emissiveIntensity = powered ? 3.2 : 0.03;
+      nightAmber.emissiveIntensity = powered ? 3.8 : 0.04;
+      nightLightSources.forEach((light) => {
+        light.visible = powered;
+        light.intensity = powered ? light.userData.onIntensity : 0;
+        light.userData.powered = powered;
+      });
+      reusedStreetLights.forEach((light) => {
+        light.userData.setPowered(powered);
+        light.traverse((object) => {
+          if (object instanceof THREE.Light) object.visible = powered;
+        });
+      });
     },
     setInteriorCutaway: (cutaway) => { cutawayShell.forEach((object) => { object.visible = !cutaway; }); },
   };
