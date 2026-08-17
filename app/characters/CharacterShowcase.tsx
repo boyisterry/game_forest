@@ -108,16 +108,101 @@ type Runtime = {
   currentAction: ActionId | null;
   helper: THREE.SkeletonHelper | null;
   meshes: THREE.Object3D[];
+  model: THREE.Group | null;
+  modelBaseY: number;
+  characterId: CharacterId | null;
+  rabbitRig: {
+    hip: THREE.Object3D | null;
+    hipBindPosition: THREE.Vector3;
+    feet: THREE.Object3D[];
+    groundReferenceY: number | null;
+  } | null;
   frame: number;
   requestId: number;
 };
 
+const RABBIT_HEAD_LIFT: Record<ActionId, number> = {
+  idle: 18,
+  walk: 18,
+  run: 42,
+  jump: 10,
+};
+
+function prepareRabbitClip(source: THREE.AnimationClip, actionId: ActionId) {
+  const clip = source.clone();
+  clip.name = `rabbit:corrected-${actionId}`;
+  const correction = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(1, 0, 0),
+    THREE.MathUtils.degToRad(RABBIT_HEAD_LIFT[actionId]),
+  );
+  const value = new THREE.Quaternion();
+
+  for (const track of clip.tracks) {
+    if (!(track instanceof THREE.QuaternionKeyframeTrack)) continue;
+    if (!track.name.endsWith("NeckTwist01.quaternion") || track.getValueSize() !== 4) continue;
+    for (let offset = 0; offset < track.values.length; offset += 4) {
+      value.fromArray(track.values, offset).normalize().multiply(correction).normalize();
+      track.values[offset] = value.x;
+      track.values[offset + 1] = value.y;
+      track.values[offset + 2] = value.z;
+      track.values[offset + 3] = value.w;
+    }
+  }
+  return clip;
+}
+
+function applyRabbitRigCorrection(runtime: Runtime) {
+  if (runtime.characterId !== "rabbit" || !runtime.rabbitRig || !runtime.model || !runtime.currentAction) return;
+  const { hip, hipBindPosition, feet, groundReferenceY } = runtime.rabbitRig;
+
+  // Tripo's clip stores the Hip's vertical motion on local X while the bind pose
+  // and Root basis expect vertical displacement on local Z. Restore the bind
+  // position first, then remap the animated channel so the mesh no longer sinks.
+  if (hip) {
+    const animatedHipX = hip.position.x;
+    hip.position.copy(hipBindPosition);
+    hip.position.z += animatedHipX;
+  }
+
+  let lift = 0;
+  if (runtime.currentAction === "jump") {
+    const jump = runtime.actions.jump;
+    const duration = jump?.getClip().duration ?? 0;
+    if (jump && duration > 0) {
+      const progress = THREE.MathUtils.clamp(jump.time / duration, 0, 1);
+      lift = Math.sin(progress * Math.PI) * 0.82;
+    }
+  }
+  runtime.model.position.y = runtime.modelBaseY + lift;
+
+  // Keep grounded actions stable using four inexpensive bone samples. This is
+  // deliberately skipped for jump so the airborne arc stays visible.
+  if (runtime.currentAction !== "jump" && groundReferenceY !== null && feet.length > 0) {
+    runtime.model.updateMatrixWorld(true);
+    const sample = new THREE.Vector3();
+    let currentGroundY = Infinity;
+    for (const foot of feet) currentGroundY = Math.min(currentGroundY, foot.getWorldPosition(sample).y);
+    if (Number.isFinite(currentGroundY)) runtime.model.position.y += groundReferenceY - currentGroundY;
+  }
+}
+
+function applyCameraPreset(runtime: Runtime, mode: ViewMode) {
+  if (mode === "skeleton") {
+    runtime.camera.position.set(3.6, 2.2, 4.7);
+    runtime.controls.target.set(0, 1.08, 0);
+  } else {
+    runtime.camera.position.set(5.6, 3.5, 7.4);
+    runtime.controls.target.set(0, 1.75, 0);
+  }
+  runtime.controls.update();
+}
+
 function disposeObject(object: THREE.Object3D) {
   object.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    mesh.geometry?.dispose();
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const renderable = child as THREE.Mesh | THREE.Line | THREE.Points;
+    if (!renderable.isMesh && !renderable.isLine && !renderable.isPoints) return;
+    renderable.geometry?.dispose();
+    const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
     for (const material of materials) {
       if (!material) continue;
       for (const value of Object.values(material)) {
@@ -142,9 +227,12 @@ function clearStage(runtime: Runtime) {
   runtime.mixer = null;
   runtime.actions = {};
   runtime.currentAction = null;
-  runtime.helper?.geometry.dispose();
   runtime.helper = null;
   runtime.meshes = [];
+  runtime.model = null;
+  runtime.modelBaseY = 0;
+  runtime.characterId = null;
+  runtime.rabbitRig = null;
   for (const child of [...runtime.stage.children]) {
     runtime.stage.remove(child);
     disposeObject(child);
@@ -188,8 +276,7 @@ export function CharacterShowcase() {
     controls.minDistance = 3.8;
     controls.maxDistance = 12;
     controls.maxPolarAngle = Math.PI * 0.52;
-    controls.autoRotate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    controls.autoRotateSpeed = 0.55;
+    controls.autoRotate = false;
 
     scene.add(new THREE.HemisphereLight(0xf6fbff, 0x586e59, 1.65));
     const key = new THREE.DirectionalLight(0xffe2b8, 3.1);
@@ -217,7 +304,24 @@ export function CharacterShowcase() {
 
     const stage = new THREE.Group();
     scene.add(stage);
-    const runtime: Runtime = { renderer, scene, camera, controls, stage, mixer: null, actions: {}, currentAction: null, helper: null, meshes: [], frame: 0, requestId: 0 };
+    const runtime: Runtime = {
+      renderer,
+      scene,
+      camera,
+      controls,
+      stage,
+      mixer: null,
+      actions: {},
+      currentAction: null,
+      helper: null,
+      meshes: [],
+      model: null,
+      modelBaseY: 0,
+      characterId: null,
+      rabbitRig: null,
+      frame: 0,
+      requestId: 0,
+    };
     runtimeRef.current = runtime;
     const clock = new THREE.Clock();
     const resize = () => {
@@ -233,6 +337,7 @@ export function CharacterShowcase() {
     const render = () => {
       const delta = Math.min(clock.getDelta(), 0.05);
       runtime.mixer?.update(delta);
+      applyRabbitRigCorrection(runtime);
       controls.update(delta);
       renderer.render(scene, camera);
       runtime.frame = requestAnimationFrame(render);
@@ -245,6 +350,9 @@ export function CharacterShowcase() {
       observer.disconnect();
       clearStage(runtime);
       controls.dispose();
+      disposeObject(floor);
+      disposeObject(ring);
+      disposeObject(grid);
       renderer.dispose();
       renderer.domElement.remove();
       runtimeRef.current = null;
@@ -283,6 +391,27 @@ export function CharacterShowcase() {
       model.position.z -= center.z;
       model.position.y -= box.min.y;
       model.updateMatrixWorld(true);
+      runtime.model = model;
+      runtime.modelBaseY = model.position.y;
+      runtime.characterId = selected.id;
+      if (selected.id === "rabbit") {
+        const hip = model.getObjectByName("Hip");
+        const feet = ["L_ToeBase", "R_ToeBase", "L_Foot", "R_Foot"]
+          .map((name) => model.getObjectByName(name))
+          .filter((bone): bone is THREE.Object3D => Boolean(bone));
+        const sample = new THREE.Vector3();
+        const groundReferenceY = feet.length > 0
+          ? Math.min(...feet.map((foot) => foot.getWorldPosition(sample).y))
+          : null;
+        runtime.rabbitRig = {
+          hip,
+          hipBindPosition: hip?.position.clone() ?? new THREE.Vector3(),
+          feet,
+          groundReferenceY,
+        };
+      } else {
+        runtime.rabbitRig = null;
+      }
       model.traverse((child) => {
         const mesh = child as THREE.Mesh;
         if (!mesh.isMesh) return;
@@ -302,13 +431,24 @@ export function CharacterShowcase() {
         helperMaterial.opacity = 0.95;
         helperMaterial.depthTest = false;
         helperMaterial.needsUpdate = true;
+        const joints = new THREE.Points(helper.geometry, new THREE.PointsMaterial({
+          color: 0xff6a35,
+          size: 0.045,
+          sizeAttenuation: true,
+          depthTest: false,
+          transparent: true,
+          opacity: 0.95,
+        }));
+        joints.frustumCulled = false;
+        helper.add(joints);
         runtime.helper = helper;
         runtime.stage.add(helper);
         runtime.mixer = new THREE.AnimationMixer(model);
         for (const clip of gltf.animations) {
           const key = actionKey(clip.name);
           if (!key) continue;
-          const action = runtime.mixer.clipAction(clip);
+          const preparedClip = selected.id === "rabbit" ? prepareRabbitClip(clip, key) : clip;
+          const action = runtime.mixer.clipAction(preparedClip);
           if (key === "jump") {
             action.setLoop(THREE.LoopOnce, 1);
             action.clampWhenFinished = true;
@@ -317,6 +457,11 @@ export function CharacterShowcase() {
           }
           runtime.actions[key] = action;
         }
+        runtime.mixer.addEventListener("finished", (event) => {
+          if (runtime.requestId !== requestId || runtime.currentAction !== "jump" || event.action !== runtime.actions.jump) return;
+          setActiveAction(selected.defaultAction);
+          setActionRevision((value) => value + 1);
+        });
       }
       setIsLoading(false);
       setStatus(selected.rigged ? "角色与骨骼已就绪" : "静态角色模型已就绪");
@@ -333,14 +478,25 @@ export function CharacterShowcase() {
     if (!runtime || !selected.rigged) return;
     const next = runtime.actions[activeAction];
     if (!next) return;
-    const previous = runtime.currentAction ? runtime.actions[runtime.currentAction] : null;
+    const previousId = runtime.currentAction;
+    const previous = previousId ? runtime.actions[previousId] : null;
+    const preserveLocomotionPhase = selected.id === "rabbit"
+      && previousId !== null
+      && previousId !== activeAction
+      && (previousId === "walk" || previousId === "run")
+      && (activeAction === "walk" || activeAction === "run");
+    const previousPhase = preserveLocomotionPhase && previous
+      ? (previous.time / previous.getClip().duration) % 1
+      : 0;
     if (previous && previous !== next) previous.fadeOut(0.2);
     next.reset();
+    if (preserveLocomotionPhase) next.time = previousPhase * next.getClip().duration;
     next.enabled = true;
     next.setEffectiveTimeScale(1);
     next.setEffectiveWeight(1);
     next.fadeIn(0.2).play();
     runtime.currentAction = activeAction;
+    if (runtime.model) runtime.model.position.y = runtime.modelBaseY;
     setStatus(`正在播放 · ${ACTIONS.find((item) => item.id === activeAction)?.label ?? activeAction}`);
   }, [activeAction, actionRevision, modelVersion, selected.rigged]);
 
@@ -351,6 +507,12 @@ export function CharacterShowcase() {
     if (runtime.helper) runtime.helper.visible = viewMode === "skeleton" || showSkeleton;
   }, [showSkeleton, viewMode, modelVersion]);
 
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    if (!runtime) return;
+    applyCameraPreset(runtime, viewMode);
+  }, [viewMode, modelVersion]);
+
   const chooseAction = (id: ActionId) => {
     setActiveAction(id);
     setActionRevision((value) => value + 1);
@@ -358,9 +520,7 @@ export function CharacterShowcase() {
   const resetView = () => {
     const runtime = runtimeRef.current;
     if (!runtime) return;
-    runtime.camera.position.set(5.6, 3.5, 7.4);
-    runtime.controls.target.set(0, 1.75, 0);
-    runtime.controls.update();
+    applyCameraPreset(runtime, viewMode);
   };
 
   return (
