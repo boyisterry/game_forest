@@ -21,6 +21,9 @@ type CharacterRecord = {
   modelUrl: string;
   previewUrl: string;
   rigged: boolean;
+  boneCount: number;
+  defaultAction: ActionId;
+  actions: ActionId[];
   details: Array<{ label: string; value: string }>;
 };
 
@@ -35,6 +38,9 @@ const CHARACTERS: CharacterRecord[] = [
     modelUrl: "/models/characters/rabbit/rabbit-courier-rigged-runtime.glb",
     previewUrl: "/models/characters/rabbit/rabbit-courier-rigged-preview.webp",
     rigged: true,
+    boneCount: 41,
+    defaultAction: "idle",
+    actions: ["idle", "walk", "run", "jump"],
     details: [
       { label: "运行时面数", value: "179,560 三角面" },
       { label: "骨骼结构", value: "41 节 / Tripo Biped" },
@@ -47,16 +53,19 @@ const CHARACTERS: CharacterRecord[] = [
     number: "CHARACTER 02",
     name: "狐狸信使",
     englishName: "FOX COURIER",
-    role: "候选角色 / T-Pose",
-    description: "背包与风衣造型的狐狸信使源模型。当前资产为静态 T-Pose，适合作为下一批骨骼绑定与动作重定向候选。",
-    modelUrl: "/models/characters/fox-tpose/fox-courier-tpose-source.glb",
+    role: "候选角色 / 已绑定",
+    description: "背包与风衣造型的狐狸信使。已接入 29 节自定义骨骼，可预览待机、行走、奔跑与跑跳动作。",
+    modelUrl: "/models/characters/fox-tpose/fox-courier-rigged-runtime.glb",
     previewUrl: "/models/characters/fox-tpose/fox-courier-tpose-preview.webp",
-    rigged: false,
+    rigged: true,
+    boneCount: 29,
+    defaultAction: "idle",
+    actions: ["idle", "walk", "run", "jump"],
     details: [
-      { label: "源模型面数", value: "293,802 三角面" },
-      { label: "当前姿态", value: "T-Pose" },
-      { label: "骨骼结构", value: "尚未绑定" },
-      { label: "资源状态", value: "源模型 / PBR GLB" },
+      { label: "运行时面数", value: "94,016 三角面" },
+      { label: "骨骼结构", value: "29 节 / 自定义 Biped" },
+      { label: "动作片段", value: "Idle · Walk · Run · Run Jump" },
+      { label: "资源状态", value: "已绑定 / PBR / Meshopt" },
     ],
   },
   {
@@ -64,16 +73,19 @@ const CHARACTERS: CharacterRecord[] = [
     number: "CHARACTER 03",
     name: "虎子信使",
     englishName: "TIGER COURIER",
-    role: "候选角色 / 运行时模型",
-    description: "穿着工装与邮差包的虎子信使。展示使用 30K 重拓扑版本，已具备运行时面数预算，等待后续绑定。",
-    modelUrl: "/models/characters/tiger-tpose/tiger-courier-tpose-retopo-30k-runtime.glb",
+    role: "候选角色 / 已绑定",
+    description: "穿着工装与邮差包的虎子信使。已接入 25 节双足骨骼与行走、奔跑、跳跃动作。",
+    modelUrl: "/models/characters/tiger-tpose/tiger-courier-rigged-runtime.glb",
     previewUrl: "/models/characters/tiger-tpose/tiger-courier-tpose-preview.webp",
-    rigged: false,
+    rigged: true,
+    boneCount: 25,
+    defaultAction: "walk",
+    actions: ["walk", "run", "jump"],
     details: [
-      { label: "运行时面数", value: "30,000 三角面" },
-      { label: "当前姿态", value: "T-Pose" },
-      { label: "骨骼结构", value: "尚未绑定" },
-      { label: "资源状态", value: "重拓扑 / PBR GLB" },
+      { label: "运行时面数", value: "91,090 三角面" },
+      { label: "骨骼结构", value: "25 节 / 自定义 Biped" },
+      { label: "动作片段", value: "Walk · Run · Jump" },
+      { label: "资源状态", value: "已绑定 / PBR / Meshopt" },
     ],
   },
 ];
@@ -120,8 +132,8 @@ function actionKey(name: string): ActionId | null {
   const normalized = name.toLowerCase();
   if (normalized.includes("idle")) return "idle";
   if (normalized.includes("walk")) return "walk";
-  if (normalized.includes("run")) return "run";
   if (normalized.includes("jump")) return "jump";
+  if (normalized.includes("run")) return "run";
   return null;
 }
 
@@ -247,7 +259,7 @@ export function CharacterShowcase() {
     clearStage(runtime);
     setIsLoading(true);
     setStatus(`正在载入${selected.name}…`);
-    setActiveAction("idle");
+    setActiveAction(selected.defaultAction);
     setViewMode("character");
     setShowSkeleton(false);
 
@@ -386,7 +398,7 @@ export function CharacterShowcase() {
           <div className={styles.sectionTitle}><span>动作预览</span><b>01</b></div>
           {selected.rigged ? (
             <div className={styles.actionGrid}>
-              {ACTIONS.map((action) => (
+              {ACTIONS.filter((action) => selected.actions.includes(action.id)).map((action) => (
                 <button key={action.id} type="button" className={activeAction === action.id ? styles.activeAction : ""} onClick={() => chooseAction(action.id)} aria-pressed={activeAction === action.id}>
                   <span>{action.label}</span><small>{action.code}</small>
                 </button>
@@ -398,7 +410,7 @@ export function CharacterShowcase() {
         <section className={styles.controlSection}>
           <div className={styles.sectionTitle}><span>骨骼检查</span><b>02</b></div>
           <label className={`${styles.toggleRow} ${!selected.rigged ? styles.disabled : ""}`}>
-            <span><strong>可视化绑定骨架</strong><small>{selected.rigged ? "在角色表面叠加 41 节骨骼" : "当前角色未绑定骨骼"}</small></span>
+            <span><strong>可视化绑定骨架</strong><small>{selected.rigged ? `在角色表面叠加 ${selected.boneCount} 节骨骼` : "当前角色未绑定骨骼"}</small></span>
             <input type="checkbox" checked={showSkeleton} disabled={!selected.rigged || viewMode === "skeleton"} onChange={(event) => setShowSkeleton(event.target.checked)} />
             <i aria-hidden="true" />
           </label>
