@@ -9,7 +9,8 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build && node scripts/prune-build-assets.mjs",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/motorcycle.test.mjs tests/audio.test.mjs tests/boundary-terrain.test.mjs tests/shatter-morph.test.mjs tests/model-shatter-coverage.test.mjs tests/browse-pan.test.mjs tests/city-map.test.mjs tests/city-furniture.test.mjs tests/hospital-campus.test.mjs tests/amusement-park.test.mjs tests/school-campus.test.mjs tests/shopping-mall.test.mjs tests/residential-community.test.mjs tests/fire-station.test.mjs tests/city-park.test.mjs tests/sports-center.test.mjs tests/city-center.test.mjs tests/town-center.test.mjs tests/rabbit-scale-reference.test.mjs",
+    "test": "npm run build && node --experimental-strip-types --test tests/rendered-html.test.mjs tests/motorcycle.test.mjs tests/audio.test.mjs tests/boundary-terrain.test.mjs tests/shatter-morph.test.mjs tests/model-shatter-coverage.test.mjs tests/browse-pan.test.mjs tests/city-map.test.mjs tests/city-furniture.test.mjs tests/hospital-campus.test.mjs tests/amusement-park.test.mjs tests/school-campus.test.mjs tests/shopping-mall.test.mjs tests/residential-community.test.mjs tests/fire-station.test.mjs tests/city-park.test.mjs tests/sports-center.test.mjs tests/city-center.test.mjs tests/town-center.test.mjs tests/rabbit-scale-reference.test.mjs tests/forest-courier-rig.test.mjs",
+    "rig:validate": "node --experimental-strip-types scripts/validate-character-rigs.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

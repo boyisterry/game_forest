@@ -5,10 +5,15 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import {
+  FOREST_COURIER_CHARACTER_ACTION_CLIPS,
+  type ForestCourierActionId,
+} from "../lib/animation/forestCourierRig";
 import styles from "./CharacterShowcase.module.css";
 
 type CharacterId = "rabbit" | "fox" | "tiger";
-type ActionId = "idle" | "walk" | "run" | "jump";
+type ActionId = ForestCourierActionId;
+type CompositeActionId = "walk_jump" | "run_jump";
 type ViewMode = "character" | "skeleton";
 
 type CharacterRecord = {
@@ -20,10 +25,12 @@ type CharacterRecord = {
   description: string;
   modelUrl: string;
   previewUrl: string;
+  rotationY: number;
   rigged: boolean;
   boneCount: number;
   defaultAction: ActionId;
   actions: ActionId[];
+  actionClips: Partial<Record<ActionId, string>>;
   details: Array<{ label: string; value: string }>;
 };
 
@@ -34,17 +41,19 @@ const CHARACTERS: CharacterRecord[] = [
     name: "兔子信使",
     englishName: "RABBIT COURIER",
     role: "主角 / 已绑定",
-    description: "森林与雨港路线的主角。完整保留 Tripo 双足绑定，并提供待机、行走、奔跑与跳跃四段原地动作。",
+    description: "森林与雨港路线的主角。完整保留 Tripo 双足绑定，并提供待机、行走、奔跑、跳跃及两种助跑跳跃动作。",
     modelUrl: "/models/characters/rabbit/rabbit-courier-rigged-runtime.glb",
     previewUrl: "/models/characters/rabbit/rabbit-courier-rigged-preview.webp",
+    rotationY: -Math.PI / 2,
     rigged: true,
     boneCount: 41,
     defaultAction: "idle",
-    actions: ["idle", "walk", "run", "jump"],
+    actions: ["idle", "walk", "run", "jump", "walk_jump", "run_jump"],
+    actionClips: FOREST_COURIER_CHARACTER_ACTION_CLIPS.rabbit,
     details: [
       { label: "运行时面数", value: "179,560 三角面" },
       { label: "骨骼结构", value: "41 节 / Tripo Biped" },
-      { label: "动作片段", value: "Idle · Walk · Run · Jump" },
+      { label: "动作片段", value: "Idle · Walk · Run · Jump · Walk Jump · Run Jump" },
       { label: "资源状态", value: "已绑定 / PBR / Meshopt" },
     ],
   },
@@ -54,17 +63,19 @@ const CHARACTERS: CharacterRecord[] = [
     name: "狐狸信使",
     englishName: "FOX COURIER",
     role: "候选角色 / 已绑定",
-    description: "背包与风衣造型的狐狸信使。已接入 29 节自定义骨骼，可预览待机、行走、奔跑与跑跳动作。",
+    description: "背包与风衣造型的狐狸信使。保留 29 节自定义骨骼，并提供待机、行走、奔跑、跳跃及两种助跑跳跃动作。",
     modelUrl: "/models/characters/fox-tpose/fox-courier-rigged-runtime.glb",
     previewUrl: "/models/characters/fox-tpose/fox-courier-tpose-preview.webp",
+    rotationY: -Math.PI / 2,
     rigged: true,
     boneCount: 29,
     defaultAction: "idle",
-    actions: ["idle", "walk", "run", "jump"],
+    actions: ["idle", "walk", "run", "jump", "walk_jump", "run_jump"],
+    actionClips: FOREST_COURIER_CHARACTER_ACTION_CLIPS.fox,
     details: [
       { label: "运行时面数", value: "94,016 三角面" },
       { label: "骨骼结构", value: "29 节 / 自定义 Biped" },
-      { label: "动作片段", value: "Idle · Walk · Run · Run Jump" },
+      { label: "动作片段", value: "Idle · Walk · Run · Jump · Walk Jump · Run Jump" },
       { label: "资源状态", value: "已绑定 / PBR / Meshopt" },
     ],
   },
@@ -74,17 +85,19 @@ const CHARACTERS: CharacterRecord[] = [
     name: "虎子信使",
     englishName: "TIGER COURIER",
     role: "候选角色 / 已绑定",
-    description: "穿着工装与邮差包的虎子信使。已接入 25 节双足骨骼与行走、奔跑、跳跃动作。",
+    description: "穿着工装与邮差包的虎子信使。保留 25 节双足骨骼，并提供待机、行走、奔跑、跳跃及两种助跑跳跃动作。",
     modelUrl: "/models/characters/tiger-tpose/tiger-courier-rigged-runtime.glb",
     previewUrl: "/models/characters/tiger-tpose/tiger-courier-tpose-preview.webp",
+    rotationY: 0,
     rigged: true,
     boneCount: 25,
-    defaultAction: "walk",
-    actions: ["walk", "run", "jump"],
+    defaultAction: "idle",
+    actions: ["idle", "walk", "run", "jump", "walk_jump", "run_jump"],
+    actionClips: FOREST_COURIER_CHARACTER_ACTION_CLIPS.tiger,
     details: [
       { label: "运行时面数", value: "91,090 三角面" },
       { label: "骨骼结构", value: "25 节 / 自定义 Biped" },
-      { label: "动作片段", value: "Walk · Run · Jump" },
+      { label: "动作片段", value: "Idle · Walk · Run · Jump · Walk Jump · Run Jump" },
       { label: "资源状态", value: "已绑定 / PBR / Meshopt" },
     ],
   },
@@ -95,6 +108,8 @@ const ACTIONS: Array<{ id: ActionId; label: string; code: string }> = [
   { id: "walk", label: "行走", code: "WALK" },
   { id: "run", label: "奔跑", code: "RUN" },
   { id: "jump", label: "跳跃", code: "JUMP" },
+  { id: "walk_jump", label: "行走 + 跳跃", code: "WALK JUMP" },
+  { id: "run_jump", label: "奔跑 + 跳跃", code: "RUN JUMP" },
 ];
 
 type Runtime = {
@@ -106,6 +121,13 @@ type Runtime = {
   mixer: THREE.AnimationMixer | null;
   actions: Partial<Record<ActionId, THREE.AnimationAction>>;
   currentAction: ActionId | null;
+  composite: {
+    id: CompositeActionId;
+    locomotion: "walk" | "run";
+    elapsed: number;
+    leadInDuration: number;
+    jumpStarted: boolean;
+  } | null;
   helper: THREE.SkeletonHelper | null;
   meshes: THREE.Object3D[];
   model: THREE.Group | null;
@@ -126,6 +148,14 @@ const RABBIT_HEAD_LIFT: Record<ActionId, number> = {
   walk: 18,
   run: 42,
   jump: 10,
+  walk_jump: 10,
+  run_jump: 10,
+};
+
+const CHARACTER_JUMP_LIFT: Record<CharacterId, number> = {
+  rabbit: 0.82,
+  fox: 0,
+  tiger: 0,
 };
 
 function prepareRabbitClip(source: THREE.AnimationClip, actionId: ActionId) {
@@ -151,33 +181,103 @@ function prepareRabbitClip(source: THREE.AnimationClip, actionId: ActionId) {
   return clip;
 }
 
-function applyRabbitRigCorrection(runtime: Runtime) {
-  if (runtime.characterId !== "rabbit" || !runtime.rabbitRig || !runtime.model || !runtime.currentAction) return;
-  const { hip, hipBindPosition, feet, groundReferenceY } = runtime.rabbitRig;
+function prepareTigerIdleClip(source: THREE.AnimationClip) {
+  const clip = source.clone();
+  const duration = 4;
+  const animated = new THREE.Quaternion();
+  const correction = new THREE.Quaternion();
+  clip.tracks = clip.tracks.map((track) => {
+    const valueSize = track.getValueSize();
+    const values = new Float32Array(valueSize * 3);
+    for (let key = 0; key < 3; key += 1) {
+      for (let component = 0; component < valueSize; component += 1) {
+        values[key * valueSize + component] = track.values[component];
+      }
+    }
+    if (track instanceof THREE.QuaternionKeyframeTrack && valueSize === 4) {
+      const breathingDegrees = track.name.endsWith("chest.quaternion")
+        ? 1.4
+        : track.name.endsWith("head.quaternion")
+          ? -0.7
+          : 0;
+      if (breathingDegrees !== 0) {
+        animated.fromArray(track.values, 0).normalize();
+        correction.setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(breathingDegrees));
+        animated.multiply(correction).normalize().toArray(values, valueSize);
+      }
+    }
+    const prepared = track.clone();
+    prepared.times = new Float32Array([0, duration / 2, duration]);
+    prepared.values = values;
+    return prepared;
+  });
+  clip.name = "tiger:derived-idle";
+  clip.duration = duration;
+  return clip;
+}
 
-  // Tripo's clip stores the Hip's vertical motion on local X while the bind pose
-  // and Root basis expect vertical displacement on local Z. Restore the bind
-  // position first, then remap the animated channel so the mesh no longer sinks.
+function prepareCharacterClip(
+  source: THREE.AnimationClip,
+  characterId: CharacterId,
+  actionId: ActionId,
+) {
+  const clip = characterId === "rabbit"
+    ? prepareRabbitClip(source, actionId)
+    : characterId === "tiger" && actionId === "idle"
+      ? prepareTigerIdleClip(source)
+      : source.clone();
+  clip.name = `${characterId}:custom-${actionId}`;
+  return clip;
+}
+
+function isCompositeAction(actionId: ActionId): actionId is CompositeActionId {
+  return actionId === "walk_jump" || actionId === "run_jump";
+}
+
+function advanceCompositeAction(runtime: Runtime, delta: number) {
+  const composite = runtime.composite;
+  if (!composite || composite.jumpStarted) return;
+  composite.elapsed += delta;
+  if (composite.elapsed < composite.leadInDuration) return;
+  const locomotion = runtime.actions[composite.locomotion];
+  const jump = runtime.actions[composite.id];
+  if (!jump) return;
+  locomotion?.fadeOut(0.14);
+  jump.reset();
+  jump.enabled = true;
+  jump.setEffectiveTimeScale(1);
+  jump.setEffectiveWeight(1);
+  jump.fadeIn(0.14).play();
+  composite.jumpStarted = true;
+}
+
+function applyCharacterMotionCorrection(runtime: Runtime) {
+  if (!runtime.characterId || !runtime.model || !runtime.currentAction) return;
+  const airborneAction = runtime.currentAction === "jump"
+    ? runtime.actions.jump
+    : runtime.composite?.jumpStarted
+      ? runtime.actions[runtime.composite.id]
+      : null;
+  let lift = 0;
+  if (airborneAction) {
+    const jump = airborneAction;
+    const duration = jump?.getClip().duration ?? 0;
+    if (jump && duration > 0) {
+      const progress = THREE.MathUtils.clamp(jump.time / duration, 0, 1);
+      lift = Math.sin(progress * Math.PI) * CHARACTER_JUMP_LIFT[runtime.characterId];
+    }
+  }
+  runtime.model.position.y = runtime.modelBaseY + lift;
+
+  if (runtime.characterId !== "rabbit" || !runtime.rabbitRig) return;
+  const { hip, hipBindPosition, feet, groundReferenceY } = runtime.rabbitRig;
   if (hip) {
     const animatedHipX = hip.position.x;
     hip.position.copy(hipBindPosition);
     hip.position.z += animatedHipX;
   }
 
-  let lift = 0;
-  if (runtime.currentAction === "jump") {
-    const jump = runtime.actions.jump;
-    const duration = jump?.getClip().duration ?? 0;
-    if (jump && duration > 0) {
-      const progress = THREE.MathUtils.clamp(jump.time / duration, 0, 1);
-      lift = Math.sin(progress * Math.PI) * 0.82;
-    }
-  }
-  runtime.model.position.y = runtime.modelBaseY + lift;
-
-  // Keep grounded actions stable using four inexpensive bone samples. This is
-  // deliberately skipped for jump so the airborne arc stays visible.
-  if (runtime.currentAction !== "jump" && groundReferenceY !== null && feet.length > 0) {
+  if (!airborneAction && groundReferenceY !== null && feet.length > 0) {
     runtime.model.updateMatrixWorld(true);
     const sample = new THREE.Vector3();
     let currentGroundY = Infinity;
@@ -213,20 +313,12 @@ function disposeObject(object: THREE.Object3D) {
   });
 }
 
-function actionKey(name: string): ActionId | null {
-  const normalized = name.toLowerCase();
-  if (normalized.includes("idle")) return "idle";
-  if (normalized.includes("walk")) return "walk";
-  if (normalized.includes("jump")) return "jump";
-  if (normalized.includes("run")) return "run";
-  return null;
-}
-
 function clearStage(runtime: Runtime) {
   runtime.mixer?.stopAllAction();
   runtime.mixer = null;
   runtime.actions = {};
   runtime.currentAction = null;
+  runtime.composite = null;
   runtime.helper = null;
   runtime.meshes = [];
   runtime.model = null;
@@ -313,6 +405,7 @@ export function CharacterShowcase() {
       mixer: null,
       actions: {},
       currentAction: null,
+      composite: null,
       helper: null,
       meshes: [],
       model: null,
@@ -337,7 +430,8 @@ export function CharacterShowcase() {
     const render = () => {
       const delta = Math.min(clock.getDelta(), 0.05);
       runtime.mixer?.update(delta);
-      applyRabbitRigCorrection(runtime);
+      advanceCompositeAction(runtime, delta);
+      applyCharacterMotionCorrection(runtime);
       controls.update(delta);
       renderer.render(scene, camera);
       runtime.frame = requestAnimationFrame(render);
@@ -379,7 +473,7 @@ export function CharacterShowcase() {
         return;
       }
       const model = gltf.scene;
-      model.rotation.y = selected.id === "rabbit" ? -Math.PI / 2 : Math.PI;
+      model.rotation.y = selected.rotationY;
       model.updateMatrixWorld(true);
       const rawBox = new THREE.Box3().setFromObject(model);
       const rawSize = rawBox.getSize(new THREE.Vector3());
@@ -421,50 +515,56 @@ export function CharacterShowcase() {
       });
       runtime.stage.add(model);
 
-      if (selected.rigged) {
-        const helper = new THREE.SkeletonHelper(model);
-        helper.visible = false;
-        const helperMaterial = helper.material as THREE.LineBasicMaterial;
-        helperMaterial.vertexColors = false;
-        helperMaterial.color.set(0xff6a35);
-        helperMaterial.transparent = true;
-        helperMaterial.opacity = 0.95;
-        helperMaterial.depthTest = false;
-        helperMaterial.needsUpdate = true;
-        const joints = new THREE.Points(helper.geometry, new THREE.PointsMaterial({
-          color: 0xff6a35,
-          size: 0.045,
-          sizeAttenuation: true,
-          depthTest: false,
-          transparent: true,
-          opacity: 0.95,
-        }));
-        joints.frustumCulled = false;
-        helper.add(joints);
-        runtime.helper = helper;
-        runtime.stage.add(helper);
-        runtime.mixer = new THREE.AnimationMixer(model);
-        for (const clip of gltf.animations) {
-          const key = actionKey(clip.name);
-          if (!key) continue;
-          const preparedClip = selected.id === "rabbit" ? prepareRabbitClip(clip, key) : clip;
-          const action = runtime.mixer.clipAction(preparedClip);
-          if (key === "jump") {
-            action.setLoop(THREE.LoopOnce, 1);
-            action.clampWhenFinished = true;
-          } else {
-            action.setLoop(THREE.LoopRepeat, Infinity);
-          }
-          runtime.actions[key] = action;
+      const helper = new THREE.SkeletonHelper(model);
+      helper.visible = false;
+      const helperMaterial = helper.material as THREE.LineBasicMaterial;
+      helperMaterial.vertexColors = false;
+      helperMaterial.color.set(0xff6a35);
+      helperMaterial.transparent = true;
+      helperMaterial.opacity = 0.95;
+      helperMaterial.depthTest = false;
+      helperMaterial.needsUpdate = true;
+      const joints = new THREE.Points(helper.geometry, new THREE.PointsMaterial({
+        color: 0xff6a35,
+        size: 0.045,
+        sizeAttenuation: true,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.95,
+      }));
+      joints.frustumCulled = false;
+      helper.add(joints);
+      runtime.helper = helper;
+      runtime.stage.add(helper);
+      runtime.mixer = new THREE.AnimationMixer(model);
+      for (const key of selected.actions) {
+        const clipName = selected.actionClips[key];
+        const clip = gltf.animations.find((candidate) => candidate.name === clipName);
+        if (!clip) continue;
+        const preparedClip = prepareCharacterClip(clip, selected.id, key);
+        const action = runtime.mixer.clipAction(preparedClip);
+        if (key === "jump" || isCompositeAction(key)) {
+          action.setLoop(THREE.LoopOnce, 1);
+          action.clampWhenFinished = true;
+        } else {
+          action.setLoop(THREE.LoopRepeat, Infinity);
         }
-        runtime.mixer.addEventListener("finished", (event) => {
-          if (runtime.requestId !== requestId || runtime.currentAction !== "jump" || event.action !== runtime.actions.jump) return;
-          setActiveAction(selected.defaultAction);
-          setActionRevision((value) => value + 1);
-        });
+        runtime.actions[key] = action;
       }
+      runtime.mixer.addEventListener("finished", (event) => {
+        const current = runtime.currentAction;
+        if (
+          runtime.requestId !== requestId
+          || !current
+          || (current !== "jump" && !isCompositeAction(current))
+          || event.action !== runtime.actions[current]
+        ) return;
+        runtime.composite = null;
+        setActiveAction(selected.defaultAction);
+        setActionRevision((value) => value + 1);
+      });
       setIsLoading(false);
-      setStatus(selected.rigged ? "角色与骨骼已就绪" : "静态角色模型已就绪");
+      setStatus("角色定制动作与骨骼已就绪");
       setModelVersion((value) => value + 1);
     }, undefined, () => {
       if (runtime.requestId !== requestId) return;
@@ -479,9 +579,41 @@ export function CharacterShowcase() {
     const next = runtime.actions[activeAction];
     if (!next) return;
     const previousId = runtime.currentAction;
-    const previous = previousId ? runtime.actions[previousId] : null;
-    const preserveLocomotionPhase = selected.id === "rabbit"
-      && previousId !== null
+    const previousComposite = runtime.composite;
+    const previous = previousComposite
+      ? previousComposite.jumpStarted
+        ? runtime.actions[previousComposite.id]
+        : runtime.actions[previousComposite.locomotion]
+      : previousId
+        ? runtime.actions[previousId]
+        : null;
+    runtime.composite = null;
+
+    if (isCompositeAction(activeAction)) {
+      const locomotionId = activeAction === "walk_jump" ? "walk" : "run";
+      const locomotion = runtime.actions[locomotionId];
+      if (!locomotion) return;
+      if (previous && previous !== locomotion) previous.fadeOut(0.16);
+      next.stop();
+      locomotion.reset();
+      locomotion.enabled = true;
+      locomotion.setEffectiveTimeScale(1);
+      locomotion.setEffectiveWeight(1);
+      locomotion.fadeIn(0.16).play();
+      runtime.composite = {
+        id: activeAction,
+        locomotion: locomotionId,
+        elapsed: 0,
+        leadInDuration: locomotionId === "walk" ? 0.72 : 0.46,
+        jumpStarted: false,
+      };
+      runtime.currentAction = activeAction;
+      if (runtime.model) runtime.model.position.y = runtime.modelBaseY;
+      setStatus(`正在播放 · ${ACTIONS.find((item) => item.id === activeAction)?.label ?? activeAction}`);
+      return;
+    }
+
+    const preserveLocomotionPhase = previousId !== null
       && previousId !== activeAction
       && (previousId === "walk" || previousId === "run")
       && (activeAction === "walk" || activeAction === "run");
