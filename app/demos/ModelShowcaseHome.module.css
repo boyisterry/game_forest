@@ -12,6 +12,9 @@
 .number { color: #b45c3d; font-size: 9px; font-weight: 800; letter-spacing: .16em; }
 .visual { position: relative; height: 190px; margin: 22px -22px 24px; overflow: hidden; border-block: 1px solid rgba(37,62,69,.1); background: #cddcda; }
 .visual::before, .visual::after { content: ""; position: absolute; }
+.character { background: linear-gradient(90deg, rgba(38,58,58,.12), rgba(183,97,56,.13)), url("/models/characters/rabbit/rabbit-courier-rigged-preview.webp") center 30% / cover; }
+.character::before { inset: 0; background: linear-gradient(180deg, transparent 48%, rgba(25,46,47,.48)); }
+.character::after { right: 22px; bottom: 18px; width: 58px; height: 58px; border: 1px solid rgba(255,255,255,.7); border-radius: 50%; box-shadow: inset 0 0 0 8px rgba(183,97,56,.62); }
 .street::before { left: 0; right: 0; bottom: 0; height: 82px; background: #596668; box-shadow: inset 0 25px #aab7b4; }
 .street::after { left: 50%; bottom: 26px; width: 70%; height: 4px; background: repeating-linear-gradient(90deg, #f1cf68 0 24px, transparent 24px 48px); transform: translateX(-50%); }
 .street i { position: absolute; z-index: 2; left: 22%; bottom: 75px; width: 8px; height: 92px; background: #37484d; box-shadow: 166px 12px 0 #37484d; }

@@ -1,0 +1,106 @@
+.shell { --ink: #20343b; --muted: #65767b; --accent: #b76138; display: grid; width: 100vw; height: 100vh; min-height: 650px; grid-template-columns: minmax(0, 1fr) 370px; overflow: hidden; color: var(--ink); background: #d8e5df; }
+.stage { position: relative; min-width: 0; overflow: hidden; isolation: isolate; }
+.canvasHost { position: absolute; inset: 0; z-index: 0; }
+.canvasHost canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.canvasHost canvas:active { cursor: grabbing; }
+.stageWash { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(180deg, rgba(248,252,249,.32), transparent 27%, rgba(29,52,48,.09)); box-shadow: inset 0 0 110px rgba(41,65,58,.1); }
+.stageWash::after { content: ""; position: absolute; inset: 0; opacity: .15; background: radial-gradient(circle at 22% 18%, rgba(54,82,73,.24) 0 1px, transparent 1.4px), radial-gradient(circle at 75% 54%, rgba(54,82,73,.18) 0 1px, transparent 1.4px); background-size: 15px 17px, 19px 21px; mix-blend-mode: multiply; }
+.header { position: absolute; z-index: 3; top: 32px; left: 34px; display: flex; align-items: center; gap: 13px; pointer-events: none; }
+.brandMark { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid rgba(32,52,59,.28); background: rgba(240,245,241,.44); font-family: "Songti SC", serif; font-size: 18px; backdrop-filter: blur(8px); }
+.header p { margin: 0 0 5px; color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: .18em; }
+.header h1 { margin: 0; font-family: "Songti SC", "STSong", Georgia, serif; font-size: 22px; font-weight: 650; letter-spacing: .08em; }
+.backLink, .resetButton, .stageStatus { position: absolute; z-index: 4; border: 1px solid rgba(34,61,67,.14); background: rgba(246,250,247,.82); color: #5d7075; font-size: 9px; backdrop-filter: blur(13px); }
+.backLink { top: 32px; right: 26px; padding: 9px 12px; font-weight: 800; letter-spacing: .05em; text-decoration: none; }
+.backLink:hover { color: #9f512e; background: rgba(255,255,255,.96); }
+.stageStatus { top: 74px; right: 26px; display: flex; align-items: center; gap: 8px; padding: 8px 11px; }
+.stageStatus i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #6e9c52; box-shadow: 0 0 0 4px rgba(110,156,82,.13); }
+.stageStatus i.loadingDot { background: #d37a45; box-shadow: 0 0 0 4px rgba(211,122,69,.14); animation: pulse 1s ease-in-out infinite alternate; }
+.resetButton { right: 26px; bottom: 170px; min-height: 32px; padding: 0 11px; cursor: pointer; }
+.resetButton:hover { color: var(--accent); background: #fff; }
+.axisNote { position: absolute; z-index: 3; left: 34px; top: 50%; display: grid; gap: 9px; color: rgba(36,60,64,.58); writing-mode: vertical-rl; transform: translateY(-50%); pointer-events: none; }
+.axisNote span { color: var(--accent); font-size: 7px; font-weight: 800; letter-spacing: .24em; }
+.axisNote b { font-family: "Songti SC", serif; font-size: 9px; font-weight: 500; letter-spacing: .16em; }
+.cards { position: absolute; z-index: 4; left: 50%; bottom: 22px; display: grid; width: min(850px, calc(100% - 52px)); grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; transform: translateX(-50%); }
+.card { position: relative; display: grid; min-width: 0; height: 126px; grid-template-columns: 90px 1fr; padding: 0; overflow: hidden; border: 1px solid rgba(35,62,68,.14); background: rgba(242,247,244,.85); color: inherit; text-align: left; box-shadow: 0 16px 38px rgba(40,62,61,.12); backdrop-filter: blur(14px); cursor: pointer; transition: transform 180ms ease, border-color 180ms ease, background 180ms ease; }
+.card:hover { transform: translateY(-3px); border-color: rgba(183,97,56,.48); background: rgba(255,255,255,.95); }
+.activeCard { border-color: rgba(183,97,56,.72); background: rgba(255,255,255,.96); box-shadow: inset 0 -3px var(--accent), 0 16px 38px rgba(40,62,61,.13); }
+.cardImage { position: relative; display: block; overflow: hidden; background: #b9cac3; }
+.cardImage img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 30%; filter: saturate(.88) contrast(.96); transform: scale(1.04); transition: transform 260ms ease; }
+.card:hover .cardImage img { transform: scale(1.09); }
+.cardCopy { align-self: center; display: grid; min-width: 0; gap: 5px; padding: 12px 20px 12px 12px; }
+.cardCopy small { color: var(--accent); font-size: 7px; font-weight: 800; letter-spacing: .13em; }
+.cardCopy strong { overflow: hidden; font-family: "Songti SC", serif; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.cardCopy em { color: #758489; font-size: 8px; font-style: normal; }
+.cardArrow { position: absolute; right: 8px; top: 8px; color: var(--accent); font-size: 12px; }
+.detailPanel { position: relative; z-index: 6; display: flex; height: 100vh; min-height: 650px; flex-direction: column; padding: 30px 28px 20px; overflow-y: auto; border-left: 1px solid rgba(33,59,63,.14); background: linear-gradient(155deg, rgba(248,250,247,.98), rgba(227,234,229,.99)); box-shadow: -24px 0 64px rgba(37,58,58,.1); }
+.detailHeading { padding-bottom: 19px; border-bottom: 1px solid rgba(32,55,61,.13); }
+.detailHeading p, .detailHeading span { margin: 0; color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: .17em; }
+.detailHeading span { display: block; margin-top: 18px; color: #8a9898; font-size: 7px; }
+.detailHeading h2 { margin: 5px 0 8px; font-family: "Songti SC", "STSong", Georgia, serif; font-size: 34px; font-weight: 650; letter-spacing: .05em; }
+.detailHeading small { color: #66787b; font-size: 9px; font-weight: 700; letter-spacing: .06em; }
+.description { margin: 17px 0 5px; color: var(--muted); font-size: 11px; line-height: 1.72; }
+.controlSection { padding: 17px 0 16px; border-bottom: 1px solid rgba(32,55,61,.12); }
+.sectionTitle { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; color: #263d43; font-size: 9px; font-weight: 800; letter-spacing: .13em; }
+.sectionTitle b { color: #9aa5a3; font-family: "SFMono-Regular", Consolas, monospace; font-size: 8px; font-weight: 500; }
+.actionGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.actionGrid button { display: flex; min-height: 48px; align-items: center; justify-content: space-between; padding: 0 11px; border: 1px solid rgba(35,62,68,.14); background: rgba(255,255,255,.3); color: #5f7174; cursor: pointer; }
+.actionGrid button:hover { border-color: rgba(183,97,56,.42); background: rgba(255,255,255,.7); color: #263d43; }
+.actionGrid button.activeAction { border-color: #355860; background: #355860; color: #fff; }
+.actionGrid span { font-size: 10px; font-weight: 700; }
+.actionGrid small { font-family: "SFMono-Regular", Consolas, monospace; font-size: 7px; letter-spacing: .08em; opacity: .72; }
+.emptyState { display: grid; min-height: 58px; align-content: center; gap: 4px; padding: 0 13px; border: 1px dashed rgba(35,62,68,.2); background: rgba(255,255,255,.2); }
+.emptyState span { color: #425b61; font-size: 10px; font-weight: 700; }
+.emptyState small { color: #829092; font-size: 8px; }
+.toggleRow { position: relative; display: flex; min-height: 55px; align-items: center; justify-content: space-between; padding: 0 11px 0 12px; border: 1px solid rgba(35,62,68,.14); background: rgba(255,255,255,.27); cursor: pointer; }
+.toggleRow > span { display: grid; gap: 4px; }
+.toggleRow strong { color: #344e54; font-size: 9px; }
+.toggleRow small { color: #7c8b8d; font-size: 7px; }
+.toggleRow input { position: absolute; opacity: 0; pointer-events: none; }
+.toggleRow i { position: relative; width: 38px; height: 20px; flex: 0 0 auto; border-radius: 999px; background: #c8d2cf; box-shadow: inset 0 0 0 1px rgba(37,63,68,.12); transition: background 160ms ease; }
+.toggleRow i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(35,55,57,.2); transition: transform 160ms ease; }
+.toggleRow input:checked + i { background: var(--accent); }
+.toggleRow input:checked + i::after { transform: translateX(18px); }
+.toggleRow input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 3px; }
+.toggleRow.disabled { opacity: .48; cursor: not-allowed; }
+.viewMode { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 7px; }
+.viewMode button { min-height: 36px; border: 1px solid rgba(35,62,68,.14); background: transparent; color: #68797c; font-size: 9px; font-weight: 700; cursor: pointer; }
+.viewMode button:hover:not(:disabled) { color: #293f44; background: rgba(255,255,255,.55); }
+.viewMode button.activeMode { border-color: #355860; background: #355860; color: #fff; }
+.viewMode button:disabled { opacity: .38; cursor: not-allowed; }
+.skeletonNote { margin: 9px 2px 0; color: var(--accent); font-size: 8px; line-height: 1.5; }
+.facts { display: grid; gap: 0; margin: 0; }
+.facts div { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid rgba(35,62,68,.08); }
+.facts div:last-child { border: 0; }
+.facts dt { color: #7d8b8c; font-size: 8px; }
+.facts dd { margin: 0; color: #344e54; font-family: "SFMono-Regular", Consolas, monospace; font-size: 8px; text-align: right; }
+.footer { display: flex; justify-content: space-between; margin-top: auto; padding-top: 18px; color: #909c9a; font-family: "SFMono-Regular", Consolas, monospace; font-size: 7px; letter-spacing: .1em; }
+@keyframes pulse { to { opacity: .4; transform: scale(.7); } }
+@media (max-width: 980px) {
+  .shell { display: block; min-height: 100vh; overflow-y: auto; }
+  .stage { height: 66vh; min-height: 520px; }
+  .detailPanel { height: auto; min-height: 0; padding-bottom: 28px; border-top: 1px solid rgba(33,59,63,.14); border-left: 0; }
+  .footer { margin-top: 18px; }
+}
+@media (max-width: 680px) {
+  .stage { height: 70vh; min-height: 560px; }
+  .header { top: 16px; left: 16px; }
+  .brandMark { width: 37px; height: 37px; }
+  .header p { display: none; }
+  .header h1 { font-size: 18px; }
+  .backLink { top: 16px; right: 15px; }
+  .stageStatus { top: 55px; right: 15px; }
+  .axisNote, .resetButton { display: none; }
+  .cards { bottom: 12px; width: calc(100% - 24px); grid-template-columns: repeat(3, 1fr); }
+  .card { height: 120px; grid-template-columns: 1fr; }
+  .cardImage { position: absolute; inset: 0; }
+  .cardImage::after { content: ""; position: absolute; inset: 35% 0 0; background: linear-gradient(transparent, rgba(20,39,40,.86)); }
+  .cardCopy { position: relative; z-index: 2; align-self: end; padding: 9px; color: #fff; }
+  .cardCopy small, .cardCopy em { color: rgba(255,255,255,.76); }
+  .cardCopy strong { font-size: 13px; }
+  .cardCopy em { display: none; }
+  .cardArrow { z-index: 3; color: #fff; }
+  .detailPanel { padding: 24px 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .cardImage img, .toggleRow i, .toggleRow i::after { transition: none; }
+}

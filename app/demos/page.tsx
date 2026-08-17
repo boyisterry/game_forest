@@ -9,6 +9,14 @@ export const metadata: Metadata = {
 
 const categories = [
   {
+    number: "CHARACTER ARCHIVE",
+    title: "动物角色",
+    description: "浏览兔子、狐狸与虎子信使，检查角色动作、绑定骨架与纯骨架动画。",
+    href: "/characters",
+    visual: "character",
+    tags: ["3 个动物角色", "4 组角色动作", "骨骼可视化", "纯骨架模式"],
+  },
+  {
     number: "COLLECTION 01",
     title: "街道装饰",
     description: "城市行道树、路灯、交通信号、餐车、街边亭与长条花坛。",
