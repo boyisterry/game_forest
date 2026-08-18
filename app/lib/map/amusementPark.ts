@@ -2411,6 +2411,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   };
 
   park.userData = {
+    mapLayer: "exterior",
     modelType: "amusement-park",
     generatedLocally: true,
     facilities: ["overview", "coaster", "carousel", "pirate", "playground", "circus", "shooting", "karting", "ferris", "drop-tower"],

@@ -544,6 +544,7 @@ export function buildLowPolySportsCenter(): SportsCenterModel {
   });
 
   center.userData = {
+    mapLayer: "exterior",
     modelType: "sports-center",
     generatedLocally: true,
     zones: ["stadium", "arena", "aquatics", "outdoor", "fitness", "service"],

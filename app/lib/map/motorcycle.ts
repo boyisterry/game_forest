@@ -385,11 +385,14 @@ export class MotorcycleController {
     z = resolved.z;
     this.speed = resolved.speed;
     speed = resolved.speed;
+    const hasResolvedVelocityHeading = Number.isFinite(resolved.velHeading);
+    if (hasResolvedVelocityHeading) this.velHeading = resolved.velHeading!;
+    if (typeof resolved.drifting === "boolean") this.drifting = resolved.drifting;
     if (resolved.heading !== this.heading) {
       this.heading = resolved.heading;
       // Only glue travel to the nose after a facing change from impact.
-      if (!this.drifting) this.velHeading = this.heading;
-    } else if (!this.drifting) {
+      if (!this.drifting && !hasResolvedVelocityHeading) this.velHeading = this.heading;
+    } else if (!this.drifting && !hasResolvedVelocityHeading) {
       this.velHeading = this.heading;
     }
 

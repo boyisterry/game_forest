@@ -732,6 +732,7 @@ export function buildLowPolyTownCenter(): TownCenterModel {
   });
 
   town.userData = {
+    mapLayer: "exterior",
     modelType: "town-center",
     generatedLocally: true,
     zones: ["civic", "culture", "market", "commerce", "service", "transport", "square"],

@@ -107,27 +107,36 @@ export class ChaseCamera {
     }
 
     const yaw = pose.heading + this.lookYaw;
-    const pitch = this.lookPitch;
+    // `pose.pitch` includes the same bounded presentation impulse already used
+    // by the rider. Fold it into the boom angle once; do not add a second shake.
+    const pitch = THREE.MathUtils.clamp(
+      this.lookPitch + pose.pitch,
+      PITCH_MIN,
+      PITCH_MAX,
+    );
     const back = BACK + Math.abs(pose.speed) * SPEED_PULL;
     const cp = Math.cos(pitch);
     const sp = Math.sin(pitch);
     const fx = Math.sin(yaw);
     const fz = Math.cos(yaw);
-
     // Orbit behind the look yaw; pitch raises/lowers the boom.
     this.idealPos.set(
       pose.x - fx * back * cp,
-      HEIGHT + sp * back * 0.85,
+      pose.y + HEIGHT + sp * back * 0.85,
       pose.z - fz * back * cp,
     );
 
     // While free-looking, stare at the rider; otherwise look down the road.
     if (this.dragging || Math.abs(this.lookYaw) > 0.04 || Math.abs(this.lookPitch) > 0.04) {
-      this.idealLook.set(pose.x, LOOK_HEIGHT, pose.z);
+      this.idealLook.set(pose.x, pose.y + LOOK_HEIGHT, pose.z);
     } else {
       const hx = Math.sin(pose.heading);
       const hz = Math.cos(pose.heading);
-      this.idealLook.set(pose.x + hx * LOOK_AHEAD, LOOK_HEIGHT, pose.z + hz * LOOK_AHEAD);
+      this.idealLook.set(
+        pose.x + hx * LOOK_AHEAD,
+        pose.y + LOOK_HEIGHT,
+        pose.z + hz * LOOK_AHEAD,
+      );
     }
 
     if (!this.init) {

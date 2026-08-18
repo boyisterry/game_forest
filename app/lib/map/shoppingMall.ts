@@ -1985,6 +1985,7 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     if (object.name === "shopping-mall-store-interior-module") interiorTenantTypes.add(object.userData.tenantType as MallTenant);
   });
   mall.userData = {
+    mapLayer: "exterior",
     modelType: "shopping-mall",
     generatedLocally: true,
     zones: ["overview", "exterior", "courtyard", "food-street", "lifestyle", "upper-arcade", "interior"],

@@ -6,6 +6,7 @@ import { createRandom, range } from "./random";
 import { createRoadTextures, enableRoadAntiTiling } from "./textures";
 import { ChunkManager } from "./ChunkManager";
 import { Minimap } from "./Minimap";
+import { deriveCityMinimapWorld, type MinimapRoadLine } from "./cityMinimap.ts";
 import {
   createSharedForestAssets,
   disposeSharedForestAssets,
@@ -27,16 +28,32 @@ import { sampleBoundary } from "./boundaryTerrain";
 import { createWorldBoundaries } from "./boundaries";
 import { FarFieldLayer } from "./farField";
 import { ProceduralSky } from "./sky";
-import { loadForestModelPack, disposeForestModelPack, type ForestModelPack } from "./treeModels";
+import type { ForestModelPack } from "./treeModels";
+import { createModelPackOwner, type ModelPackOwner } from "./modelPackOwner.ts";
+import type { ResourceLease } from "./resourceLease.ts";
 import { InputController } from "./input";
 import { computeBrowsePanDelta, NO_BROWSE_MOVE, type BrowseMove } from "./browsePan";
-import { MotorcycleController, PEAK_HORSEPOWER } from "./motorcycle";
+import { MotorcycleController, PEAK_HORSEPOWER, type MotoPose } from "./motorcycle";
 import { ChaseCamera } from "./chaseCamera";
 import { CollisionWorld } from "./collision";
 import { SkidMarks } from "./skidMarks";
 import { AudioEngine } from "./audioEngine";
 import { ShatterMorphController } from "./shatterMorph";
 import { buildCityWorld, clampToCity, sampleCitySurface } from "./city";
+import type { CityMapDocumentSnapshot } from "./cityDocument.ts";
+import { CityDirtyLayer, type LayerMask } from "./cityEditor.ts";
+import { createCatalogSourceRegistry, type CatalogSourceRegistry } from "./cityCatalogSources.ts";
+import { createCityVisualLayerManager, type CityVisualLayerManager } from "./cityVisualLayerManager.ts";
+import { createCityTemplateCache, type CityTemplateCache } from "./cityTemplateCache.ts";
+import { createCityDocumentRenderer, type CityDocumentRenderer } from "./cityDocumentRenderer.ts";
+import { projectCityPointerToGround, setCityCameraTopDown, type CityViewportPoint } from "./cityEditorViewport.ts";
+import { findNearestUnoccupiedCityPoint } from "./cityEditorOccupancy.ts";
+import { getCatalogEntry } from "./cityCatalog.ts";
+import { CityMotorcycleAdapter } from "./cityMotorcycleAdapter.ts";
+import { CityMotorcycleFixedStepBridge } from "./cityMotorcycleFixedStep.ts";
+import { CompiledCityCollisionRuntime } from "./cityCompiledCollisionRuntime.ts";
+import { CityDocumentCollisionPipeline } from "./cityDocumentCollisionPipeline.ts";
+import { disposeRiderResources } from "./riderResources.ts";
 
 export type SceneStats = {
   trees: number;
@@ -75,11 +92,16 @@ export class ForestScene {
   private shared: SharedForestAssets | null = null;
   private sun: THREE.DirectionalLight | null = null;
   private roadPoints: THREE.Vector3[] = [];
+  private cityMinimapRoadLines: MinimapRoadLine[] = [];
   private stopPoints: Array<{ x: number; z: number }> = [];
   private minimap: Minimap | null = null;
   private farField: FarFieldLayer | null = null;
   private sky: ProceduralSky;
   private modelPack: ForestModelPack | null = null;
+  private modelPackLease: ResourceLease<ForestModelPack> | null = null;
+  private readonly modelPackOwner: ModelPackOwner;
+  private readonly ownsModelPackOwner: boolean;
+  private disposed = false;
   private lastChunkFocus = "";
   private deliveryStopCount = 0;
   private driveMode = false;
@@ -95,13 +117,37 @@ export class ForestScene {
   private readonly dummy = new THREE.Object3D();
   private readonly streamForward = new THREE.Vector3();
   private driveModeListener: ((on: boolean) => void) | null = null;
+  private cityEditorCameraModeListener: ((topDown: boolean) => void) | null = null;
   private readonly browseMove: BrowseMove = { ...NO_BROWSE_MOVE };
   private readonly browsePanDelta = new THREE.Vector3();
   private cityStats = { buildings: 0, streetTrees: 0, streetLights: 0, trafficLights: 0, drawCalls: 0 };
+  private cityDocument: CityMapDocumentSnapshot | null = null;
+  private readonly cityCatalogSources: CatalogSourceRegistry = createCatalogSourceRegistry();
+  private readonly cityVisualLayers: CityVisualLayerManager = createCityVisualLayerManager();
+  private readonly cityTemplateCache: CityTemplateCache = createCityTemplateCache({
+    sources: this.cityCatalogSources,
+    layers: this.cityVisualLayers,
+  });
+  private cityDocumentRenderer: CityDocumentRenderer | null = null;
+  private readonly cityEditRaycaster = new THREE.Raycaster();
+  private cityEditorTopDown = false;
+  private readonly cityCollisionPipeline = new CityDocumentCollisionPipeline(this.cityTemplateCache);
+  private cityDocumentCollision: CompiledCityCollisionRuntime | null = null;
+  private cityDocumentBike: CityMotorcycleFixedStepBridge | null = null;
+  private cityCollisionGeneration = 0;
+  private cityCollisionBuildAbort: AbortController | null = null;
+  private cityCollisionReady = false;
 
-  constructor(canvas: HTMLCanvasElement, settings: MapSettings, onStats: StatsListener) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    settings: MapSettings,
+    onStats: StatsListener,
+    modelPackOwner?: ModelPackOwner,
+  ) {
     this.settings = settings;
     this.onStats = onStats;
+    this.modelPackOwner = modelPackOwner ?? createModelPackOwner();
+    this.ownsModelPackOwner = modelPackOwner === undefined;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
@@ -133,29 +179,49 @@ export class ForestScene {
     this.collision.onTreeHit = (intensity) => this.audio.triggerImpact(intensity);
     this.resize();
     this.animate();
-    void this.bootstrap(settings);
+    void this.bootstrap();
   }
 
-  private async bootstrap(settings: MapSettings) {
+  private async bootstrap() {
     try {
-      this.modelPack = await loadForestModelPack();
+      const lease = await this.modelPackOwner.borrow();
+      if (this.disposed) {
+        lease.release();
+        return;
+      }
+      this.modelPackLease?.release();
+      this.modelPackLease = lease;
+      this.modelPack = lease.value;
+      this.cityCatalogSources.replaceModelPack(this.modelPack);
     } catch (error) {
+      if (this.disposed) return;
       console.warn("Forest model pack unavailable, falling back to procedural trees.", error);
       this.modelPack = null;
     }
-    this.build(settings);
+    // Use the newest settings. A workshop rebuild may have occurred while the
+    // model pack was loading, so the constructor snapshot is stale here.
+    this.build(this.settings);
   }
 
   attachMinimap(canvas: HTMLCanvasElement) {
     this.minimap?.dispose();
     this.minimap = new Minimap(canvas);
+    this.syncMinimapWorld();
+    this.minimap.setJumpHandler((x, z) => this.jumpTo(x, z));
+  }
+
+  private syncMinimapWorld() {
+    if (!this.minimap) return;
+    if (this.settings.mapType === "city" && this.cityDocument) {
+      this.minimap.setCityWorld(this.cityMinimapRoadLines, this.stopPoints, this.settings.seed);
+      return;
+    }
     this.minimap.setWorld(
-      this.roadPoints.map((p) => ({ x: p.x, z: p.z })),
+      this.roadPoints.map((point) => ({ x: point.x, z: point.z })),
       this.stopPoints,
       this.settings.seed,
       this.settings.mapType,
     );
-    this.minimap.setJumpHandler((x, z) => this.jumpTo(x, z));
   }
 
   private setupLights() {
@@ -178,7 +244,7 @@ export class ForestScene {
   build(settings: MapSettings) {
     if (this.driveMode) this.setDriveMode(false);
     this.settings = settings;
-    this.shatterMorph.snap(settings.shatterMode);
+    this.shatterMorph.snap(settings.shatterMode ? 1 : 0);
     this.disposeWorld();
     this.skids.clear();
     const random = createRandom(settings.seed);
@@ -194,7 +260,8 @@ export class ForestScene {
     this.scene.fog = new THREE.FogExp2(palette.fog, Math.min(settings.fogDensity, 0.0035));
 
     if (settings.mapType === "city") {
-      this.buildCity(settings);
+      if (this.cityDocument) this.buildCityDocument(this.cityDocument);
+      else this.buildCity(settings);
       return;
     }
 
@@ -242,6 +309,7 @@ export class ForestScene {
       this.farField = new FarFieldLayer({
         groundMap,
         normalMap: this.shared.groundMaterial.normalMap ?? null,
+        roughnessMap: this.shared.groundMaterial.roughnessMap ?? null,
         barkMap: this.shared.trunkMaterial.map,
         barkNormalMap: this.shared.trunkMaterial.normalMap,
         barkRoughnessMap: this.shared.trunkMaterial.roughnessMap,
@@ -288,12 +356,7 @@ export class ForestScene {
       this.rider.visible = this.riderVisible;
     }
 
-    this.minimap?.setWorld(
-      this.roadPoints.map((p) => ({ x: p.x, z: p.z })),
-      this.stopPoints,
-      settings.seed,
-      settings.mapType,
-    );
+    this.syncMinimapWorld();
   }
 
   private buildCity(settings: MapSettings) {
@@ -331,12 +394,221 @@ export class ForestScene {
     }
     this.lastChunkFocus = "";
     this.publishStats();
-    this.minimap?.setWorld(
-      this.roadPoints.map((p) => ({ x: p.x, z: p.z })),
-      this.stopPoints,
-      settings.seed,
-      settings.mapType,
+    this.syncMinimapWorld();
+  }
+
+  private buildCityDocument(document: CityMapDocumentSnapshot) {
+    this.scene.background = new THREE.Color(0xc5e5f5);
+    this.scene.fog = new THREE.FogExp2(0xd9edf5, 0.00055);
+    this.sky.setSeason("summer");
+    this.sky.setClear(true);
+    if (this.sun) {
+      this.sun.color.set(0xfff3d3);
+      this.sun.intensity = 4.15;
+    }
+
+    // The empty document is still an intentional, bounded editing frame.
+    const environment = new THREE.Group();
+    environment.name = "city-document-environment";
+    const water = new THREE.Mesh(
+      new THREE.PlaneGeometry(2520, 2260),
+      new THREE.MeshStandardMaterial({ color: 0x8fc1d2, roughness: 0.7, metalness: 0.02 }),
     );
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(0, -0.11, -110);
+    water.receiveShadow = true;
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(2200, 1940),
+      new THREE.MeshStandardMaterial({ color: 0x9eaa9a, roughness: 0.97, metalness: 0 }),
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(0, -0.025, -110);
+    ground.receiveShadow = true;
+    environment.add(water, ground);
+    this.staticLayer.add(environment);
+
+    this.cityDocumentRenderer = createCityDocumentRenderer({
+      cache: this.cityTemplateCache,
+      layers: this.cityVisualLayers,
+      parentOwnedLayer: this.staticLayer,
+    });
+    const report = this.cityDocumentRenderer.applyCityDocument(document);
+    this.syncCityDocumentState(document, report);
+    this.rebuildCityDocumentCollision(document);
+
+    const start = document.spawn;
+    this.controls.target.set(start.x, 0, start.z);
+    this.camera.position.set(start.x + 76, 58, start.z + 92);
+    this.camera.up.set(0, 1, 0);
+    this.controls.update();
+    if (this.rider) {
+      this.staticLayer.add(this.rider);
+      this.rider.position.set(start.x, 0.012, start.z);
+      this.rider.rotation.y = start.heading;
+      this.rider.visible = this.riderVisible;
+    }
+    this.lastChunkFocus = "";
+    this.publishStats();
+    this.syncMinimapWorld();
+  }
+
+  private syncCityDocumentState(
+    document: CityMapDocumentSnapshot,
+    report: ReturnType<CityDocumentRenderer["getStats"]>,
+  ) {
+    const minimapWorld = deriveCityMinimapWorld(document.graph, this.settings.deliveryStops);
+    this.cityMinimapRoadLines = [...minimapWorld.roadLines];
+    this.roadPoints = minimapWorld.roadLines.flatMap((line) => line.map(
+      (point) => new THREE.Vector3(point.x, 0, point.z),
+    ));
+    this.stopPoints = minimapWorld.stops.map((stop) => ({ x: stop.x, z: stop.z }));
+    this.deliveryStopCount = this.stopPoints.length;
+    let buildings = 0;
+    let streetTrees = 0;
+    let streetLights = 0;
+    for (const placement of document.placements) {
+      if (placement.catalogId === "street-tree") streetTrees += 1;
+      if (placement.catalogId === "street-light" || placement.catalogId === "park-street-light") streetLights += 1;
+      const entry = getCatalogEntry(placement.catalogId);
+      if (placement.poseKind === "legacy-massing" || entry?.category !== "decoration") buildings += 1;
+    }
+    this.cityStats = {
+      buildings,
+      streetTrees,
+      streetLights,
+      trafficLights: report.signalPlacementCount,
+      drawCalls: report.roadMeshCount + report.legacyLayerCount
+        + report.catalogAttachmentCount + report.signalAttachmentCount + 2,
+    };
+  }
+
+  private rebuildCityDocumentCollision(document: CityMapDocumentSnapshot) {
+    this.cityCollisionGeneration += 1;
+    const generation = this.cityCollisionGeneration;
+    this.cityCollisionBuildAbort?.abort();
+    const abort = new AbortController();
+    this.cityCollisionBuildAbort = abort;
+    this.cityCollisionReady = false;
+    if (this.driveMode) this.setDriveMode(false);
+    this.cityDocumentBike?.reset();
+    void this.cityCollisionPipeline.build(document, generation, abort.signal).then((report) => {
+      if (this.disposed || abort.signal.aborted || generation !== this.cityCollisionGeneration) {
+        report.runtime.dispose();
+        return;
+      }
+      this.cityDocumentCollision?.dispose();
+      this.cityDocumentCollision = report.runtime;
+      const adapter = new CityMotorcycleAdapter(report.runtime, {
+        onImpact: ({ normalImpactSpeed }) => this.audio.triggerImpact(Math.min(1, normalImpactSpeed / 12)),
+      });
+      this.cityDocumentBike = new CityMotorcycleFixedStepBridge(adapter);
+      this.cityCollisionReady = true;
+      this.recoverCityRiderPose(document);
+      this.publishStats();
+    }).catch((error) => {
+      if (abort.signal.aborted || generation !== this.cityCollisionGeneration || this.disposed) return;
+      this.cityCollisionReady = false;
+      console.error("Failed to compile city document collision", error);
+    });
+  }
+
+  isCityDocumentCollisionReady() {
+    return this.settings.mapType !== "city" || this.cityCollisionReady;
+  }
+
+  /** Apply an immutable city revision without transferring document ownership. */
+  applyCityDocument(document: CityMapDocumentSnapshot, dirty?: LayerMask) {
+    const previous = this.cityDocument;
+    this.cityDocument = document;
+    if (this.settings.mapType !== "city") return;
+    if (!this.cityDocumentRenderer) {
+      this.build(this.settings);
+      return;
+    }
+    const report = this.cityDocumentRenderer.applyCityDocument(document, dirty);
+    this.syncCityDocumentState(document, report);
+    const collisionDirty = dirty === undefined
+      || (dirty & (CityDirtyLayer.Roads | CityDirtyLayer.Placements | CityDirtyLayer.Collision | CityDirtyLayer.Surface)) !== 0;
+    if (collisionDirty) this.rebuildCityDocumentCollision(document);
+    const spawnChanged = !previous
+      || previous.spawn.x !== document.spawn.x
+      || previous.spawn.z !== document.spawn.z
+      || previous.spawn.heading !== document.spawn.heading;
+    const fullDocumentReplacement = dirty === undefined
+      || (dirty & CityDirtyLayer.Spawn) !== 0;
+    if (spawnChanged || fullDocumentReplacement) this.resetCityRiderToSpawn(document);
+    this.publishStats();
+    this.syncMinimapWorld();
+  }
+
+  getCityDocument(): CityMapDocumentSnapshot | null {
+    return this.cityDocument;
+  }
+
+  /** Reserve primary drag for the road brush while retaining wheel/right-pan. */
+  setCityRoadEditingEnabled(enabled: boolean) {
+    this.controls.mouseButtons.LEFT = enabled ? null : THREE.MOUSE.ROTATE;
+  }
+
+  private resetCityRiderToSpawn(document: CityMapDocumentSnapshot) {
+    const rider = this.rider;
+    if (!rider) return;
+    rider.position.set(document.spawn.x, 0.012, document.spawn.z);
+    rider.rotation.set(0, document.spawn.heading, 0);
+    this.moto.reset(document.spawn.x, document.spawn.z, document.spawn.heading);
+    this.cityDocumentBike?.reset();
+    if (!this.driveMode) {
+      this.controls.target.set(document.spawn.x, 0, document.spawn.z);
+      this.controls.update();
+    }
+  }
+
+  private recoverCityRiderPose(document: CityMapDocumentSnapshot) {
+    const rider = this.rider;
+    if (!rider) return;
+    const recovered = findNearestUnoccupiedCityPoint(document, rider.position.x, rider.position.z);
+    if (!recovered.relocated) return;
+    rider.position.set(recovered.x, 0.012, recovered.z);
+    this.moto.reset(recovered.x, recovered.z, rider.rotation.y);
+    this.cityDocumentBike?.reset();
+    this.chase.reset();
+    if (!this.driveMode) {
+      this.controls.target.set(recovered.x, 0, recovered.z);
+      this.controls.update();
+    }
+  }
+
+  projectCityPointer(clientX: number, clientY: number): CityViewportPoint | null {
+    if (this.settings.mapType !== "city") return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return projectCityPointerToGround(this.camera, rect, clientX, clientY, this.cityEditRaycaster);
+  }
+
+  pickCityPlacement(clientX: number, clientY: number): string | null {
+    if (!this.cityDocumentRenderer || this.settings.mapType !== "city") return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    this.cityEditRaycaster.setFromCamera(new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    ), this.camera);
+    return this.cityDocumentRenderer.raycast(this.cityEditRaycaster)[0]?.placementId ?? null;
+  }
+
+  setCityEditorTopDown(topDown: boolean) {
+    if (this.settings.mapType !== "city") return;
+    this.cityEditorTopDown = topDown;
+    setCityCameraTopDown(this.camera, this.controls.target, topDown);
+    this.controls.update();
+    this.cityEditorCameraModeListener?.(topDown);
+  }
+
+  isCityEditorTopDown() {
+    return this.cityEditorTopDown;
+  }
+
+  setCityEditorCameraModeListener(listener: ((topDown: boolean) => void) | null) {
+    this.cityEditorCameraModeListener = listener;
   }
 
   private addStops(road: THREE.Vector3[], count: number, random: () => number) {
@@ -370,6 +642,10 @@ export class ForestScene {
     const loader = new GLTFLoader();
     loader.load("/models/rabbit-rider.glb", (gltf) => {
       const model = gltf.scene;
+      if (this.disposed) {
+        disposeRiderResources(model);
+        return;
+      }
       model.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.castShadow = true;
@@ -408,6 +684,10 @@ export class ForestScene {
   }
 
   setDriveMode(on: boolean) {
+    if (on && this.settings.mapType === "city" && this.cityDocument && !this.cityCollisionReady) {
+      this.pendingDrive = false;
+      return;
+    }
     if (on === this.driveMode) {
       if (!on) this.pendingDrive = false;
       return;
@@ -416,6 +696,9 @@ export class ForestScene {
       // Enter play as soon as the GLB finishes loading.
       this.pendingDrive = true;
       return;
+    }
+    if (on && this.settings.mapType === "city" && this.cityDocument) {
+      this.recoverCityRiderPose(this.cityDocument);
     }
     this.pendingDrive = false;
     this.driveMode = on;
@@ -426,6 +709,7 @@ export class ForestScene {
       if (this.rider) {
         this.moto.reset(this.rider.position.x, this.rider.position.z, this.rider.rotation.y);
       }
+      this.cityDocumentBike?.reset();
       this.input?.attach();
       this.input?.clearVirtual();
       this.chase.reset();
@@ -437,6 +721,7 @@ export class ForestScene {
       this.clock.getDelta();
       this.renderer.domElement.focus?.();
     } else {
+      this.cityDocumentBike?.reset();
       this.input?.detach();
       this.chase.detach();
       this.audio.stop();
@@ -547,6 +832,8 @@ export class ForestScene {
   jumpTo(x: number, z: number) {
     if (this.driveMode) return; // minimap jump would teleport the rider mid-drive
     if (this.settings.mapType === "city") {
+      this.cityEditorTopDown = false;
+      this.cityEditorCameraModeListener?.(false);
       const clamped = clampToCity(x, z, 80);
       this.controls.target.set(clamped.x, 0, clamped.z);
       this.camera.position.set(clamped.x + 66, 52, clamped.z + 78);
@@ -589,6 +876,10 @@ export class ForestScene {
     this.camera.position.set(52, 40, 68);
     this.controls.target.set(0, 0, -8);
     this.controls.update();
+    if (this.settings.mapType === "city") {
+      this.cityEditorTopDown = false;
+      this.cityEditorCameraModeListener?.(false);
+    }
   }
 
   setUnderstoryCamera() {
@@ -596,6 +887,10 @@ export class ForestScene {
     this.controls.target.set(focus.x, 2.8, focus.z);
     this.camera.position.set(focus.x + 12, 4.6, focus.z + 18);
     this.controls.update();
+    if (this.settings.mapType === "city") {
+      this.cityEditorTopDown = false;
+      this.cityEditorCameraModeListener?.(false);
+    }
   }
 
   resize() {
@@ -678,6 +973,14 @@ export class ForestScene {
             showroomTrafficLights: this.cityStats.trafficLights,
           }
         : null,
+      cityDocument: this.settings.mapType === "city" && this.cityDocument
+        ? {
+            collisionReady: this.cityCollisionReady,
+            spawn: { ...this.cityDocument.spawn },
+            placements: this.cityDocument.placements.length,
+            roads: this.cityDocument.graph.edges.length,
+          }
+        : null,
     };
   }
 
@@ -697,19 +1000,27 @@ export class ForestScene {
         const clampFn = this.settings.mapType === "city"
           ? (x: number, z: number) => clampToCity(x, z, 3)
           : (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
-        const boundaryFn = this.settings.mapType === "city"
-          ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth, this.settings.seed)
-          : (x: number, z: number) => sampleBoundary(x, z, seed);
-        this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
-        this.collision.stepStones(dt, clampFn, boundaryFn);
-        this.collision.writeMatrices(this.dummy);
-        const pose = this.moto.getPose();
+        let pose: MotoPose;
+        let presentationPose: MotoPose;
+        if (this.settings.mapType === "city" && this.cityDocumentBike) {
+          const fixedFrame = this.cityDocumentBike.advance(dt, input, this.moto, clampFn);
+          pose = fixedFrame.pose;
+          presentationPose = fixedFrame.presentationPose;
+        } else {
+          const boundaryFn = this.settings.mapType === "city"
+            ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth, this.settings.seed)
+            : (x: number, z: number) => sampleBoundary(x, z, seed);
+          pose = this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
+          presentationPose = pose;
+          this.collision.stepStones(dt, clampFn, boundaryFn);
+          this.collision.writeMatrices(this.dummy);
+        }
         if (this.rider) {
-          this.rider.position.set(pose.x, 0.012 + pose.y, pose.z);
-          this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
+          this.rider.position.set(presentationPose.x, 0.012 + presentationPose.y, presentationPose.z);
+          this.rider.rotation.set(presentationPose.pitch, presentationPose.heading, -presentationPose.lean, "YXZ");
         }
         this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
-        this.chase.update(dt, this.camera, pose, input.boost);
+        this.chase.update(dt, this.camera, presentationPose, input.boost);
         if (this.settings.mapType === "forest") changed = this.chunks.pump() || changed;
       } else {
         // Mirror the live animate loop so browse panning is deterministic here.
@@ -756,19 +1067,27 @@ export class ForestScene {
       const clampFn = this.settings.mapType === "city"
         ? (x: number, z: number) => clampToCity(x, z, 3)
         : (x: number, z: number) => clampToWorld(x, z, seed, FAILSAFE_INSET);
-      const boundaryFn = this.settings.mapType === "city"
-        ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth, this.settings.seed)
-        : (x: number, z: number) => sampleBoundary(x, z, seed);
-      this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
-      this.collision.stepStones(dt, clampFn, boundaryFn);
-      this.collision.writeMatrices(this.dummy);
-      const pose = this.moto.getPose();
+      let pose: MotoPose;
+      let presentationPose: MotoPose;
+      if (this.settings.mapType === "city" && this.cityDocumentBike) {
+        const fixedFrame = this.cityDocumentBike.advance(dt, input, this.moto, clampFn);
+        pose = fixedFrame.pose;
+        presentationPose = fixedFrame.presentationPose;
+      } else {
+        const boundaryFn = this.settings.mapType === "city"
+          ? (x: number, z: number) => sampleCitySurface(x, z, this.settings.roadWidth, this.settings.seed)
+          : (x: number, z: number) => sampleBoundary(x, z, seed);
+        pose = this.moto.update(dt, input, this.collision, clampFn, boundaryFn);
+        presentationPose = pose;
+        this.collision.stepStones(dt, clampFn, boundaryFn);
+        this.collision.writeMatrices(this.dummy);
+      }
       if (this.rider) {
-        this.rider.position.set(pose.x, 0.012 + pose.y, pose.z);
-        this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
+        this.rider.position.set(presentationPose.x, 0.012 + presentationPose.y, presentationPose.z);
+        this.rider.rotation.set(presentationPose.pitch, presentationPose.heading, -presentationPose.lean, "YXZ");
       }
       this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
-      this.chase.update(dt, this.camera, pose, input.boost);
+      this.chase.update(dt, this.camera, presentationPose, input.boost);
       this.audio.update({
         speed: pose.speed,
         throttle: input.throttle,
@@ -841,6 +1160,18 @@ export class ForestScene {
   };
 
   private disposeWorld() {
+    // The document renderer owns private mounted layers and must detach them
+    // before the legacy deep-dispose traversal touches the public static layer.
+    this.cityDocumentRenderer?.dispose();
+    this.cityDocumentRenderer = null;
+    this.cityCollisionBuildAbort?.abort();
+    this.cityCollisionBuildAbort = null;
+    this.cityCollisionGeneration += 1;
+    this.cityCollisionReady = false;
+    this.cityDocumentBike?.reset();
+    this.cityDocumentBike = null;
+    this.cityDocumentCollision?.dispose();
+    this.cityDocumentCollision = null;
     this.chunks.clear();
     this.collision.clear();
     this.cityStats = { buildings: 0, streetTrees: 0, streetLights: 0, trafficLights: 0, drawCalls: 0 };
@@ -878,11 +1209,14 @@ export class ForestScene {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     cancelAnimationFrame(this.animationFrame);
     window.removeEventListener("keydown", this.onBrowseKeyDown);
     window.removeEventListener("keyup", this.onBrowseKeyUp);
     window.removeEventListener("blur", this.onBrowseBlur);
     this.input?.detach();
+    this.cityEditorCameraModeListener = null;
     this.chase.detach();
     this.audio.dispose();
     this.skids.dispose();
@@ -890,8 +1224,16 @@ export class ForestScene {
     this.minimap = null;
     this.controls.dispose();
     this.disposeWorld();
-    disposeForestModelPack(this.modelPack);
+    if (this.rider) {
+      disposeRiderResources(this.rider);
+      this.rider = null;
+    }
+    this.modelPackLease?.release();
+    this.modelPackLease = null;
     this.modelPack = null;
+    this.cityCollisionPipeline.dispose();
+    void this.cityTemplateCache.retire().then(() => this.cityCatalogSources.retire());
+    if (this.ownsModelPackOwner) void this.modelPackOwner.retire();
     this.scene.remove(this.sky.mesh);
     this.sky.dispose();
     this.renderer.dispose();

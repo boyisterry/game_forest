@@ -13,6 +13,7 @@ import {
 } from "./world";
 import { CITY_MAX_X, CITY_MAX_Z, CITY_MIN_X, CITY_MIN_Z } from "./city";
 import type { MapType } from "./types";
+import type { MinimapPoint, MinimapRoadLine } from "./cityMinimap.ts";
 
 export type MinimapFrame = {
   road: Array<{ x: number; z: number }>;
@@ -30,7 +31,7 @@ export type MinimapFrame = {
 export class Minimap {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private roadCache: Array<{ x: number; z: number }> = [];
+  private roadLines: Array<Array<{ x: number; z: number }>> = [];
   private stops: Array<{ x: number; z: number }> = [];
   private onJump: ((x: number, z: number) => void) | null = null;
   private worldSeed = 1;
@@ -46,10 +47,22 @@ export class Minimap {
 
   setWorld(road: Array<{ x: number; z: number }>, stops: Array<{ x: number; z: number }>, seed = 1, mapType: MapType = "forest") {
     // Decimate for draw cost while keeping route silhouette.
-    this.roadCache = road.filter((_, index) => index % 6 === 0 || index === road.length - 1);
-    this.stops = stops;
+    this.roadLines = [road
+      .filter((_, index) => index % 6 === 0 || index === road.length - 1)
+      .map((point) => ({ x: point.x, z: point.z }))];
+    this.stops = stops.map((stop) => ({ x: stop.x, z: stop.z }));
     this.worldSeed = seed;
     this.mapType = mapType;
+  }
+
+  /** City graphs are already sparse; preserve every edge as its own line. */
+  setCityWorld(roadLines: readonly MinimapRoadLine[], stops: readonly MinimapPoint[], seed = 1) {
+    this.roadLines = roadLines
+      .filter((line) => line.length >= 2)
+      .map((line) => line.map((point) => ({ x: point.x, z: point.z })));
+    this.stops = stops.map((stop) => ({ x: stop.x, z: stop.z }));
+    this.worldSeed = seed;
+    this.mapType = "city";
   }
 
   setJumpHandler(handler: ((x: number, z: number) => void) | null) {
@@ -163,18 +176,6 @@ export class Minimap {
       const b = this.worldToPixel(CITY_MAX_X, CITY_MAX_Z);
       ctx.fillStyle = "#7f898d";
       ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
-      ctx.strokeStyle = "rgba(43, 54, 61, 0.24)";
-      ctx.lineWidth = 5;
-      for (const x of [-820, -360, 120, 500, 820]) {
-        const p0 = this.worldToPixel(x, CITY_MIN_Z);
-        const p1 = this.worldToPixel(x, CITY_MAX_Z);
-        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
-      }
-      for (const z of [-640, -180, 280, 700]) {
-        const p0 = this.worldToPixel(CITY_MIN_X, z);
-        const p1 = this.worldToPixel(CITY_MAX_X, z);
-        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
-      }
       const sea = this.worldToPixel(CITY_MIN_X, CITY_MAX_Z);
       ctx.fillStyle = "#5d8897";
       ctx.fillRect(sea.x, sea.y, b.x - a.x, h - sea.y);
@@ -204,13 +205,16 @@ export class Minimap {
 
     ctx.strokeStyle = this.mapType === "city" ? "#ffd27d" : "#c4b08a";
     ctx.lineWidth = this.mapType === "city" ? 2.2 : 1.6;
-    ctx.beginPath();
-    this.roadCache.forEach((point, index) => {
-      const p = this.worldToPixel(point.x, point.z);
-      if (index === 0) ctx.moveTo(p.x, p.y);
-      else ctx.lineTo(p.x, p.y);
-    });
-    ctx.stroke();
+    for (const line of this.roadLines) {
+      if (line.length < 2) continue;
+      ctx.beginPath();
+      line.forEach((point, index) => {
+        const p = this.worldToPixel(point.x, point.z);
+        if (index === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.stroke();
+    }
 
     for (const stop of this.stops) {
       const p = this.worldToPixel(stop.x, stop.z);
@@ -279,7 +283,7 @@ export class Minimap {
     ctx.fillText(this.mapType === "city" ? "RAIN HARBOR" : "WORLD MAP", 10, 14);
     ctx.fillStyle = "rgba(98, 112, 102, 0.85)";
     ctx.font = "8px 'SFMono-Regular', Consolas, monospace";
-    ctx.fillText(this.mapType === "city" ? "CITY DELIVERY GRID" : `×20 · chunk ${chunkKey(focusChunk.cx, focusChunk.cz)}`, 10, h - 8);
+    ctx.fillText(this.mapType === "city" ? "CITY ROAD GRAPH" : `×20 · chunk ${chunkKey(focusChunk.cx, focusChunk.cz)}`, 10, h - 8);
   }
 
   dispose() {

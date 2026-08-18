@@ -566,6 +566,7 @@ export function buildLowPolyFireStation(): FireStationModel {
   });
 
   station.userData = {
+    mapLayer: "exterior",
     modelType: "fire-station-campus",
     generatedLocally: true,
     zones: ["response", "command", "living", "training"],
@@ -589,7 +590,8 @@ export function buildLowPolyFireStation(): FireStationModel {
       "city-street-light-lowpoly",
       "city-roadside-planter-lowpoly",
     ],
-    siteSize: new THREE.Vector3(155, 31, 110),
+    // The west hydrant/fence assembly reaches x=-79.3; keep the centered site envelope honest.
+    siteSize: new THREE.Vector3(159, 31, 110),
     setPowered: (powered) => {
       glass.emissiveIntensity = powered ? 1.25 : 0.1;
       warmLight.emissiveIntensity = powered ? 2.2 : 0.15;

@@ -1077,6 +1077,7 @@ export function buildLowPolyCityPark(): CityParkModel {
   });
 
   park.userData = {
+    mapLayer: "exterior",
     modelType: "city-park",
     generatedLocally: true,
     zones: ["entrance", "lake", "recreation", "garden", "amphitheatre", "service"],

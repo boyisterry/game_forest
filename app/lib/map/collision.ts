@@ -168,7 +168,16 @@ export class CollisionWorld {
     forward: { x: number; z: number },
     speed: number,
     heading: number,
-  ): { x: number; z: number; speed: number; heading: number } {
+  ): {
+    x: number;
+    z: number;
+    speed: number;
+    heading: number;
+    /** Optional authoritative travel direction used by the city sweep adapter. */
+    velHeading?: number;
+    /** Optional authoritative drift state used by the city sweep adapter. */
+    drifting?: boolean;
+  } {
     let x = bike.x;
     let z = bike.z;
     let spd = speed;

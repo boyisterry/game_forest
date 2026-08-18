@@ -1349,6 +1349,7 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
   });
 
   community.userData = {
+    mapLayer: "exterior",
     modelType: "residential-community",
     generatedLocally: true,
     zones: ["residential", "commercial", "kindergarten"],

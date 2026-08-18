@@ -1111,6 +1111,7 @@ export function buildLowPolyCityCenter(): CityCenterModel {
   }
 
   center.userData = {
+    mapLayer: "exterior",
     modelType: "city-center",
     generatedLocally: true,
     zones: ["landmark", "transit", "bus", "taxi", "map", "plaza"],

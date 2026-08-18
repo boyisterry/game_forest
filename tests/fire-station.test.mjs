@@ -141,7 +141,7 @@ test("reuses city decorations and is calibrated to the rabbit rider", () => {
   assert.ok(metrics.size.x >= 154);
   assert.ok(metrics.size.z >= 109);
   assert.ok(metrics.size.y >= 29);
-  assert.equal(station.userData.siteSize.x, 155);
+  assert.equal(station.userData.siteSize.x, 159);
   assert.equal(station.userData.siteSize.z, 110);
 });
 

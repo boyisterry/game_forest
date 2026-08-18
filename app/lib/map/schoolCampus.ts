@@ -573,6 +573,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
   }
 
   campus.userData = {
+    mapLayer: "exterior",
     modelType: "school-campus",
     generatedLocally: true,
     zones: ["teaching", "laboratory", "administration", "dormitory", "sports", "natatorium"],

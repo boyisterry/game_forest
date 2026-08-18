@@ -14,8 +14,8 @@ export const CITY_WEST_FENCE_X = CITY_MIN_X + 66;
 export const CITY_EAST_FENCE_X = CITY_MAX_X - 66;
 export const CITY_NORTH_FENCE_Z = CITY_MIN_Z + 66;
 
-const ROAD_X = [-820, -360, 120, 500, 820];
-const ROAD_Z = [-640, -180, 280, 700];
+export const ROAD_X = Object.freeze([-820, -360, 120, 500, 820]);
+export const ROAD_Z = Object.freeze([-640, -180, 280, 700]);
 const CURB_HEIGHT = 0.24;
 const RAMP_LENGTH = 4.2;
 const CROSSWALK_STRIPE_WIDTH = 0.52;
@@ -132,7 +132,7 @@ export function getCityRoadProfiles(tuning: number, seed = 0) {
     x: ROAD_X.map((position, index) => roadProfile(tuning, seed, false, position, index)),
     z: ROAD_Z.map((position, index) => roadProfile(tuning, seed, true, position, index)),
   };
-  const assignLengths = (roads: CityRoadProfile[], junctions: number[], axisMin: number, axisMax: number, salt: number) => {
+  const assignLengths = (roads: CityRoadProfile[], junctions: readonly number[], axisMin: number, axisMax: number, salt: number) => {
     roads.forEach((road, index) => {
       // Two perimeter spines always cross the city, preserving a reliable loop.
       if (index === 0 || index === roads.length - 1 || road.lanesPerDirection === 3) return;
@@ -196,7 +196,7 @@ function nearestRoad(value: number, profiles: CityRoadProfile[]) {
   return { distance, profile: closest };
 }
 
-function roadsIntersect(a: CityRoadProfile, b: CityRoadProfile) {
+export function roadsIntersect(a: CityRoadProfile, b: CityRoadProfile) {
   const horizontal = a.horizontal ? a : b;
   const vertical = a.horizontal ? b : a;
   return vertical.position >= horizontal.start && vertical.position <= horizontal.end

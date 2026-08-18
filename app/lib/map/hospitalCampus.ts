@@ -541,6 +541,7 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
   }
 
   campus.userData = {
+    mapLayer: "exterior",
     modelType: "hospital-campus",
     generatedLocally: true,
     zones: ["outpatient", "emergency", "inpatient"],

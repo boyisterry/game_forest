@@ -207,6 +207,7 @@ export function buildLowPolyStreetLight(): StreetLightModel {
   group.add(light);
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "street-light",
     generatedLocally: true,
     setPowered(powered: boolean) {
@@ -274,6 +275,7 @@ export function buildLowPolyParkStreetLight(): StreetLightModel {
   }
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "street-light",
     generatedLocally: true,
     setPowered(powered: boolean) {
@@ -287,6 +289,7 @@ export function buildLowPolyParkStreetLight(): StreetLightModel {
 }
 
 function buildSignalLens(
+  phaseRole: TrafficPhase,
   color: number,
   y: number,
   housingMaterial: THREE.Material,
@@ -306,6 +309,9 @@ function buildSignalLens(
   lensMaterial.toneMapped = false;
   lensMaterials.push(lensMaterial);
   const lens = mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.05, 16), lensMaterial, "traffic-light-lens");
+  // Declarative semantics survive canonical map-LOD processing after the
+  // factory's setPhase closure is intentionally stripped.
+  lens.userData.signalPhaseRole = phaseRole;
   lens.rotation.x = Math.PI * 0.5;
   lens.position.set(0, y, 0.4);
   return [bezel, lens];
@@ -333,9 +339,9 @@ export function buildLowPolyTrafficLight(armSide: 1 | -1 = 1): TrafficLightModel
   casing.position.z = 0.14;
   head.add(backplate, casing);
   const lensMaterials: THREE.MeshStandardMaterial[] = [];
-  const red = buildSignalLens(0xff160c, 0.48, housingMaterial, lensMaterials);
-  const yellow = buildSignalLens(0xffc21c, 0, housingMaterial, lensMaterials);
-  const green = buildSignalLens(0x00f04c, -0.48, housingMaterial, lensMaterials);
+  const red = buildSignalLens("red", 0xff160c, 0.48, housingMaterial, lensMaterials);
+  const yellow = buildSignalLens("yellow", 0xffc21c, 0, housingMaterial, lensMaterials);
+  const green = buildSignalLens("green", 0x00f04c, -0.48, housingMaterial, lensMaterials);
   head.add(...red, ...yellow, ...green);
   group.add(head);
 
@@ -348,6 +354,7 @@ export function buildLowPolyTrafficLight(armSide: 1 | -1 = 1): TrafficLightModel
     roughness: 0.34,
   });
   const pedestrianFace = mesh(new THREE.BoxGeometry(0.4, 0.5, 0.07), pedestrianLens, "pedestrian-signal-face");
+  pedestrianFace.userData.signalPhaseRole = "pedestrian";
   pedestrianFace.position.set(armSide * 0.42, 3.1, 0.21);
   const pushButton = mesh(new THREE.BoxGeometry(0.2, 0.28, 0.14), trimMaterial, "pedestrian-crossing-button");
   pushButton.position.set(armSide * 0.2, 1.65, 0.2);
@@ -372,6 +379,7 @@ export function buildLowPolyTrafficLight(armSide: 1 | -1 = 1): TrafficLightModel
     pedestrianLens.emissiveIntensity = phase === "red" ? 0.08 : 2.2;
   };
   group.userData = {
+    mapLayer: "exterior",
     modelType: "traffic-light",
     generatedLocally: true,
     armSide,
@@ -532,6 +540,7 @@ export function buildLowPolyFoodTruck(): FoodTruckModel {
   group.add(cabinLight);
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "food-truck",
     generatedLocally: true,
     occupantAnchor: new THREE.Vector3(-0.68, 1.17, -0.12),
@@ -634,6 +643,7 @@ export function buildLowPolyHotDogKiosk(): HotDogKioskModel {
   group.add(signBoard, bunTop, sausageTop);
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "hot-dog-kiosk",
     generatedLocally: true,
     occupantAnchor: new THREE.Vector3(0, 0.42, -0.12),
@@ -730,6 +740,7 @@ export function buildLowPolyNewsstand(): NewsstandModel {
   group.add(shutterPivot);
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "newsstand",
     generatedLocally: true,
     setOpen(open: boolean) {
@@ -838,6 +849,7 @@ export function buildLowPolyPhoneBooth(): PhoneBoothModel {
   group.add(ceilingLamp, light);
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "phone-booth",
     generatedLocally: true,
     setDoorOpen(open: boolean) {
@@ -934,6 +946,7 @@ export function buildLowPolyRoadsidePlanter(): RoadsidePlanterModel {
   });
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "roadside-planter",
     generatedLocally: true,
     plantingSlots,
@@ -1156,6 +1169,7 @@ export function buildLowPolyResidentialBuilding(): ResidentialBuildingModel {
   group.add(roofRoom, waterTank);
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "residential-building",
     generatedLocally: true,
     floorCount: 5,
@@ -1449,6 +1463,7 @@ export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
   cutawayShell.push(roofSlab, machineRoom, waterTank, antenna);
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "high-rise-residential",
     generatedLocally: true,
     floorCount,
@@ -1878,6 +1893,7 @@ export function buildLowPolySmallVilla(): SmallVillaModel {
   }
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "small-villa",
     generatedLocally: true,
     floorCount: 2,
@@ -2308,6 +2324,7 @@ export function buildLowPolyOfficeCampus(): OfficeCampusModel {
   group.add(lobbyLight);
 
   group.userData = {
+    mapLayer: "exterior",
     modelType: "office-campus",
     generatedLocally: true,
     floorCount: 6,
