@@ -6,7 +6,7 @@
 | 作者 | Forest Courier · Map Workshop |
 | 日期 | 2026-08-15 |
 | 状态 | Draft — open questions resolved |
-| 修订 | 2026-08-17 r12（碰撞实现收口：城市固定子步 + 明确 collide-and-slide；源三角面无损墙段 + 单模板fallback Triangle BVH；packed SurfaceChunk；真实Worker/IndexedDB；全人行道路缘可跨并触发强颠簸） |
+| 修订 | 2026-08-17 r13（角色默认器：去掉裸 `glass`→ignore；院区步道 token 收进 rideable，并加医院/商场夹具） |
 | 产品 | Forest Courier · Map Workshop (`forest-courier-map-studio`) |
 | 范围 | 城市地图（`mapType === "city"`，「雨港新城」/ Rain Harbor） |
 | 非范围 | 森林地图程序化生成、展示区 `/demos` 视觉重做、车辆动力学参数重调或森林碰撞重写 |
@@ -317,9 +317,13 @@ v1 其它圆形条目（喷泉、圆塔，若进城市层）仍用上表 n×n + 
 | 1 | catalog `collisionMeshes` 精确 name/group override | override 指定角色 |
 | 2 | Mesh/group 显式 `userData.mapCollisionRole` | 显式角色 |
 | 3 | `mapLayer` 为 `interior` / `micro-detail` / `animated-detail` | `ignore` |
-| 4 | token 含 `leaf/leaves/lens/glass/bulb/glow/window-pane/bolt` | `ignore` |
-| 5 | token 含 `road/asphalt/sidewalk/sidewalk-top/lawn/grass/plaza/path/ramp/ramp-top` | `rideable-surface` |
+| 4 | token 含 `leaf/leaves/lens/bulb/glow/window-pane/pane/bolt`（**不含**裸 `glass`） | `ignore` |
+| 5 | token 含 `road/asphalt/sidewalk/sidewalk-top/lawn/grass/plaza/path/ramp/ramp-top/walkway/promenade/crossing/pavement` | `rideable-surface` |
 | 6 | 其它仍可见 Mesh | **auto-resolved `solid` + 写入 `roleAudit.autoSolid`** |
+
+裸 `glass` 不得标 `ignore`。`shopping-mall-glass-curtain-panel`、`shopping-mall-storefront-glass` 及幕墙/橱窗走第 6 级 auto-solid（或 catalog 显式 `solid`）。只有 `pane` / `window-pane` / `lens` 等窄 token 才能因名字 ignore。若要把某块玻璃当窗格，必须用这些窄名字或 catalog override，禁止再加回裸 `glass`。
+
+院区步道必须能被第 5 级命中：`walkway`（如 `hospital-campus-pedestrian-walkway`）、`promenade`（如 `amusement-park-main-promenade`）、`crossing`（如医院过街板）、`pavement`。`path` 继续覆盖 `school-campus-pedestrian-path`。这些默认 `site-surface`。catalog 测试必须断言：医院主通道 `(0,31)→(0,22)` 与 `hospital-campus-pedestrian-walkway` 为 rideable；`shopping-mall-glass-curtain-panel` **不是** ignore。
 
 `auto-resolved solid`列出归一化token/祖先路径/meshCount/triangleCount，用于成本排序和黄色综合碰撞预览。它不锁成品调色板；CI比较catalog的`reviewedCollisionRoleHash`与本次`computedHash`，变化时要求人工审阅。开发者可用一条catalog override覆盖整组，不要求手标社区全部5218个Mesh。运行时只有碰撞数据仍在准备或真实编译失败时才暂缓对应条目进入Play。
 - `InternalRoad` 宽度 = 工厂沥青/广场在 siteSize 框里的真实宽度；`stretchInternalRoadToKerb`只计算**模板内连接计划**，沿outward到AABB且垂直尺寸不变。计划必须绑定实际rideable源triangle/group；`buildTemplateArtifacts`在渲染合批前据此生成同一catalog模板拥有的可见/可编译真实三角带，并在每个`EntranceAnchor`净宽处切出稳定`EntrancePort`。不能把矩形元数据直接塞进SurfaceChunk，也不能等到placement/PR7才把这段做成第三种owner。
@@ -943,9 +947,9 @@ stitch不单独拥有buffer/borrow，但两端必须在同一pending快照内精
 
 - `solid`：墙、楼体、围栏、柱、花坛、树干。
 - `rideable-surface`：草地、广场、道路、人行道、坡道；每个命中必须同时解析出`surfaceProfileId`。Worker仅接受`normal.y >= cos(profile.maxSlopeDegrees)`的可骑triangle写表面索引；不达坡度门槛的triangle被审计并忽略，不自动改成`solid`。
-- `ignore`：树叶、灯罩、窗格、螺栓、光晕、LOD 已隐藏内饰及不可骑室内桌椅，完全不进入运行时碰撞。
+- `ignore`：树叶、灯罩、窗格（仅 `pane` / `window-pane`）、螺栓、光晕、LOD 已隐藏内饰及不可骑室内桌椅，完全不进入运行时碰撞。幕墙、橱窗、结构玻璃**不是** ignore。
 - 角色是语义，不能只靠法线猜 `solid/rideable/ignore`；法线只在角色确定后选择可骑面、验证竖直挤出面或把 fallback contact 投影到 xz。普通混合语义 Mesh 仍需 group/override。道路生成器的整块人行道 slab 可显式标为 `rideable-surface`：顶面写 surface，侧面按 D26 非阻挡，无需为了碰撞强拆 Mesh。
-- rideable profile按`catalog byName override → userData.mapSurfaceProfile → 名称固定表 → catalog defaultRideableProfileId`解析。道路生成器直接写`ground/asphalt/bike-lane/driveway/ramp/sidewalk`；院区`grass/lawn/plaza/path`默认`site-surface`；`sitePad`显式带profile。显式profile id非法是编译错误，不能静默猜。解析后的完整profile内容进入source hash。
+- rideable profile按`catalog byName override → userData.mapSurfaceProfile → 名称固定表 → catalog defaultRideableProfileId`解析。道路生成器直接写`ground/asphalt/bike-lane/driveway/ramp/sidewalk`；院区`grass/lawn/plaza/path/walkway/promenade/crossing/pavement`默认`site-surface`；`sitePad`显式带profile。显式profile id非法是编译错误，不能静默猜。解析后的完整profile内容进入source hash。
 - 其它仍可见Mesh以auto-resolved `solid`参与安全预览并写`roleAudit.autoSolid`，但不锁成品调色板。`computedHash`覆盖规范化节点路径、最终role、最终surface profile id/内容和解析规则版本；CI比较`CatalogEntry.reviewedCollisionRoleHash`与本次hash，变化要求审阅，并在开发可视化中以黄色显示。红=实际wall/triangle response、绿=rideable、灰=ignore；运行时只在数据pending或真实编译失败时暂缓进入Play。
 
 **从源 triangles 编译，不另造近似形状：**
@@ -1021,7 +1025,7 @@ stitch不单独拥有buffer/borrow，但两端必须在同一pending快照内精
 - **解析 ground truth**：无限薄墙、有限墙段端点、平行、掠射、45°墙、零位移、初始接触且远离的预期TOI/法线手算固定；实际triangle裁Y带后的点/线/凸多边形各有真值，高于Y带的triangle不命中；38m/s不得穿墙。
 - **编译正确性**：Box侧面/规则围墙证明为 exact wall segments 并保留 source triangle ids；斜墙、锥形树干、修改一个顶点后的墙自动进入 Triangle BVH fallback。任何编译表示都与源模型同轴，不以另一条实现互相对照冒充真值。
 - **完整 solver**：初始浅/深穿透、一次 fixed tick 连撞两墙、凹角停止、贴墙滑行、最多4次命中、contact persistence、不重复扣速；38m/s触发≤0.25m microstep；同一输入回放在30/60/120/144Hz渲染序列经过相同物理时间后XZ误差≤2mm，边沿输入只消费一次。
-- **表面/路缘**：医院草坪/广场/内路、学校操场、公园路径可骑；64m CSR cell 在坡道边界、同格多triangle上返回真实 height/normal/profile/speedCap；直接从沥青跨任意普通路缘成功、0.24m只触发一次强 bump且不扣额外速度，坡道不触发台阶 bump，花坛矮边仍阻挡。
+- **表面/路缘**：医院草坪/广场/`hospital-campus-pedestrian-walkway`/主通道`(0,31)→(0,22)`、学校操场、公园路径、游乐园 promenade 可骑；`shopping-mall-glass-curtain-panel` 产生 solid 响应、不得 ignore；64m CSR cell 在坡道边界、同格多triangle上返回真实 height/normal/profile/speedCap；直接从沥青跨任意普通路缘成功、0.24m只触发一次强 bump且不扣额外速度，坡道不触发台阶 bump，花坛矮边仍阻挡。
 - **实例与缩放**：0/90/180/270°变换同轴；统一scale共享模板，默认1.32/1.25与一个非默认合法signal heightScale都命中各自精确variant。视觉实例的Y缩放必须等于variant的`resolvedHeightScale`，碰撞variant已把该非均匀Y缩放烘焙进顶点，故其placement `worldFromLocal`只保留相同的统一scale/yaw/translation；两条路径最终world AABB、轴线与命中位置一致，但两份矩阵本身不得被误判为逐元素相等。同`templateId+scaleSignature`只编译一次，legacy参数盒走直接墙段特例。
 - **剪枝/更新**：远处10000 placements 不进入候选；跨 bucket placement只查一次；移动/undo 后旧 bucket、接触和时间相干缓存无残留；collision revision 把 solid 覆盖车身时推出或回退最近可骑点。
 - **缓存/Worker**：IndexedDB命中可反序列化；LOD/角色/compiler/scaleSignature 变化失效；主线程 pointermove/落放帧不执行重编译；脏 surface 双缓冲切换前继续读取旧完整版本。
@@ -2628,7 +2632,7 @@ API 改为 `setCityWorld(segments, stops)`；每条 edge 是独立 `{a,b}` 线�
 ### 测试
 
 - `tests/city-tiles.test.mjs` — 花坛4×1、兔子2×1、路灯1×1、**树1×1**、旋转中心、typed bitmask；格边/格心中心与30.2 m 小数宽度均按半开 AABB 得到确定覆盖
-- `tests/city-catalog.test.mjs` — factory/model-pack source身份、siteSize、4×1花坛map Box3、入口/内路；角色优先级、catalog group override、rideable surface profile解析/非法显式profile报错、closed-required必须有非空且精确命中的`containmentRequiredNames`、open-allowed不得携带该列表、auto-solid审计hash变化需审阅但不锁调色板；0/90/180/270局部变换、mapVisibleMeshCount checked-in基线/告警回归（不是PR2的150/80硬门闩）
+- `tests/city-catalog.test.mjs` — factory/model-pack source身份、siteSize、4×1花坛map Box3、入口/内路；角色优先级（裸`glass`不得ignore、`walkway/promenade/crossing/pavement`为rideable）、`hospital-campus-pedestrian-walkway`与医院主通道`(0,31)→(0,22)`为rideable、`shopping-mall-glass-curtain-panel`不是ignore、catalog group override、rideable surface profile解析/非法显式profile报错、closed-required必须有非空且精确命中的`containmentRequiredNames`、open-allowed不得携带该列表、auto-solid审计hash变化需审阅但不锁调色板；0/90/180/270局部变换、mapVisibleMeshCount checked-in基线/告警回归（不是PR2的150/80硬门闩）
 - `tests/city-document.test.mjs` — 位姿判别联合、混合位姿拒读、schema/catalog migration、v3 round-trip、intersectionOverrides node key、empty spawn与空graph；COW旧snapshot不变且嵌套nodes/edges/placements/profile数组均不可改写，`getSnapshot/getRenderUpdate`外层wrapper也被冻结；`subscribe/getSnapshot/getRenderUpdate`引用稳定且脱离实例裸调用不丢this，apply/undo/redo传同一依赖闭包dirty，连续多revision对sceneRevision取并集，首次/错过窗口回退All且renderer失败不推进revision
 - `tests/city-roads.test.mjs` — 预设生成组合剖面、左右编辑、显式反转、拆边保方向、格边/格心栅格、单行/不对称T路口、默认雨港坡回归；整块sidewalk可产surface且curb侧面不进wall，所有暴露路缘产显式`road-curb` boundary，跨64m chunk保持同一`roadEdgeId+side+curbRun`身份；A→B时`pair[0]=left/pair[1]=right`，显式反向必须交换pair，core裁片保持方向，solver在两侧probe都选中预期目标面；`citySurfaceChunkKey/decode`覆盖负坐标、±32768边界与round-trip，错key、越界或同payload重复key拒绝且不静默覆盖；每个core带1m拓扑halo、只发布半开core refs/裁剪边，30°连续坡正跨seam时不生成伪`blocked-step`且非sentinel boundary两侧key均可由本chunk表解析；一条远长于64m的直/斜curb在每条core线被裁分，seam两侧远离原中点处都可命中同一稳定handle且不重复bump。坡道边为`smooth`，顶/侧group仅作可选调试
 - `tests/city-importer.test.mjs` — 脊路坐标全等、灯/树计数与 collect* 一致、`needTrafficLights===true`、体块 ≥ 70、**活动交叉口数 = live `roadsIntersect` 计数**

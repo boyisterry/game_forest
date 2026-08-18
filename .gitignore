@@ -47,6 +47,7 @@ next-env.d.ts
 /build/
 /.wrangler/
 /outputs/
+/output/
 /work/
 /.worktrees/
 /.openai/
