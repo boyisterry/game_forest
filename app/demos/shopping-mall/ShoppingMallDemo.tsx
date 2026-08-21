@@ -8,6 +8,8 @@ import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { buildLowPolyShoppingMall, type MallZone } from "../../lib/map/shoppingMall";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
+import { createCachedPrimitiveScene, disposeSceneResources, retireResourceCacheGeneration } from "../../lib/map/cityResourceCache";
 import styles from "./ShoppingMallDemo.module.css";
 
 type Focus = MallZone;
@@ -72,6 +74,7 @@ export function ShoppingMallDemo() {
     controls.minDistance = 12;
     controls.maxDistance = 290;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
 
     const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xa7b5a5, roughness: 0.98 });
     const ground = new THREE.Mesh(new THREE.CircleGeometry(160, 64), groundMaterial);
@@ -95,7 +98,8 @@ export function ShoppingMallDemo() {
     moon.position.set(46, 64, -72);
     scene.add(hemi, sun, fill, moon);
 
-    const mall = buildLowPolyShoppingMall();
+    const cachedScene = createCachedPrimitiveScene(buildLowPolyShoppingMall);
+    const mall = cachedScene.root;
     const pair = createSceneShatterPair(mall, { seed: 403, spread: 6 });
     const shatterMorph = new ShatterMorphController(0);
     scene.add(pair.root);
@@ -151,14 +155,17 @@ export function ShoppingMallDemo() {
     const animate = () => {
       frame = requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.05);
-      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
+      const morphChanged = shatterMorph.update(delta);
+      if (morphChanged) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged, controlsChanged,
+      }));
     };
     animate();
     const resize = () => { const width = host.clientWidth; const height = host.clientHeight; camera.aspect = width / Math.max(height, 1); camera.updateProjectionMatrix(); renderer.setSize(width, height, false); };
@@ -168,14 +175,12 @@ export function ShoppingMallDemo() {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      cachedScene.lease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };

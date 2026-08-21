@@ -8,6 +8,8 @@ import { buildLowPolyAmusementPark, type AmusementFacility } from "../../lib/map
 import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
+import { createCachedPrimitiveScene, disposeSceneResources, retireResourceCacheGeneration } from "../../lib/map/cityResourceCache";
 import styles from "./AmusementParkDemo.module.css";
 
 const PARK_TREE_URL = "/models/forest/tree_normal_medium_redwood_a.glb";
@@ -108,6 +110,7 @@ export function AmusementParkDemo() {
     controls.minDistance = 11;
     controls.maxDistance = 285;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
 
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(150, 64),
@@ -132,7 +135,8 @@ export function AmusementParkDemo() {
     fill.position.set(45, 22, -36);
     scene.add(hemi, sun, fill);
 
-    const park = buildLowPolyAmusementPark();
+    const cachedScene = createCachedPrimitiveScene(buildLowPolyAmusementPark);
+    const park = cachedScene.root;
     const pair = createSceneShatterPair(park, { seed: 401, spread: 6.5 });
     const shatterMorph = new ShatterMorphController(0);
     scene.add(pair.root);
@@ -191,6 +195,7 @@ export function AmusementParkDemo() {
     let focusBlend = 0;
     let interacting = false;
     let rotating = false;
+    let motionRunning = true;
     controls.addEventListener("start", () => { interacting = true; focusBlend = 0; });
     controls.addEventListener("end", () => { interacting = false; });
 
@@ -207,7 +212,10 @@ export function AmusementParkDemo() {
 
     apiRef.current = {
       setNight: setNightMode,
-      setMotion: (running) => park.userData.setMotionEnabled(running),
+      setMotion: (running) => {
+        motionRunning = running;
+        park.userData.setMotionEnabled(running);
+      },
       setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => {
         rotating = enabled;
@@ -229,14 +237,18 @@ export function AmusementParkDemo() {
       const delta = Math.min(clock.getDelta(), 0.05);
       const elapsed = clock.elapsedTime;
       park.userData.update(delta, elapsed);
-      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
+      const morphChanged = shatterMorph.update(delta);
+      if (morphChanged) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged,
+        internalAnimation: motionRunning, controlsChanged,
+      }));
     };
     animate();
 
@@ -253,14 +265,12 @@ export function AmusementParkDemo() {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      cachedScene.lease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };

@@ -41,7 +41,9 @@ function closeDirtyMask(mask: LayerMask): LayerMask {
       | CityDirtyLayer.Minimap;
   }
   if ((result & CityDirtyLayer.Placements) !== 0) {
-    result |= CityDirtyLayer.Collision | CityDirtyLayer.Surface | CityDirtyLayer.Minimap;
+    // The city minimap is derived from graph roads and delivery stops only;
+    // placement edits must not force its road-line rebuild.
+    result |= CityDirtyLayer.Collision | CityDirtyLayer.Surface;
   }
   return result;
 }

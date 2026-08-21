@@ -577,6 +577,53 @@ test("supports night lighting, residential elevators and structural cutaway", ()
   assert.doesNotThrow(() => community.userData.update(1 / 60));
 });
 
+test("batches repeated buildings, fences and street furniture for the standalone demo", () => {
+  const community = buildLowPolyResidentialCommunity();
+  let visibleMeshes = 0;
+  let shadowCasters = 0;
+  let instancedMeshes = 0;
+  let visibleLights = 0;
+  community.traverse((object) => {
+    if (object instanceof THREE.Light && object.visible && object.intensity > 0) visibleLights += 1;
+    if (!(object instanceof THREE.Mesh) || !object.visible) return;
+    visibleMeshes += 1;
+    if (object.castShadow) shadowCasters += 1;
+    if (object instanceof THREE.InstancedMesh) instancedMeshes += 1;
+  });
+  assert.ok(community.userData.unbatchedSourceMeshCount >= 2_000);
+  assert.ok(community.userData.renderBatchCount <= 70, `render batch budget regressed to ${community.userData.renderBatchCount}`);
+  assert.ok(instancedMeshes >= 20);
+  assert.ok(visibleMeshes <= 1_200, `visible mesh budget regressed to ${visibleMeshes}`);
+  assert.ok(shadowCasters <= 1_000, `shadow caster budget regressed to ${shadowCasters}`);
+  assert.equal(visibleLights, 0, "day mode must not submit zero-intensity point lights");
+
+  const highRise = community.getObjectByName("residential-community-high-rise-1");
+  const midRise = community.getObjectByName("residential-community-mid-rise-1");
+  const highRiseBatch = community.getObjectByName("residential-community-high-rise-render-batch");
+  const midRiseBatch = community.getObjectByName("residential-community-mid-rise-render-batch");
+  assert.equal(highRise.visible, false);
+  assert.equal(midRise.visible, false);
+  assert.equal(highRiseBatch.visible, true);
+  assert.equal(midRiseBatch.visible, true);
+  community.userData.setInteriorCutaway(true);
+  assert.equal(highRise.visible, true);
+  assert.equal(midRise.visible, true);
+  assert.equal(highRiseBatch.visible, false);
+  assert.equal(midRiseBatch.visible, false);
+  community.userData.setInteriorCutaway(false);
+  assert.equal(highRise.visible, false);
+  assert.equal(midRise.visible, false);
+  assert.equal(highRiseBatch.visible, true);
+  assert.equal(midRiseBatch.visible, true);
+
+  community.userData.setPowered(true);
+  visibleLights = 0;
+  community.traverse((object) => {
+    if (object instanceof THREE.Light && object.visible && object.intensity > 0) visibleLights += 1;
+  });
+  assert.ok(visibleLights > 0 && visibleLights <= 16, `night light pool regressed to ${visibleLights}`);
+});
+
 test("exposes the complete community from the archive and map studio", async () => {
   const [demoSource, archiveSource, studioSource] = await Promise.all([
     readFile(new URL("../app/demos/residential-community/ResidentialCommunityDemo.tsx", import.meta.url), "utf8"),
@@ -594,6 +641,9 @@ test("exposes the complete community from the archive and map studio", async () 
   assert.match(demoSource, /kindergarten: .*rider: new THREE\.Vector3\(72, 0\.67, 33\.4\)/);
   assert.match(demoSource, /兔子骑车主角整体外廓约 2\.40 m/);
   assert.match(demoSource, /RABBIT_RIDER_URL/);
+  assert.match(demoSource, /createInstancedPrototypeBatch/);
+  assert.match(demoSource, /residential-community-tree-render-batch/);
+  assert.doesNotMatch(demoSource, /object\.add\(template\.clone\(true\)\)/);
   assert.match(archiveSource, /完整住宅社区/);
   assert.match(archiveSource, /\/demos\/residential-community/);
   assert.match(studioSource, /商业中心 · 完整社区/);

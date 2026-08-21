@@ -17,7 +17,103 @@ import {
   deepFreeze,
   emptyCityDocument,
 } from "../app/lib/map/cityDocument.ts";
-import { packTemplateCollisionSource } from "../app/lib/map/cityTemplateCollisionSource.ts";
+import {
+  isCollisionSourceEligible,
+  packTemplateCollisionSource,
+  packTemplateSurfaceCollisionSources,
+} from "../app/lib/map/cityTemplateCollisionSource.ts";
+
+test("collision source eligibility restores hidden batch sources but rejects proxies and hidden LOD ancestors", () => {
+  const root = new THREE.Group();
+  const source = new THREE.Group();
+  source.visible = false;
+  source.userData.renderProxySource = "fixture-batch";
+  const exterior = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  source.add(exterior);
+  root.add(source);
+
+  const hiddenLayers = new Set(["interior", "micro-detail"]);
+  assert.equal(isCollisionSourceEligible(exterior, root, hiddenLayers), true);
+
+  const interior = new THREE.Group();
+  interior.userData.mapLayer = "interior";
+  const interiorMesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  interiorMesh.userData.mapLayer = "exterior";
+  interior.add(interiorMesh);
+  source.add(interior);
+  assert.equal(isCollisionSourceEligible(interiorMesh, root, hiddenLayers), false);
+
+  const proxy = new THREE.Group();
+  proxy.userData.renderProxy = true;
+  const proxyMesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  proxy.add(proxyMesh);
+  root.add(proxy);
+  assert.equal(isCollisionSourceEligible(proxyMesh, root, hiddenLayers), false);
+
+  const detached = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  detached.userData.renderProxySource = "detached-batch";
+  assert.equal(isCollisionSourceEligible(detached, root, hiddenLayers), false);
+});
+
+test("both template packers use hidden source authority exactly once", async (t) => {
+  const entry = getCatalogEntry("phone-booth");
+  assert.ok(entry);
+  const root = new THREE.Group();
+  const source = new THREE.Group();
+  source.visible = false;
+  source.userData.renderProxySource = "fixture-batch";
+
+  const solidGeometry = new THREE.BoxGeometry(2, 2, 2);
+  const solidMaterial = new THREE.MeshBasicMaterial();
+  const solid = new THREE.Mesh(solidGeometry, solidMaterial);
+  solid.visible = false;
+  solid.position.set(10, 1, 10);
+  solid.userData.mapCollisionRole = "solid";
+  source.add(solid);
+
+  const surfaceGeometry = new THREE.PlaneGeometry(2, 2);
+  surfaceGeometry.rotateX(-Math.PI / 2);
+  const surfaceMaterial = new THREE.MeshBasicMaterial();
+  const surface = new THREE.Mesh(surfaceGeometry, surfaceMaterial);
+  surface.visible = false;
+  surface.position.set(14, 0, 14);
+  surface.userData.mapCollisionRole = "rideable-surface";
+  source.add(surface);
+  root.add(source);
+
+  const proxy = new THREE.Group();
+  proxy.userData.renderProxy = true;
+  proxy.userData.mapCollisionRole = "ignore";
+  const duplicate = new THREE.Mesh(solidGeometry, solidMaterial);
+  duplicate.position.copy(solid.position);
+  duplicate.userData.mapCollisionRole = "solid";
+  proxy.add(duplicate);
+  root.add(proxy);
+
+  t.after(() => {
+    solidGeometry.dispose();
+    surfaceGeometry.dispose();
+    solidMaterial.dispose();
+    surfaceMaterial.dispose();
+  });
+  const descriptor = toTemplateBuildDescriptor(entry);
+  const packedSolid = await packTemplateCollisionSource(root, descriptor, {
+    sourceId: "hidden-source-authority-fixture",
+    generation: 1,
+    resolvedHeightScale: 1,
+  });
+  const packedSurfaces = await packTemplateSurfaceCollisionSources(root, descriptor, {
+    sourceId: "hidden-source-authority-fixture",
+    generation: 1,
+    resolvedHeightScale: 1,
+  });
+
+  assert.equal(packedSolid.triangles.triangleRoles.length, 12);
+  assert.equal(
+    packedSurfaces.reduce((sum, packed) => sum + packed.triangles.triangleRoles.length, 0),
+    2,
+  );
+});
 
 function close(actual, expected, epsilon = 1e-6) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected} ± ${epsilon}`);
@@ -114,13 +210,14 @@ test("catalog Three template packs to compiled collision and blocks a moving cir
   });
   assert.equal(rideableOnly.hit, null, "rideable plane must not become a horizontal solid");
 
+  const roofWorldY = 4 * fixture.descriptor.mapScale * 1.25 * 2;
   const horizontalRoof = runtime.querySweep({
     startX: 1,
     startZ: -4,
     deltaX: 8,
     deltaZ: 0,
-    minY: 5.7,
-    maxY: 5.9,
+    minY: roofWorldY - 0.1,
+    maxY: roofWorldY + 0.1,
     radius: 0.25,
   });
   assert.equal(horizontalRoof.hit, null, "horizontal containment faces must not block XZ motion");
@@ -138,13 +235,107 @@ test("pre-aborted template packing never publishes typed arrays", async () => {
   }), { name: "AbortError" });
 });
 
+test("template packing drops zero-area source faces before the strict Worker ABI", async (t) => {
+  const entry = getCatalogEntry("phone-booth");
+  assert.ok(entry);
+  const root = new THREE.Group();
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute([
+    0, 0, 0, 1, 0, 0, 0, 1, 0,
+    2, 0, 0, 2, 0, 0, 2, 0, 0,
+  ], 3));
+  const material = new THREE.MeshBasicMaterial();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = "fixture-shell";
+  mesh.userData.mapCollisionRole = "solid";
+  root.add(mesh);
+  t.after(() => {
+    geometry.dispose();
+    material.dispose();
+  });
+
+  const packed = await packTemplateCollisionSource(root, toTemplateBuildDescriptor(entry), {
+    sourceId: "degenerate-filter-fixture",
+    generation: 1,
+    resolvedHeightScale: 1,
+  });
+  assert.equal(packed.triangles.triangleRoles.length, 1);
+  assert.deepEqual([...packed.triangles.indices], [0, 1, 2]);
+  await compileCollisionSource(packed);
+});
+
+test("template rideable surfaces compile into local 64 m chunks with a stable placement handle", async (t) => {
+  const entry = getCatalogEntry("phone-booth");
+  assert.ok(entry);
+  const root = new THREE.Group();
+  const geometry = new THREE.PlaneGeometry(140, 20);
+  geometry.rotateX(-Math.PI / 2);
+  const material = new THREE.MeshBasicMaterial();
+  const surface = new THREE.Mesh(geometry, material);
+  surface.name = "fixture-campus-surface";
+  surface.userData.mapCollisionRole = "rideable-surface";
+  root.add(surface);
+  const packed = await packTemplateSurfaceCollisionSources(root, toTemplateBuildDescriptor(entry), {
+    sourceId: "template-surface-chunk-fixture",
+    generation: 5,
+    resolvedHeightScale: 1,
+  });
+  assert.ok(packed.length >= 3);
+  assert.ok(packed.every((source) => source.surfaceChunk === undefined));
+  const compiled = await Promise.all(packed.map(compileCollisionSource));
+  const runtime = new CompiledCityCollisionRuntime(compiled.map((source) => ({
+    ownerId: `surface-child-${source.surfaceChunk.chunkX}-${source.surfaceChunk.chunkZ}`,
+    ownerGeneration: 8,
+    source,
+    surfaceHandleOwner: { ownerId: "campus-placement", ownerGeneration: 8 },
+  })), { worldId: 77, documentGeneration: 8 });
+  t.after(() => {
+    runtime.dispose();
+    geometry.dispose();
+    material.dispose();
+  });
+
+  const left = {
+    handle: { kind: "implicit-ground", worldId: 77, documentGeneration: 8 },
+    profileId: "implicit-ground",
+    height: 0,
+    normalX: 0,
+    normalY: 1,
+    normalZ: 0,
+    gx: 0,
+    gz: 0,
+    speedCap: Infinity,
+  };
+  runtime.sampleCitySurface(63.9, 0, {
+    currentY: 0,
+    previousHandle: null,
+    maxStepUpMeters: 0.01,
+  }, left);
+  assert.equal(left.profileId, "site-surface");
+  assert.equal(left.handle.kind, "owner-local");
+  assert.equal(left.handle.ownerId, "campus-placement");
+
+  const right = structuredClone(left);
+  runtime.sampleCitySurface(64.1, 0, {
+    currentY: left.height,
+    previousHandle: left.handle,
+    maxStepUpMeters: 0.01,
+  }, right);
+  assert.deepEqual(right.handle, left.handle);
+});
+
 test("disposing a pipeline during template packing cannot revive a Worker", async () => {
   let resolvePacked;
+  let resolveSurfaceChunks;
   let cacheCallCount = 0;
   const cache = {
     createCollisionCompileSource() {
       cacheCallCount += 1;
       return new Promise((resolve) => { resolvePacked = resolve; });
+    },
+    createSurfaceCollisionCompileSources() {
+      cacheCallCount += 1;
+      return new Promise((resolve) => { resolveSurfaceChunks = resolve; });
     },
   };
   const document = cloneCityDocument(emptyCityDocument());
@@ -158,8 +349,9 @@ test("disposing a pipeline during template packing cannot revive a Worker", asyn
   });
   const pipeline = new CityDocumentCollisionPipeline(cache, "pipeline-dispose-test");
   const build = pipeline.build(deepFreeze(document), 1);
-  assert.equal(cacheCallCount, 1);
+  assert.equal(cacheCallCount, 2);
   pipeline.dispose();
   resolvePacked({});
+  resolveSurfaceChunks([]);
   await assert.rejects(build, /pipeline is disposed/);
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
+import { disposeSceneResources } from "../app/lib/map/cityResourceCache.ts";
 
 import {
   CITY_CATALOG,
@@ -43,6 +44,19 @@ import { buildLowPolyCityPark } from "../app/lib/map/cityPark.ts";
 import { buildLowPolySportsCenter } from "../app/lib/map/sportsCenter.ts";
 import { buildLowPolyCityCenter } from "../app/lib/map/cityCenter.ts";
 import { buildLowPolyTownCenter } from "../app/lib/map/townCenter.ts";
+import { buildLowPolyStandardResidentialCommunity } from "../app/lib/map/standardResidentialCommunity.ts";
+import { buildLowPolyLuxuryVillaCommunity } from "../app/lib/map/luxuryVillaCommunity.ts";
+import {
+  buildLowPolyFoodProcessingPlant,
+  buildLowPolyMechanizedFactory,
+  buildLowPolyTechnologyPark,
+} from "../app/lib/map/modernIndustrialDistricts.ts";
+import {
+  buildLowPolyPremiumResidentialGate,
+  buildLowPolyStandardResidentialGate,
+  buildLowPolyVillaResidentialGate,
+} from "../app/lib/map/residentialGates.ts";
+import { RABBIT_RIDER_REFERENCE_LENGTH_METERS } from "../app/lib/map/rabbitRiderReference.ts";
 
 const PALETTE_IDS = [
   "street-light",
@@ -55,11 +69,22 @@ const PALETTE_IDS = [
   "residential-building",
   "high-rise-residential",
   "small-villa",
+  "residential-gate-standard",
+  "residential-gate-premium",
+  "residential-gate-villa",
   "office-campus",
   "hospital-campus",
   "amusement-park",
   "school-campus",
   "shopping-mall",
+  "standard-residential-community",
+  "standard-residential-community-4-rows",
+  "standard-residential-community-5-rows",
+  "standard-residential-community-6-rows",
+  "luxury-villa-community",
+  "technology-park",
+  "food-processing-plant",
+  "mechanized-factory",
   "residential-community",
   "fire-station",
   "city-park",
@@ -80,11 +105,19 @@ const DIRECT_FACTORY_EXPORTS = new Map([
   ["residential-building", buildLowPolyResidentialBuilding],
   ["high-rise-residential", buildLowPolyHighRiseResidential],
   ["small-villa", buildLowPolySmallVilla],
+  ["residential-gate-standard", buildLowPolyStandardResidentialGate],
+  ["residential-gate-premium", buildLowPolyPremiumResidentialGate],
+  ["residential-gate-villa", buildLowPolyVillaResidentialGate],
   ["office-campus", buildLowPolyOfficeCampus],
   ["hospital-campus", buildLowPolyHospitalCampus],
   ["amusement-park", buildLowPolyAmusementPark],
   ["school-campus", buildLowPolySchoolCampus],
   ["shopping-mall", buildLowPolyShoppingMall],
+  ["standard-residential-community", buildLowPolyStandardResidentialCommunity],
+  ["luxury-villa-community", buildLowPolyLuxuryVillaCommunity],
+  ["technology-park", buildLowPolyTechnologyPark],
+  ["food-processing-plant", buildLowPolyFoodProcessingPlant],
+  ["mechanized-factory", buildLowPolyMechanizedFactory],
   ["residential-community", buildLowPolyResidentialCommunity],
   ["fire-station", buildLowPolyFireStation],
   ["city-park", buildLowPolyCityPark],
@@ -101,15 +134,12 @@ function footprint(entry) {
 }
 
 function disposeTree(root) {
-  root.traverse((object) => {
-    object.geometry?.dispose?.();
-    const materials = object.material ? (Array.isArray(object.material) ? object.material : [object.material]) : [];
-    for (const material of materials) material.dispose?.();
-  });
+  disposeSceneResources(root);
+  root.clear();
 }
 
-test("catalog exposes exactly the 22 palette entries with stable known ids", () => {
-  assert.equal(CITY_CATALOG.length, 22);
+test("catalog exposes exactly the 33 palette entries with stable known ids", () => {
+  assert.equal(CITY_CATALOG.length, 33);
   assert.deepEqual(CITY_CATALOG_IDS, PALETTE_IDS);
   assert.equal(new Set(CITY_CATALOG_IDS).size, CITY_CATALOG_IDS.length);
   assert.ok(Object.isFrozen(CITY_CATALOG));
@@ -129,16 +159,27 @@ test("catalog dimensions preserve game-scale footprints and corrected site envel
     ["food-truck", [6, 3]],
     ["hot-dog-kiosk", [4, 3]],
     ["newsstand", [4, 3]],
-    ["phone-booth", [2, 2]],
+    ["phone-booth", [3, 3]],
     ["street-tree", [1, 1]],
-    ["residential-building", [8, 6]],
-    ["high-rise-residential", [13, 9]],
-    ["small-villa", [9, 7]],
-    ["office-campus", [30, 17]],
+    ["residential-building", [11, 9]],
+    ["high-rise-residential", [19, 15]],
+    ["small-villa", [10, 11]],
+    ["residential-gate-standard", [20, 6]],
+    ["residential-gate-premium", [24, 8]],
+    ["residential-gate-villa", [18, 7]],
+    ["office-campus", [36, 21]],
     ["hospital-campus", [80, 62]],
     ["amusement-park", [180, 130]],
     ["school-campus", [170, 130]],
     ["shopping-mall", [184, 138]],
+    ["standard-residential-community", [160, 140]],
+    ["standard-residential-community-4-rows", [160, 176]],
+    ["standard-residential-community-5-rows", [160, 212]],
+    ["standard-residential-community-6-rows", [160, 248]],
+    ["luxury-villa-community", [260, 200]],
+    ["technology-park", [260, 180]],
+    ["food-processing-plant", [280, 200]],
+    ["mechanized-factory", [300, 210]],
     ["residential-community", [190, 145]],
     ["fire-station", [159, 110]],
     ["city-park", [185, 140]],
@@ -167,9 +208,42 @@ test("catalog dimensions preserve game-scale footprints and corrected site envel
   booth.userData.setDoorOpen(false);
   booth.updateMatrixWorld(true);
   const boothSize = new THREE.Box3().setFromObject(booth).getSize(new THREE.Vector3());
-  assert.ok(boothSize.x * getCatalogEntry("phone-booth").mapScale <= 2);
-  assert.ok(boothSize.z * getCatalogEntry("phone-booth").mapScale <= 2);
+  const boothScale = getCatalogEntry("phone-booth").mapScale;
+  assert.ok(boothSize.x * boothScale <= 3);
+  assert.ok(boothSize.y * boothScale >= 2.4, "phone booth must clear the rider scale envelope");
+  assert.ok(boothSize.z * boothScale <= 3);
   disposeTree(booth);
+});
+
+test("editor buildings keep real-world length, width and floor-height proportions beside the rider", () => {
+  const builders = new Map([
+    ["residential-building", buildLowPolyResidentialBuilding],
+    ["high-rise-residential", buildLowPolyHighRiseResidential],
+    ["small-villa", buildLowPolySmallVilla],
+    ["office-campus", buildLowPolyOfficeCampus],
+  ]);
+  const sizes = new Map();
+  for (const [id, build] of builders) {
+    const source = build();
+    source.updateMatrixWorld(true);
+    const entry = getCatalogEntry(id);
+    const size = new THREE.Box3().setFromObject(source)
+      .getSize(new THREE.Vector3())
+      .multiplyScalar(entry.mapScale);
+    sizes.set(id, size);
+    const reserved = footprint(entry);
+    assert.ok(size.x <= reserved.w + 1e-6, `${id} exceeds its reserved width`);
+    assert.ok(size.z <= reserved.d + 1e-6, `${id} exceeds its reserved depth`);
+    assert.ok(size.x >= RABBIT_RIDER_REFERENCE_LENGTH_METERS * 4, `${id} is too narrow beside the rider`);
+    assert.ok(size.y >= RABBIT_RIDER_REFERENCE_LENGTH_METERS * 3.5, `${id} is too short beside the rider`);
+    disposeTree(source);
+  }
+
+  const residential = sizes.get("residential-building");
+  const highRise = sizes.get("high-rise-residential");
+  assert.ok(residential.y / 5 >= 2.8 && residential.y / 5 <= 3.1);
+  assert.ok(highRise.y / 18 >= 2.7 && highRise.y / 18 <= 3.1);
+  assert.ok(highRise.y >= 48 && highRise.y <= 53, "eighteen-storey tower should read as roughly 50 m");
 });
 
 test("derived traffic-light descriptor stays hidden and the adapter always uses armSide=-1", () => {
@@ -189,8 +263,8 @@ test("derived traffic-light descriptor stays hidden and the adapter always uses 
 });
 
 test("factory adapters are the showcase exports and closed-required names hit real nodes", () => {
-  assert.equal(DEFAULT_CATALOG_FACTORY_ADAPTERS.length, 22);
-  assert.equal(new Set(DEFAULT_CATALOG_FACTORY_ADAPTERS.map((adapter) => adapter.factoryId)).size, 22);
+  assert.equal(DEFAULT_CATALOG_FACTORY_ADAPTERS.length, 33);
+  assert.equal(new Set(DEFAULT_CATALOG_FACTORY_ADAPTERS.map((adapter) => adapter.factoryId)).size, 33);
   for (const [factoryId, build] of DIRECT_FACTORY_EXPORTS) {
     assert.equal(getDefaultCatalogSource({ kind: "factory", factoryId }).build, build, factoryId);
   }
@@ -232,6 +306,7 @@ test("street-tree resolves to the existing medium-redwood model-pack source", as
   assert.equal(treeLeaves.userData.mapCollisionRole, "ignore");
   assert.equal(treeLeaves.userData.mapLayer, "micro-detail");
   disposeTree(owned.group);
+  owned.resourceCacheLease.release();
   lease.release();
   await registry.retire();
   wood.dispose();

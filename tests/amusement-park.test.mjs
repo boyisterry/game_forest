@@ -865,13 +865,16 @@ test("animates rides, supports pausing, and powers night lighting", () => {
 
   const bulb = namedObjects(park, "amusement-park-light-bulb")[0];
   const nightLights = namedObjects(park, "street-light-point-light");
+  const pooledLights = park.getObjectByName("amusement-park-night-light-pool").children;
   assert.ok(bulb instanceof THREE.Mesh);
   assert.ok(nightLights.length > 10);
   park.userData.setPowered(true);
   assert.ok(bulb.material.emissiveIntensity > 1);
-  assert.ok(nightLights.every((light) => light.intensity > 0));
+  assert.ok(nightLights.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(pooledLights.every((light) => light.visible && light.intensity > 0));
   park.userData.setPowered(false);
   assert.ok(nightLights.every((light) => light.intensity === 0));
+  assert.ok(pooledLights.every((light) => !light.visible && light.intensity === 0));
 });
 
 test("meets the intended independent city-showcase scale", () => {

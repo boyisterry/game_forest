@@ -5,6 +5,14 @@ import type {
 } from "./cityCollisionTypes.ts";
 
 export type RoadPresetId = "one-way-1" | "two-way-1" | "two-way-2" | "two-way-3";
+export type SidewalkWidthTier = "narrow" | "medium" | "wide";
+
+/** Per-side sidewalk widths used by the road brush. Existing roads use medium. */
+export const SIDEWALK_WIDTH_METERS: Readonly<Record<SidewalkWidthTier, number>> = Object.freeze({
+  narrow: 4,
+  medium: 8,
+  wide: 12,
+});
 
 export type RoadSideProfile = {
   bikeLaneWidth: number;
@@ -107,16 +115,27 @@ function assertLaneCount(value: number, label: string) {
   }
 }
 
-export function createRoadProfile(presetId: RoadPresetId): RoadProfile {
+export function createRoadProfile(
+  presetId: RoadPresetId,
+  sidewalkWidthTier: SidewalkWidthTier = "medium",
+): RoadProfile {
   const preset = ROAD_PRESET_CROSS_SECTIONS[presetId];
   if (!preset) throw new TypeError(`unknown road preset: ${presetId}`);
+  const sidewalkWidth = SIDEWALK_WIDTH_METERS[sidewalkWidthTier];
+  if (sidewalkWidth === undefined) throw new TypeError(`unknown sidewalk width tier: ${sidewalkWidthTier}`);
+  const left = copySide(preset.left);
+  const right = copySide(preset.right);
+  // A width tier adjusts only sidewalks that exist in the preset. In particular,
+  // the facility-free side of the one-way preset stays facility-free.
+  if (left.sidewalkWidth > 0) left.sidewalkWidth = sidewalkWidth;
+  if (right.sidewalkWidth > 0) right.sidewalkWidth = sidewalkWidth;
   return {
     source: "preset",
     presetId,
     crossSection: {
       ...preset,
-      left: copySide(preset.left),
-      right: copySide(preset.right),
+      left,
+      right,
     },
   };
 }

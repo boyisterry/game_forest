@@ -15,6 +15,13 @@ import { buildLowPolyCityPark } from "../app/lib/map/cityPark.ts";
 import { buildLowPolySportsCenter } from "../app/lib/map/sportsCenter.ts";
 import { buildLowPolyCityCenter } from "../app/lib/map/cityCenter.ts";
 import { buildLowPolyTownCenter } from "../app/lib/map/townCenter.ts";
+import { buildLowPolyStandardResidentialCommunity } from "../app/lib/map/standardResidentialCommunity.ts";
+import { buildLowPolyLuxuryVillaCommunity } from "../app/lib/map/luxuryVillaCommunity.ts";
+import {
+  buildLowPolyFoodProcessingPlant,
+  buildLowPolyMechanizedFactory,
+  buildLowPolyTechnologyPark,
+} from "../app/lib/map/modernIndustrialDistricts.ts";
 
 const MAX_FRAGMENT_COUNT = 18 * 8 * 14;
 const MAX_MATERIAL_BATCH_COUNT = 512;
@@ -40,6 +47,41 @@ const SCENARIOS = [
     demo: new URL("../app/demos/shopping-mall/ShoppingMallDemo.tsx", import.meta.url),
     build: buildLowPolyShoppingMall,
     options: { seed: 403, spread: 6 },
+  },
+  {
+    id: "standard-residential-community",
+    route: "/demos/standard-residential-community",
+    demo: new URL("../app/demos/standard-residential-community/StandardResidentialCommunityDemo.tsx", import.meta.url),
+    build: buildLowPolyStandardResidentialCommunity,
+    options: { seed: 410, spread: 5.5 },
+  },
+  {
+    id: "luxury-villa-community",
+    route: "/demos/luxury-villa-community",
+    demo: new URL("../app/demos/luxury-villa-community/LuxuryVillaCommunityDemo.tsx", import.meta.url),
+    build: buildLowPolyLuxuryVillaCommunity,
+    options: { seed: 411, spread: 6.2 },
+  },
+  {
+    id: "technology-park",
+    route: "/demos/technology-park",
+    demo: new URL("../app/demos/industrial-zones/IndustrialZoneDemo.tsx", import.meta.url),
+    build: buildLowPolyTechnologyPark,
+    options: { seed: 812, spread: 6 },
+  },
+  {
+    id: "food-processing-plant",
+    route: "/demos/food-processing-plant",
+    demo: new URL("../app/demos/industrial-zones/IndustrialZoneDemo.tsx", import.meta.url),
+    build: buildLowPolyFoodProcessingPlant,
+    options: { seed: 813, spread: 6 },
+  },
+  {
+    id: "mechanized-factory",
+    route: "/demos/mechanized-factory",
+    demo: new URL("../app/demos/industrial-zones/IndustrialZoneDemo.tsx", import.meta.url),
+    build: buildLowPolyMechanizedFactory,
+    options: { seed: 814, spread: 6 },
   },
   {
     id: "residential-community",
@@ -89,6 +131,7 @@ const EXISTING_SHATTER_ROUTES = [
   "/demos/city-street-furniture",
   "/demos/residential-buildings",
   "/demos/hospital-campus",
+  "/demos/transportation",
 ];
 
 function collectMeshes(root) {
@@ -279,7 +322,7 @@ for (const scenario of SCENARIOS) {
   });
 }
 
-test("all nine new showrooms expose reversible shatter controls", async () => {
+test("all fourteen new showrooms expose reversible shatter controls", async () => {
   const sources = await Promise.all(SCENARIOS.map((scenario) => readFile(scenario.demo, "utf8")));
   for (let index = 0; index < SCENARIOS.length; index += 1) {
     const scenario = SCENARIOS[index];
@@ -293,7 +336,7 @@ test("all nine new showrooms expose reversible shatter controls", async () => {
   }
 });
 
-test("the model archive exposes all twelve normal and shattered showroom routes", async () => {
+test("the model archive exposes all eighteen normal and shattered showroom routes", async () => {
   const source = await readFile(new URL("../app/demos/page.tsx", import.meta.url), "utf8");
   const expectedRoutes = [...EXISTING_SHATTER_ROUTES, ...SCENARIOS.map((scenario) => scenario.route)].sort();
   const registeredRoutes = [...new Set(

@@ -1,5 +1,12 @@
 import * as THREE from "three";
 import {
+  applySceneShadowPolicy,
+  createOptimizedStaticSceneBatch,
+  createScenePointLightPool,
+  markCityMutableMaterials,
+} from "./sceneInstanceBatch.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
+import {
   buildLowPolyFoodTruck,
   buildLowPolyHotDogKiosk,
   buildLowPolyNewsstand,
@@ -41,6 +48,10 @@ export type TownCenterModel = THREE.Group & {
     setMarketDay: (active: boolean) => void;
     setInteriorCutaway: (cutaway: boolean) => void;
     update: (elapsedSeconds: number) => void;
+    renderBatchCount: number;
+    mergedSourceMeshCount: number;
+    pooledNightLightCount: number;
+    shadowCastersRemoved: number;
   };
 };
 
@@ -53,7 +64,9 @@ function townMesh<T extends THREE.BufferGeometry>(geometry: T, material: THREE.M
   return object;
 }
 
-export function buildLowPolyTownCenter(): TownCenterModel {
+export function buildLowPolyTownCenter(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): TownCenterModel {
   const town = new THREE.Group() as TownCenterModel;
   town.name = "walkable-town-center-lowpoly";
   const cutawayShells: THREE.Object3D[] = [];
@@ -731,6 +744,24 @@ export function buildLowPolyTownCenter(): TownCenterModel {
     town.add(anchor);
   });
 
+  const performanceDynamicRoots = [...cutawayShells, ...marketCanopies, ...clockHandSets];
+  applyReviewedCityMapLodTags(town, "town-center");
+  const shadowMetrics = applySceneShadowPolicy(town, { dynamicRoots: performanceDynamicRoots });
+  const staticRenderBatch = createOptimizedStaticSceneBatch({
+    name: "town-center-static-render-batch",
+    parent: town,
+    excludedRoots: performanceDynamicRoots,
+    mutableMaterials: markCityMutableMaterials([glass, warmWindow, clockFace, water]),
+    cellSizeMeters: 70,
+    enabled: options.optimizeStatic !== false,
+  });
+  const pooledNightLights = createScenePointLightPool({
+    name: "town-center-night-light-pool",
+    root: town,
+    cellSizeMeters: 64,
+    maximumDistance: 46,
+  });
+
   town.userData = {
     mapLayer: "exterior",
     modelType: "town-center",
@@ -766,6 +797,10 @@ export function buildLowPolyTownCenter(): TownCenterModel {
       "city-phone-booth-lowpoly",
     ],
     siteSize: new THREE.Vector3(175, 41, 135),
+    renderBatchCount: staticRenderBatch.userData.batchCount,
+    mergedSourceMeshCount: staticRenderBatch.userData.mergedSourceMeshCount,
+    pooledNightLightCount: pooledNightLights.pooledLightCount,
+    shadowCastersRemoved: shadowMetrics.shadowCastersRemoved,
     setPowered: (powered) => {
       isPowered = powered;
       glass.emissiveIntensity = powered ? 1.1 : 0.08;
@@ -779,6 +814,7 @@ export function buildLowPolyTownCenter(): TownCenterModel {
       town.traverse((object) => {
         if (object.name === "city-phone-booth-lowpoly") object.userData.setPowered(powered);
       });
+      pooledNightLights.setPowered(powered);
     },
     setMarketDay: (active) => {
       marketDay = active;

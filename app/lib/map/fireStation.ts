@@ -1,4 +1,11 @@
 import * as THREE from "three";
+import {
+  applySceneShadowPolicy,
+  createOptimizedStaticSceneBatch,
+  createScenePointLightPool,
+  markCityMutableMaterials,
+} from "./sceneInstanceBatch.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
 import { buildLowPolyRoadsidePlanter, buildLowPolyStreetLight } from "./cityFurniture.ts";
 
 export type FireStationZone = "response" | "command" | "living" | "training";
@@ -33,6 +40,10 @@ export type FireStationModel = THREE.Group & {
     setServiceGateOpen: (open: boolean) => void;
     setAlertActive: (active: boolean) => void;
     update: (elapsedSeconds: number) => void;
+    renderBatchCount: number;
+    mergedSourceMeshCount: number;
+    pooledNightLightCount: number;
+    shadowCastersRemoved: number;
   };
 };
 
@@ -53,7 +64,9 @@ function beamBetween(start: THREE.Vector3, end: THREE.Vector3, radius: number, m
   return beam;
 }
 
-export function buildLowPolyFireStation(): FireStationModel {
+export function buildLowPolyFireStation(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): FireStationModel {
   const station = new THREE.Group() as FireStationModel;
   station.name = "city-fire-station-campus-lowpoly";
   const cutawayShell: THREE.Object3D[] = [];
@@ -565,6 +578,32 @@ export function buildLowPolyFireStation(): FireStationModel {
     station.add(anchor);
   });
 
+  const performanceDynamicRoots = [
+    ...cutawayShell,
+    ...apparatusDoors,
+    ...fireEngines,
+    ...responseGatePanels,
+    ...visitorGatePanels,
+    ...serviceGatePanels,
+  ];
+  applyReviewedCityMapLodTags(station, "fire-station");
+  const shadowMetrics = applySceneShadowPolicy(station, { dynamicRoots: performanceDynamicRoots });
+  const staticRenderBatch = createOptimizedStaticSceneBatch({
+    name: "fire-station-static-render-batch",
+    parent: station,
+    excludedRoots: performanceDynamicRoots,
+    mutableMaterials: markCityMutableMaterials([glass, warmLight, fireRed, water, alertMaterial, ...alertBeaconMaterials]),
+    cellSizeMeters: 68,
+    enabled: options.optimizeStatic !== false,
+  });
+  const pooledNightLights = createScenePointLightPool({
+    name: "fire-station-night-light-pool",
+    root: station,
+    excludedLights: alertLights,
+    cellSizeMeters: 60,
+    maximumDistance: 42,
+  });
+
   station.userData = {
     mapLayer: "exterior",
     modelType: "fire-station-campus",
@@ -592,12 +631,17 @@ export function buildLowPolyFireStation(): FireStationModel {
     ],
     // The west hydrant/fence assembly reaches x=-79.3; keep the centered site envelope honest.
     siteSize: new THREE.Vector3(159, 31, 110),
+    renderBatchCount: staticRenderBatch.userData.batchCount,
+    mergedSourceMeshCount: staticRenderBatch.userData.mergedSourceMeshCount,
+    pooledNightLightCount: pooledNightLights.pooledLightCount,
+    shadowCastersRemoved: shadowMetrics.shadowCastersRemoved,
     setPowered: (powered) => {
       glass.emissiveIntensity = powered ? 1.25 : 0.1;
       warmLight.emissiveIntensity = powered ? 2.2 : 0.15;
       fireRed.emissiveIntensity = powered ? 0.35 : 0.08;
       water.emissiveIntensity = powered ? 0.52 : 0.12;
       reusedStreetLights.forEach((light) => light.userData.setPowered(powered));
+      pooledNightLights.setPowered(powered);
     },
     setInteriorCutaway: (cutaway) => { cutawayShell.forEach((object) => { object.visible = !cutaway; }); },
     setApparatusDoorsOpen: (open) => {

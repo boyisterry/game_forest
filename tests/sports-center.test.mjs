@@ -164,9 +164,13 @@ test("supports night lighting, event mode and building cutaway", () => {
   assert.ok(window instanceof THREE.Mesh);
   center.userData.setPowered(true);
   assert.ok(window.material.emissiveIntensity > 1);
-  assert.ok(streetLights.every((light) => light.intensity > 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  const pooledLights = namedObjects(center, "sports-center-night-light-pool")
+    .flatMap((pool) => pool.children.filter((light) => light instanceof THREE.PointLight));
+  assert.ok(pooledLights.length > 0 && pooledLights.every((light) => light.visible && light.intensity > 0));
   center.userData.setPowered(false);
-  assert.ok(streetLights.every((light) => light.intensity === 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(pooledLights.every((light) => !light.visible && light.intensity === 0));
 
   center.userData.setEventMode(true);
   assert.ok(eventLights.every((light) => light.intensity >= 7.5));

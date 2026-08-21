@@ -13,24 +13,24 @@ async function render() {
   );
 }
 
-test("server-renders the forest and city map workshop", async () => {
+test("server-renders the map library before mounting a heavy world", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Forest Courier · World Workshop<\/title>/);
+  assert.match(html, /<title>Forest Courier · Map Library<\/title>/);
+  assert.match(html, /Choose your world/);
   assert.match(html, /Deep Forest/);
-  assert.match(html, /Rain Harbor/);
-  assert.match(html, /Forest density<\/b><em>86%<\/em>/);
-  assert.match(html, /Forest density 86%[^>]*value="0\.86"|max="2\.3"/);
-  assert.match(html, /Tree height/);
-  assert.match(html, /Shatter on|Shatter off/);
-  assert.match(html, /tufts/);
-  assert.match(html, /stones/);
-  assert.match(html, /Tune the forest, then hit Play/);
-  assert.match(html, /href="\/demos"[^>]*>.*City model showcase/s);
-  assert.match(html, /DEEP FOREST CANOPY/);
+  assert.match(html, /Cedar Crossing/);
+  assert.match(html, /New city map/);
+  assert.match(html, /href="\/demos"/);
+  assert.match(html, /Open the city model showcase/);
+  assert.match(html, /Edit Deep Forest/);
+  assert.match(html, /Play Cedar Crossing/);
+  assert.match(html, /Loading your maps/);
+  assert.doesNotMatch(html, /Forest density<\/b>/);
+  assert.doesNotMatch(html, /class="scene-canvas/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/);
 });
 

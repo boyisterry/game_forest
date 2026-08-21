@@ -16,6 +16,27 @@ function fixture() {
   return new CitySurfaceIndex(sources, 7, 9);
 }
 
+function junctionFixture() {
+  const profile = createRoadProfile("two-way-1");
+  const sources = deriveRoadCollisionSources({
+    nodes: [
+      { id: "center", x: 0, z: 0 },
+      { id: "west", x: -80, z: 0 },
+      { id: "east", x: 80, z: 0 },
+      { id: "north", x: 0, z: -80 },
+      { id: "south", x: 0, z: 80 },
+    ],
+    edges: [
+      { id: "west-arm", a: "west", b: "center", profile },
+      { id: "east-arm", a: "center", b: "east", profile },
+      { id: "north-arm", a: "north", b: "center", profile },
+      { id: "south-arm", a: "center", b: "south", profile },
+    ],
+    intersectionOverrides: {},
+  });
+  return new CitySurfaceIndex(sources, 7, 9);
+}
+
 function sample(index, x, z, currentY = 0, previousHandle = null) {
   return index.sampleCitySurface(x, z, { currentY, previousHandle, maxStepUpMeters: 0.3 }, createImplicitGroundSurfaceSample());
 }
@@ -31,6 +52,15 @@ test("surface sampling returns asphalt, sidewalk cap, and implicit ground", () =
   assert.equal(sidewalk.speedCap, 12);
   const ground = sample(index, 0, -18);
   assert.equal(ground.profileId, "implicit-ground");
+});
+
+test("junction corner platforms are the same rideable sidewalk surface as their approaches", () => {
+  const index = junctionFixture();
+  const corner = sample(index, 10, -10, 0);
+  assert.equal(corner.profileId, "sidewalk");
+  assert.equal(corner.height, 0.24);
+  assert.equal(corner.speedCap, 12);
+  assert.equal(corner.handle.kind, "road");
 });
 
 test("ordinary curb crossing is allowed in both directions and emits full strong bump", () => {

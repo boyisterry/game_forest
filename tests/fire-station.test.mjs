@@ -160,9 +160,13 @@ test("operates bay doors, night lighting, emergency alert and cutaway", () => {
   assert.ok(buildingWindow instanceof THREE.Mesh);
   station.userData.setPowered(true);
   assert.ok(buildingWindow.material.emissiveIntensity > 1);
-  assert.ok(streetLights.every((light) => light.intensity > 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  const pooledLights = namedObjects(station, "fire-station-night-light-pool")
+    .flatMap((pool) => pool.children.filter((light) => light instanceof THREE.PointLight));
+  assert.ok(pooledLights.length > 0 && pooledLights.every((light) => light.visible && light.intensity > 0));
   station.userData.setPowered(false);
-  assert.ok(streetLights.every((light) => light.intensity === 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(pooledLights.every((light) => !light.visible && light.intensity === 0));
 
   const emergencyLights = namedObjects(station, "fire-engine-emergency-point-light");
   const lightbars = namedObjects(station, "fire-engine-emergency-lightbar");

@@ -8,6 +8,8 @@ import { buildLowPolyHospitalCampus, type HospitalZone } from "../../lib/map/hos
 import { createFurnitureShatterPair, measureModelGeometry, type ModelGeometryMetrics } from "../../lib/map/cityFurnitureShatter";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
+import { createCachedPrimitiveScene, disposeSceneResources, retireResourceCacheGeneration } from "../../lib/map/cityResourceCache";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
 import styles from "./HospitalCampusDemo.module.css";
 
 type Focus = "all" | HospitalZone;
@@ -106,6 +108,7 @@ export function HospitalCampusDemo() {
     controls.minDistance = 12;
     controls.maxDistance = 165;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
 
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(82, 64),
@@ -148,7 +151,8 @@ export function HospitalCampusDemo() {
       })
       .catch(() => setReferenceReady(false));
 
-    const hospital = buildLowPolyHospitalCampus();
+    const cachedScene = createCachedPrimitiveScene(buildLowPolyHospitalCampus);
+    const hospital = cachedScene.root;
     const normalMetrics = measureModelGeometry(hospital);
     const pair = createFurnitureShatterPair(hospital, { seed: 503, trianglesPerShard: 10, spread: 1.5 });
     const shatteredMetrics = measureModelGeometry(pair.shattered);
@@ -198,14 +202,17 @@ export function HospitalCampusDemo() {
     const animate = () => {
       frame = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
-      if (shatterMorph.update(dt)) pair.setAmount(shatterMorph.getAmount());
+      const morphChanged = shatterMorph.update(dt);
+      if (morphChanged) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged, controlsChanged,
+      }));
     };
     animate();
 
@@ -222,14 +229,12 @@ export function HospitalCampusDemo() {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      cachedScene.lease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };

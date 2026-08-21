@@ -60,7 +60,7 @@ export function measureModelGeometry(object: THREE.Object3D): ModelGeometryMetri
   const size = new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
   let faceCount = 0;
   object.traverse((part) => {
-    if (!(part instanceof THREE.Mesh)) return;
+    if (!(part instanceof THREE.Mesh) || !part.visible) return;
     const positions = part.geometry.getAttribute("position");
     if (!positions) return;
     const triangleCount = Math.floor((part.geometry.getIndex()?.count ?? positions.count) / 3);

@@ -8,6 +8,8 @@ import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics
 import { buildLowPolyCityPark, type CityParkZone } from "../../lib/map/cityPark";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
+import { createCachedPrimitiveScene, disposeSceneResources, retireResourceCacheGeneration } from "../../lib/map/cityResourceCache";
 import styles from "../residential-community/ResidentialCommunityDemo.module.css";
 
 type Focus = "overview" | CityParkZone;
@@ -82,6 +84,7 @@ export function CityParkDemo() {
     controls.minDistance = 12;
     controls.maxDistance = 315;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
     const ground = new THREE.Mesh(new THREE.CircleGeometry(170, 64), new THREE.MeshStandardMaterial({ color: 0xa7b8a6, roughness: 0.98 }));
     ground.rotation.x = -Math.PI * 0.5;
     ground.position.y = -0.02;
@@ -101,7 +104,8 @@ export function CityParkDemo() {
     fill.position.set(70, 30, -62);
     scene.add(hemi, sun, fill);
 
-    const park = buildLowPolyCityPark();
+    const cachedScene = createCachedPrimitiveScene(buildLowPolyCityPark);
+    const park = cachedScene.root;
     const pair = createSceneShatterPair(park, { seed: 406, spread: 5.5 });
     const shatterMorph = new ShatterMorphController(0);
     scene.add(pair.root);
@@ -145,6 +149,7 @@ export function CityParkDemo() {
     let focusBlend = 0;
     let interacting = false;
     let rotating = false;
+    let waterMotion = true;
     controls.addEventListener("start", () => { interacting = true; focusBlend = 0; });
     controls.addEventListener("end", () => { interacting = false; });
     const setNightMode = (on: boolean) => {
@@ -160,7 +165,10 @@ export function CityParkDemo() {
     apiRef.current = {
       focus: (next) => { desiredTarget.copy(FOCUS[next].target); desiredCamera.copy(FOCUS[next].camera); riderAnchor.position.copy(FOCUS[next].rider); focusBlend = 1; },
       setNight: setNightMode,
-      setWater: (enabled) => park.userData.setWaterMotionEnabled(enabled),
+      setWater: (enabled) => {
+        waterMotion = enabled;
+        park.userData.setWaterMotionEnabled(enabled);
+      },
       setCutaway: (on) => park.userData.setServiceCutaway(on),
       setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.44; },
@@ -173,14 +181,18 @@ export function CityParkDemo() {
       frame = requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.05);
       park.userData.update(clock.elapsedTime);
-      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
+      const morphChanged = shatterMorph.update(delta);
+      if (morphChanged) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged,
+        internalAnimation: waterMotion, controlsChanged,
+      }));
     };
     animate();
     const resize = () => {
@@ -196,14 +208,12 @@ export function CityParkDemo() {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      cachedScene.lease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };

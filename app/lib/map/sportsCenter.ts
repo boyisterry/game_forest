@@ -1,5 +1,12 @@
 import * as THREE from "three";
 import {
+  applySceneShadowPolicy,
+  createOptimizedStaticSceneBatch,
+  createScenePointLightPool,
+  markCityMutableMaterials,
+} from "./sceneInstanceBatch.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
+import {
   buildLowPolyFoodTruck,
   buildLowPolyRoadsidePlanter,
   buildLowPolyStreetLight,
@@ -39,6 +46,10 @@ export type SportsCenterModel = THREE.Group & {
     setEventMode: (active: boolean) => void;
     setInteriorCutaway: (cutaway: boolean) => void;
     update: (elapsedSeconds: number) => void;
+    renderBatchCount: number;
+    mergedSourceMeshCount: number;
+    pooledNightLightCount: number;
+    shadowCastersRemoved: number;
   };
 };
 
@@ -82,7 +93,9 @@ function stadiumShape(halfStraight: number, radius: number, laneWidth: number) {
   return shape;
 }
 
-export function buildLowPolySportsCenter(): SportsCenterModel {
+export function buildLowPolySportsCenter(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): SportsCenterModel {
   const center = new THREE.Group() as SportsCenterModel;
   center.name = "city-sports-center-lowpoly";
   const cutawayShell: THREE.Object3D[] = [];
@@ -543,6 +556,25 @@ export function buildLowPolySportsCenter(): SportsCenterModel {
     center.add(anchor);
   });
 
+  const performanceDynamicRoots = [...cutawayShell];
+  applyReviewedCityMapLodTags(center, "sports-center");
+  const shadowMetrics = applySceneShadowPolicy(center, { dynamicRoots: performanceDynamicRoots });
+  const staticRenderBatch = createOptimizedStaticSceneBatch({
+    name: "sports-center-static-render-batch",
+    parent: center,
+    excludedRoots: performanceDynamicRoots,
+    mutableMaterials: markCityMutableMaterials([glass, warmLight, poolWater, scoreboard]),
+    cellSizeMeters: 84,
+    enabled: options.optimizeStatic !== false,
+  });
+  const pooledNightLights = createScenePointLightPool({
+    name: "sports-center-night-light-pool",
+    root: center,
+    excludedLights: floodlights,
+    cellSizeMeters: 78,
+    maximumDistance: 56,
+  });
+
   center.userData = {
     mapLayer: "exterior",
     modelType: "sports-center",
@@ -576,12 +608,17 @@ export function buildLowPolySportsCenter(): SportsCenterModel {
       "city-food-truck-lowpoly",
     ],
     siteSize: new THREE.Vector3(280, 26, 190),
+    renderBatchCount: staticRenderBatch.userData.batchCount,
+    mergedSourceMeshCount: staticRenderBatch.userData.mergedSourceMeshCount,
+    pooledNightLightCount: pooledNightLights.pooledLightCount,
+    shadowCastersRemoved: shadowMetrics.shadowCastersRemoved,
     setPowered: (powered) => {
       glass.emissiveIntensity = powered ? 1.05 : 0.08;
       warmLight.emissiveIntensity = powered ? 2.2 : 0.14;
       poolWater.emissiveIntensity = powered ? 0.6 : 0.15;
       reusedStreetLights.forEach((light) => light.userData.setPowered(powered));
       reusedFoodTrucks.forEach((truck) => truck.userData.setLights(powered));
+      pooledNightLights.setPowered(powered);
     },
     setEventMode: (active) => {
       eventMode = active;

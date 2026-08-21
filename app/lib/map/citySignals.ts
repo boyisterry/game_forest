@@ -4,14 +4,19 @@ import {
   canonicalTupleKey,
 } from "./cityCollisionTypes.ts";
 import type { CityMapDocumentSnapshot } from "./cityDocument.ts";
-import type {
-  CityRoadGraph,
-  RoadCrossSection,
-  RoadEdge,
-  RoadNode,
-  RoadSideProfile,
+import {
+  corridorMeters,
+  type CityRoadGraph,
+  type RoadCrossSection,
+  type RoadEdge,
+  type RoadNode,
+  type RoadSideProfile,
 } from "./cityRoadGraph.ts";
-import { splitRoadGraphAtIntersections } from "./cityRoads.ts";
+import {
+  ROAD_CROSSWALK_DEPTH_METERS,
+  ROAD_CROSSWALK_INNER_GAP_METERS,
+  splitRoadGraphAtIntersections,
+} from "./cityRoads.ts";
 
 export type SignalPhase = "red" | "green";
 export type ApproachCardinal = "+x" | "-x" | "+z" | "-z";
@@ -58,14 +63,7 @@ type Approach = Readonly<{
 
 const AXIS_EPSILON = 1e-7;
 const SIGNAL_SIDEWALK_FRACTION = 0.34;
-
-/** `undefined` inherits the document flag; true/false are explicit overrides. */
-export function resolveIntersectionTrafficLights(
-  documentDefault: boolean,
-  nodeOverride: boolean | undefined,
-): boolean {
-  return nodeOverride ?? documentDefault;
-}
+const SIGNAL_BASE_CLEARANCE_METERS = 0.75;
 
 function directionCardinal(x: number, z: number): ApproachCardinal {
   if (Math.abs(x) > Math.abs(z)) return x > 0 ? "+x" : "-x";
@@ -144,20 +142,22 @@ function crossingSetback(
   incident: readonly Readonly<RoadEdge>[],
   nodes: ReadonlyMap<string, Readonly<RoadNode>>,
 ) {
-  const awayX = -approach.tx;
-  const awayZ = -approach.tz;
   let result = 0;
   for (const edge of incident) {
     if (edge.id === approach.edge.id) continue;
     const frame = edgeFrame(edge, nodes);
-    if (Math.abs(frame.dx * approach.tx + frame.dz * approach.tz) > AXIS_EPSILON) continue;
-    // Visual left of a→b in the project's x/+z-south coordinate system.
-    const leftX = frame.dz;
-    const leftZ = -frame.dx;
-    const side = awayX * leftX + awayZ * leftZ >= 0 ? "left" : "right";
-    result = Math.max(result, signalOffsetForSide(edge.profile.crossSection, side));
+    const sinAngle = Math.abs(frame.dx * approach.tz - frame.dz * approach.tx);
+    if (sinAngle <= AXIS_EPSILON) continue;
+    result = Math.max(result, corridorMeters(edge) * 0.5 / sinAngle);
   }
-  return result > 0 ? result : Math.max(2, approach.edge.profile.crossSection.laneWidth);
+  if (result <= 0) return Math.max(2, approach.edge.profile.crossSection.laneWidth);
+  // Raised facilities stop before the crossing. Keep the complete pole base
+  // beyond that cut instead of retaining the old position over junction
+  // asphalt while still applying the sidewalk's 24 cm elevation.
+  return result
+    + ROAD_CROSSWALK_INNER_GAP_METERS
+    + ROAD_CROSSWALK_DEPTH_METERS
+    + SIGNAL_BASE_CLEARANCE_METERS;
 }
 
 function normalizedYaw(tx: number, tz: number) {
@@ -209,8 +209,10 @@ export function deriveTrafficSignalPlacements(
   for (const node of [...graph.nodes].sort((left, right) => left.id.localeCompare(right.id))) {
     const incident = incidentByNode.get(node.id) ?? [];
     if (!qualifyIntersection(node, incident, nodes)) continue;
-    const override = graph.intersectionOverrides[node.id]?.needTrafficLights;
-    if (!resolveIntersectionTrafficLights(document.flags.needTrafficLights, override)) continue;
+    // Traffic control is a derived safety feature, not an authoring option:
+    // every real three- or four-way junction receives signals automatically.
+    // The document/default and node override fields remain readable only for
+    // backwards-compatible map files; they cannot suppress a live junction.
 
     const approaches = incident
       .map((edge) => incomingApproach(node, edge, nodes))

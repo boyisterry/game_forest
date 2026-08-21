@@ -11,6 +11,10 @@ function namedObjects(root, name) {
   return objects;
 }
 
+function renderedOrMerged(object) {
+  return object.visible || typeof object.userData.renderProxySource === "string";
+}
+
 test("builds a complete independent school campus with realistic functional zones", () => {
   const campus = buildLowPolySchoolCampus();
   assert.equal(campus.name, "city-school-campus-lowpoly");
@@ -83,7 +87,7 @@ test("includes inspectable learning, laboratory, office and dormitory interiors"
   assert.equal(window.visible, false);
   assert.equal(observationWall.visible, false);
   assert.equal(roof.visible, false);
-  assert.equal(entranceDoor.visible, true, "cutaway must preserve the building entrance");
+  assert.equal(renderedOrMerged(entranceDoor), true, "cutaway must preserve the building entrance");
   campus.userData.setInteriorCutaway(false);
   assert.equal(window.visible, true);
   assert.equal(observationWall.visible, true);
@@ -117,7 +121,7 @@ test("provides a complete track, ball-court district and eight-lane indoor pool"
   campus.userData.setInteriorCutaway(true);
   assert.equal(poolObservationWall.visible, false);
   assert.equal(campus.getObjectByName("school-natatorium-roof").visible, false);
-  assert.ok(namedObjects(campus, "school-natatorium-entrance-door").every((door) => door.visible));
+  assert.ok(namedObjects(campus, "school-natatorium-entrance-door").every(renderedOrMerged));
 });
 
 test("reuses city decorations and is calibrated to the rabbit rider", () => {
@@ -150,9 +154,13 @@ test("powers school windows, pool lighting and existing campus lights", () => {
   campus.userData.setPowered(true);
   assert.ok(window.material.emissiveIntensity > 1);
   assert.ok(pool.material.emissiveIntensity > 0.5);
-  assert.ok(lights.every((light) => light.intensity > 0));
+  assert.ok(lights.every((light) => !light.visible && light.intensity === 0));
+  const pooledLights = namedObjects(campus, "school-campus-night-light-pool")
+    .flatMap((poolGroup) => poolGroup.children.filter((light) => light instanceof THREE.PointLight));
+  assert.ok(pooledLights.length > 0 && pooledLights.every((light) => light.visible && light.intensity > 0));
   campus.userData.setPowered(false);
-  assert.ok(lights.every((light) => light.intensity === 0));
+  assert.ok(lights.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(pooledLights.every((light) => !light.visible && light.intensity === 0));
 });
 
 test("exposes the school campus from the model archive and map studio", async () => {

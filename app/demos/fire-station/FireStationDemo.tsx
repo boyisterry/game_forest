@@ -8,6 +8,8 @@ import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics
 import { buildLowPolyFireStation, type FireStationZone } from "../../lib/map/fireStation";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
+import { createCachedPrimitiveScene, disposeSceneResources, retireResourceCacheGeneration } from "../../lib/map/cityResourceCache";
 import styles from "../residential-community/ResidentialCommunityDemo.module.css";
 
 type Focus = "overview" | FireStationZone;
@@ -82,6 +84,7 @@ export function FireStationDemo() {
     controls.minDistance = 12;
     controls.maxDistance = 285;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
 
     const ground = new THREE.Mesh(new THREE.CircleGeometry(150, 64), new THREE.MeshStandardMaterial({ color: 0xaab8a8, roughness: 0.98 }));
     ground.rotation.x = -Math.PI * 0.5;
@@ -102,7 +105,8 @@ export function FireStationDemo() {
     fill.position.set(62, 28, -52);
     scene.add(hemi, sun, fill);
 
-    const station = buildLowPolyFireStation();
+    const cachedScene = createCachedPrimitiveScene(buildLowPolyFireStation);
+    const station = cachedScene.root;
     const pair = createSceneShatterPair(station, { seed: 405, spread: 5 });
     const shatterMorph = new ShatterMorphController(0);
     scene.add(pair.root);
@@ -146,6 +150,7 @@ export function FireStationDemo() {
     let focusBlend = 0;
     let interacting = false;
     let rotating = false;
+    let alertActive = false;
     controls.addEventListener("start", () => { interacting = true; focusBlend = 0; });
     controls.addEventListener("end", () => { interacting = false; });
     const setNightMode = (on: boolean) => {
@@ -167,7 +172,10 @@ export function FireStationDemo() {
         station.userData.setVisitorGateOpen(open);
         station.userData.setServiceGateOpen(open);
       },
-      setAlert: (active) => station.userData.setAlertActive(active),
+      setAlert: (active) => {
+        alertActive = active;
+        station.userData.setAlertActive(active);
+      },
       setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.46; },
     };
@@ -179,14 +187,18 @@ export function FireStationDemo() {
       frame = requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.05);
       station.userData.update(clock.elapsedTime);
-      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
+      const morphChanged = shatterMorph.update(delta);
+      if (morphChanged) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged,
+        internalAnimation: alertActive, controlsChanged,
+      }));
     };
     animate();
     const resize = () => {
@@ -202,14 +214,12 @@ export function FireStationDemo() {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      cachedScene.lease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };

@@ -36,6 +36,8 @@ test("generates a traffic light with vehicle, pedestrian and phase controls", ()
   assert.ok(signal.getObjectByName("traffic-light-vehicle-head"));
   assert.ok(signal.getObjectByName("pedestrian-signal-face"));
   assert.ok(signal.getObjectByName("pedestrian-crossing-button"));
+  const bounds = new THREE.Box3().setFromObject(signal);
+  assert.ok(Math.abs(bounds.min.y) < 1e-7, "the traffic-light factory origin must stay at its base contact");
   signal.userData.setPhase("green");
   const lenses = [];
   signal.traverse((object) => {
@@ -494,6 +496,13 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /buildLowPolyResidentialBuilding/);
   assert.match(source, /buildLowPolyHighRiseResidential/);
   assert.match(source, /buildLowPolySmallVilla/);
+  assert.match(source, /buildLowPolyStandardResidentialGate/);
+  assert.match(source, /buildLowPolyPremiumResidentialGate/);
+  assert.match(source, /buildLowPolyVillaResidentialGate/);
+  assert.match(source, /setResidentialGatesOpen/);
+  assert.match(source, /20 × 6 个 1 m 地图格/);
+  assert.match(source, /24 × 8 个 1 m 地图格/);
+  assert.match(source, /18 × 7 个 1 m 地图格/);
   assert.match(source, /APARTMENT_SHOWCASE_SCALE = 1\.8/);
   assert.match(source, /VILLA_SHOWCASE_SCALE = 1\.3/);
   assert.match(source, /HIGH_RISE_SHOWCASE_SCALE = 1\.7/);
@@ -525,8 +534,8 @@ test("demo uses the forest normal tree and contains no third-party model or API 
 
 test("every showcase card exposes expandable model data", async () => {
   const source = await readFile(new URL("../app/demos/city-street-furniture/CityFurnitureDemo.tsx", import.meta.url), "utf8");
-  assert.equal(source.match(/number: "MODEL \d{2}"/g)?.length, 12);
-  assert.equal(source.match(/stats: \[/g)?.length, 12);
+  assert.equal(source.match(/number: "MODEL \d{2}"/g)?.length, 15);
+  assert.equal(source.match(/stats: \[/g)?.length, 15);
   assert.match(source, /aria-expanded=\{expanded\}/);
   assert.match(source, /aria-controls=\{`model-data-\$\{model\.id\}`\}/);
   assert.match(source, /查看参数 \+/);

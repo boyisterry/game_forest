@@ -98,6 +98,78 @@ test("ground truth: an infinitely thin compiled wall stops at radius, not at an 
   assert.equal(result.hit.primitiveKind, "wall");
 });
 
+test("staged runtime reuses unchanged owners and patches only affected spatial cells", async () => {
+  const compiled = await compileCollisionSource(verticalRectangleSource("incremental-wall"));
+  const first = new CompiledCityCollisionRuntime([
+    { ownerId: "near", ownerGeneration: 1, source: compiled },
+    { ownerId: "far", ownerGeneration: 1, source: compiled, transform: { x: 100 } },
+  ], { worldId: 801, documentGeneration: 1 });
+  const next = new CompiledCityCollisionRuntime([
+    { ownerId: "near", ownerGeneration: 2, source: compiled, transform: { x: 4 } },
+    { ownerId: "far", ownerGeneration: 2, source: compiled, transform: { x: 100 } },
+    { ownerId: "added", ownerGeneration: 2, source: compiled, transform: { x: 200 } },
+  ], { worldId: 802, documentGeneration: 2, reuseOwnerIndexFrom: first });
+
+  const stats = next.getBuildStats();
+  assert.equal(stats.fullOwnerIndexRebuild, false);
+  assert.equal(stats.reusedOwnerCount, 1);
+  assert.equal(stats.updatedOwnerCount, 1);
+  assert.equal(stats.addedOwnerCount, 1);
+  assert.equal(stats.removedOwnerCount, 0);
+  assert.ok(stats.affectedSpatialCellCount > 0);
+  assert.equal(next.getPerformanceStats().ownerCount, 3);
+  const movedHit = next.querySweep({
+    startX: 2,
+    startZ: 0,
+    deltaX: 4,
+    deltaZ: 0,
+    minY: 0,
+    maxY: 2.4,
+    radius: 0.55,
+  }).hit;
+  assert.equal(movedHit?.ownerId, "near");
+  const oldLocation = next.querySweep({
+    startX: -2,
+    startZ: 0,
+    deltaX: 3,
+    deltaZ: 0,
+    minY: 0,
+    maxY: 2.4,
+    radius: 0.55,
+  });
+  assert.equal(oldLocation.hit, null);
+});
+
+test("staged runtime removes deleted owners without retaining stale bucket entries", async () => {
+  const compiled = await compileCollisionSource(verticalRectangleSource("incremental-remove-wall"));
+  const first = new CompiledCityCollisionRuntime([
+    { ownerId: "deleted", ownerGeneration: 1, source: compiled },
+    { ownerId: "retained", ownerGeneration: 1, source: compiled, transform: { x: 100 } },
+  ], { worldId: 811, documentGeneration: 1 });
+  const next = new CompiledCityCollisionRuntime([
+    { ownerId: "retained", ownerGeneration: 2, source: compiled, transform: { x: 100 } },
+  ], { worldId: 812, documentGeneration: 2, reuseOwnerIndexFrom: first });
+
+  assert.deepEqual(next.getBuildStats(), {
+    fullOwnerIndexRebuild: false,
+    reusedOwnerCount: 1,
+    addedOwnerCount: 0,
+    updatedOwnerCount: 0,
+    removedOwnerCount: 1,
+    affectedSpatialCellCount: 2,
+  });
+  const result = next.querySweep({
+    startX: -2,
+    startZ: 0,
+    deltaX: 4,
+    deltaZ: 0,
+    minY: 0,
+    maxY: 2.4,
+    radius: 0.55,
+  });
+  assert.equal(result.hit, null);
+});
+
 test("ground truth: a 45 degree packed wall returns its analytic TOI and normal", async () => {
   const compiled = await compileCollisionSource(packedSource({
     sourceId: "diagonal-wall",
@@ -252,6 +324,79 @@ test("owner yaw, uniform scale and translation preserve exact world-space contac
   close(result.hit.toi, 0.445, 1e-6);
   close(result.hit.normalX, 0, 1e-6);
   close(result.hit.normalZ, -1, 1e-6);
+});
+
+test("runtime spatial broad phase excludes far owners from local sweep and surface queries", async () => {
+  const compiled = await compileCollisionSource(verticalRectangleSource("indexed-wall"));
+  const owners = Array.from({ length: 80 }, (_, index) => ({
+    ownerId: `indexed-owner-${index}`,
+    ownerGeneration: 1,
+    source: compiled,
+    transform: { x: index * 96, y: 0, z: 0, yawRadians: 0, uniformScale: 1 },
+  }));
+  const runtime = new CompiledCityCollisionRuntime(owners, { worldId: 90, documentGeneration: 1 });
+  const result = runtime.querySweep({
+    startX: -2,
+    startZ: 0,
+    deltaX: 4,
+    deltaZ: 0,
+    minY: 0,
+    maxY: 2.4,
+    radius: 0.55,
+  });
+  assert.ok(result.hit);
+  assert.equal(result.hit.ownerId, "indexed-owner-0");
+  const stats = runtime.getPerformanceStats();
+  assert.equal(stats.ownerCount, 80);
+  assert.equal(stats.spatialCellSizeMeters, 16);
+  assert.ok(stats.spatialCellCount >= 80);
+  assert.equal(stats.globalOwnerCount, 0);
+  assert.equal(stats.lastCandidateOwnerCount, 1);
+  assert.equal(stats.maxCandidateOwnerCount, 1);
+  assert.ok(stats.lastBucketEntryVisitCount >= 1);
+  assert.equal(stats.maxBucketEntryVisitCount, stats.lastBucketEntryVisitCount);
+});
+
+test("16 m owner hash keeps local operation counts flat at 10x, 20x, and 50x map population", async () => {
+  const compiled = await compileCollisionSource(verticalRectangleSource("density-wall"));
+  const snapshots = [];
+  for (const multiplier of [1, 10, 20, 50]) {
+    const owners = Array.from({ length: multiplier * 100 }, (_, index) => ({
+      ownerId: `density-owner-${multiplier}-${index}`,
+      ownerGeneration: 1,
+      source: compiled,
+      transform: {
+        x: (index % 100) * 20,
+        y: 0,
+        z: Math.floor(index / 100) * 20,
+        yawRadians: 0,
+        uniformScale: 1,
+      },
+    }));
+    const runtime = new CompiledCityCollisionRuntime(owners, {
+      worldId: 900 + multiplier,
+      documentGeneration: 1,
+    });
+    const result = runtime.querySweep({
+      startX: -2,
+      startZ: 0,
+      deltaX: 4,
+      deltaZ: 0,
+      minY: 0,
+      maxY: 2.4,
+      radius: 0.55,
+    });
+    assert.ok(result.hit);
+    const stats = runtime.getPerformanceStats();
+    snapshots.push({
+      candidates: stats.lastCandidateOwnerCount,
+      bucketEntries: stats.lastBucketEntryVisitCount,
+      globalOwners: stats.globalOwnerCount,
+    });
+    runtime.dispose();
+  }
+  assert.deepEqual(snapshots, snapshots.map(() => snapshots[0]));
+  assert.deepEqual(snapshots[0], { candidates: 1, bucketEntries: 2, globalOwners: 0 });
 });
 
 test("compiled runtime exposes the live resolveCityMove contract", async () => {

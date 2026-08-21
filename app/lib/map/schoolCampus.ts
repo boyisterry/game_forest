@@ -1,4 +1,11 @@
 import * as THREE from "three";
+import {
+  applySceneShadowPolicy,
+  createOptimizedStaticSceneBatch,
+  createScenePointLightPool,
+  markCityMutableMaterials,
+} from "./sceneInstanceBatch.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
 import { buildLowPolyRoadsidePlanter, buildLowPolyStreetLight } from "./cityFurniture.ts";
 
 export type SchoolZone = "teaching" | "laboratory" | "administration" | "dormitory" | "sports" | "natatorium";
@@ -30,6 +37,10 @@ export type SchoolCampusModel = THREE.Group & {
     setMainGateOpen: (open: boolean) => void;
     setInteriorCutaway: (cutaway: boolean) => void;
     setPowered: (powered: boolean) => void;
+    renderBatchCount: number;
+    mergedSourceMeshCount: number;
+    pooledNightLightCount: number;
+    shadowCastersRemoved: number;
   };
 };
 
@@ -44,6 +55,11 @@ function campusMesh<T extends THREE.BufferGeometry>(
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   if (zone) mesh.userData.zone = zone;
+  if (/school-(?:interior-|classroom-|laboratory-(?:bench|apparatus)|administration-office-desk|dorm-(?:bed|study-desk))/.test(name)) {
+    mesh.userData.mapLayer = "interior";
+  } else if (/(?:lane-line|field-line|court-line|center-circle|marking)$/.test(name)) {
+    mesh.userData.mapLayer = "micro-detail";
+  }
   return mesh;
 }
 
@@ -78,7 +94,9 @@ function stadiumShape(halfStraight: number, radius: number, laneWidth: number) {
   return shape;
 }
 
-export function buildLowPolySchoolCampus(): SchoolCampusModel {
+export function buildLowPolySchoolCampus(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): SchoolCampusModel {
   const campus = new THREE.Group() as SchoolCampusModel;
   campus.name = "city-school-campus-lowpoly";
   const cutawayShell: THREE.Object3D[] = [];
@@ -302,6 +320,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
       for (let room = 0; room < 3; room += 1) {
         const classroom = new THREE.Group();
         classroom.name = "school-classroom";
+        classroom.userData.mapLayer = "interior";
         classroom.userData.zone = "teaching";
         classroom.position.set(-11.8 + room * 11.8, level, 0);
         building.group.add(classroom);
@@ -323,6 +342,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     for (let room = 0; room < 3; room += 1) {
       const lab = new THREE.Group();
       lab.name = "school-laboratory-room";
+      lab.userData.mapLayer = "interior";
       lab.userData.zone = "laboratory";
       lab.position.set(-7.5 + room * 7.5, level, 0);
       laboratory.group.add(lab);
@@ -361,6 +381,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
       for (let room = 0; room < 4; room += 1) {
         const dormRoom = new THREE.Group();
         dormRoom.name = "school-dorm-room";
+        dormRoom.userData.mapLayer = "interior";
         dormRoom.userData.zone = "dormitory";
         dormRoom.position.set(-building.width * 0.34 + room * building.width * 0.225, level, 0);
         building.group.add(dormRoom);
@@ -572,6 +593,24 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     campus.add(planter);
   }
 
+  const performanceDynamicRoots = [...cutawayShell, ...mainGatePanels];
+  applyReviewedCityMapLodTags(campus, "school-campus");
+  const shadowMetrics = applySceneShadowPolicy(campus, { dynamicRoots: performanceDynamicRoots });
+  const staticRenderBatch = createOptimizedStaticSceneBatch({
+    name: "school-campus-static-render-batch",
+    parent: campus,
+    excludedRoots: performanceDynamicRoots,
+    mutableMaterials: markCityMutableMaterials([windowGlass, atriumGlass, warmLight, poolBlue]),
+    cellSizeMeters: 72,
+    enabled: options.optimizeStatic !== false,
+  });
+  const pooledNightLights = createScenePointLightPool({
+    name: "school-campus-night-light-pool",
+    root: campus,
+    cellSizeMeters: 64,
+    maximumDistance: 44,
+  });
+
   campus.userData = {
     mapLayer: "exterior",
     modelType: "school-campus",
@@ -600,6 +639,10 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
     ],
     siteSize: new THREE.Vector3(170, 22, 130),
     runningTrackLengthMeters: 238,
+    renderBatchCount: staticRenderBatch.userData.batchCount,
+    mergedSourceMeshCount: staticRenderBatch.userData.mergedSourceMeshCount,
+    pooledNightLightCount: pooledNightLights.pooledLightCount,
+    shadowCastersRemoved: shadowMetrics.shadowCastersRemoved,
     setMainGateOpen: (open) => {
       mainGatePanels.forEach((panel) => {
         panel.position.x = open ? panel.userData.openX as number : panel.userData.closedX as number;
@@ -615,6 +658,7 @@ export function buildLowPolySchoolCampus(): SchoolCampusModel {
       warmLight.emissiveIntensity = powered ? 2.5 : 0.12;
       poolBlue.emissiveIntensity = powered ? 0.75 : 0.14;
       nightLights.forEach((light) => { light.intensity = powered ? 1.65 : 0; });
+      pooledNightLights.setPowered(powered);
     },
   };
   campus.userData.setPowered(false);

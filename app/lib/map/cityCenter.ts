@@ -5,6 +5,13 @@ import {
   buildLowPolyStreetLight,
   buildLowPolyTrafficLight,
 } from "./cityFurniture.ts";
+import {
+  applySceneShadowPolicy,
+  createOptimizedStaticSceneBatch,
+  createScenePointLightPool,
+  markCityMutableMaterials,
+} from "./sceneInstanceBatch.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
 
 export type CityCenterZone = "landmark" | "transit" | "bus" | "taxi" | "map" | "plaza";
 
@@ -34,6 +41,10 @@ export type CityCenterModel = THREE.Group & {
     scaleStandard: "rabbit-rider";
     decorationSources: string[];
     siteSize: THREE.Vector3;
+    renderBatchCount: number;
+    mergedSourceMeshCount: number;
+    pooledNightLightCount: number;
+    shadowCastersRemoved: number;
     setPowered: (powered: boolean) => void;
     setRushHour: (active: boolean) => void;
     setInteriorCutaway: (cutaway: boolean) => void;
@@ -95,7 +106,9 @@ function addSupportedBench(
   return bench;
 }
 
-export function buildLowPolyCityCenter(): CityCenterModel {
+export function buildLowPolyCityCenter(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): CityCenterModel {
   const center = new THREE.Group() as CityCenterModel;
   center.name = "metropolitan-city-center-lowpoly";
   const cutawayShells: THREE.Object3D[] = [];
@@ -104,6 +117,7 @@ export function buildLowPolyCityCenter(): CityCenterModel {
   const rushHourVehicles: THREE.Object3D[] = [];
   const animatedFountainJets: THREE.Object3D[] = [];
   const fountainPointLights: THREE.PointLight[] = [];
+  const trafficSignalLights: THREE.PointLight[] = [];
   let rushHour = false;
   let isPowered = false;
   let fountainCrystal: THREE.Object3D | null = null;
@@ -1060,6 +1074,7 @@ export function buildLowPolyCityCenter(): CityCenterModel {
     signal.position.set(x, 0.66, z);
     signal.userData.sourceCollection = "city-street-furniture";
     signal.userData.setPhase(index < 4 ? "green" : "red");
+    signal.traverse((object) => { if (object instanceof THREE.PointLight) trafficSignalLights.push(object); });
     center.add(signal);
   }
   const treePositions: Array<[number, number]> = [
@@ -1079,6 +1094,30 @@ export function buildLowPolyCityCenter(): CityCenterModel {
     grate.position.y = 0.16;
     anchor.add(grate);
     center.add(anchor);
+  });
+
+  const performanceDynamicRoots = [
+    ...cutawayShells,
+    ...rushHourVehicles,
+    ...animatedFountainJets,
+    ...(fountainCrystal ? [fountainCrystal] : []),
+  ];
+  applyReviewedCityMapLodTags(center, "city-center");
+  const shadowMetrics = applySceneShadowPolicy(center, { dynamicRoots: performanceDynamicRoots });
+  const staticRenderBatch = createOptimizedStaticSceneBatch({
+    name: "city-center-static-render-batch",
+    parent: center,
+    excludedRoots: performanceDynamicRoots,
+    mutableMaterials: markCityMutableMaterials([glass, warmGlass, mapScreen, destinationBoard, water, fountainGlow, greenLamp, redLamp]),
+    cellSizeMeters: 76,
+    enabled: options.optimizeStatic !== false,
+  });
+  const pooledNightLights = createScenePointLightPool({
+    name: "city-center-night-light-pool",
+    root: center,
+    excludedLights: trafficSignalLights,
+    cellSizeMeters: 72,
+    maximumDistance: 52,
   });
   for (const [x, z, rotation] of [[-36, 45, 0], [36, 45, Math.PI], [-36, 27, 0], [40, 24, Math.PI]] as Array<[number, number, number]>) {
     addSupportedBench(center, x, z, rotation, timber, steel, "plaza");
@@ -1142,6 +1181,10 @@ export function buildLowPolyCityCenter(): CityCenterModel {
       "city-traffic-light-lowpoly",
     ],
     siteSize: new THREE.Vector3(210, 66, 165),
+    renderBatchCount: staticRenderBatch.userData.batchCount,
+    mergedSourceMeshCount: staticRenderBatch.userData.mergedSourceMeshCount,
+    pooledNightLightCount: pooledNightLights.pooledLightCount,
+    shadowCastersRemoved: shadowMetrics.shadowCastersRemoved,
     setPowered: (powered) => {
       isPowered = powered;
       glass.emissiveIntensity = powered ? 1.1 : 0.08;
@@ -1155,6 +1198,7 @@ export function buildLowPolyCityCenter(): CityCenterModel {
       fountainPointLights.forEach((light) => { light.intensity = powered ? 2.2 : 0; });
       reusedStreetLights.forEach((light) => light.userData.setPowered(powered));
       reusedFoodTrucks.forEach((truck) => truck.userData.setLights(powered));
+      pooledNightLights.setPowered(powered);
     },
     setRushHour: (active) => {
       rushHour = active;

@@ -252,12 +252,16 @@ test("supports night lights, rush-hour mode and cutaway inspection", () => {
   assert.ok(facade instanceof THREE.Mesh);
   center.userData.setPowered(true);
   assert.ok(facade.material.emissiveIntensity > 1);
-  assert.ok(streetLights.every((light) => light.intensity > 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  const pooledLights = namedObjects(center, "city-center-night-light-pool")
+    .flatMap((pool) => pool.children.filter((light) => light instanceof THREE.PointLight));
+  assert.ok(pooledLights.length > 0 && pooledLights.every((light) => light.visible && light.intensity > 0));
   assert.equal(fountainLights.length, 4);
-  assert.ok(fountainLights.every((light) => light.intensity > 0));
+  assert.ok(fountainLights.every((light) => !light.visible && light.intensity === 0));
   center.userData.setPowered(false);
-  assert.ok(streetLights.every((light) => light.intensity === 0));
-  assert.ok(fountainLights.every((light) => light.intensity === 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(pooledLights.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(fountainLights.every((light) => !light.visible && light.intensity === 0));
   center.userData.setRushHour(true);
   assert.ok(board.material.emissiveIntensity > 3);
   const bus = center.getObjectByName("city-center-public-bus");

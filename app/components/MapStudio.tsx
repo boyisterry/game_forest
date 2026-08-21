@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { DEFAULT_SETTINGS, type MapSettings, type MapType, type Season } from "../lib/map/types";
+import { DEFAULT_SETTINGS, type MapSettings, type Season } from "../lib/map/types";
 import { ForestScene, type SceneStats } from "../lib/map/ForestScene";
 import { getCityRoadWidthRange } from "../lib/map/city";
 import {
@@ -20,27 +20,59 @@ import {
   emptyCityDocument,
   parseCityMapDocument,
   serializeMapFileV3,
+  type CityMapDocumentSnapshot,
+  type GridPlacement,
 } from "../lib/map/cityDocument.ts";
 import {
   importRainHarborDocument,
   RAIN_HARBOR_IMPORT_KNOWN_CATALOG_IDS,
 } from "../lib/map/cityImporter.ts";
+import { createCedarCrossingDocument } from "../lib/map/cedarCrossing.ts";
+import {
+  createCityPerformanceStressFixture,
+  isCityPerformanceStressMultiplier,
+  type CityPerformanceCameraRoute,
+  type CityPerformanceStressFixture,
+} from "../lib/map/cityPerformanceStress.ts";
 import {
   createAddGridPlacementDelta,
   createAddRoadDelta,
   createDeletePlacementsDelta,
+  createMoveGridPlacementDelta,
+  createReplaceGridPlacementCatalogDelta,
   createRotateGridPlacementDelta,
   duplicateGridPlacements,
 } from "../lib/map/cityEditorCommands.ts";
-import { getCatalogEntry } from "../lib/map/cityCatalog.ts";
+import {
+  getCatalogEntry,
+  standardCommunityCatalogId,
+  type StandardCommunityRowOption,
+} from "../lib/map/cityCatalog.ts";
 import { cityFootprintCornerAtCell } from "../lib/map/cityEditorViewport.ts";
-import type { RoadPresetId } from "../lib/map/cityRoadGraph.ts";
-import { CityEditorConflictError } from "../lib/map/cityEditorOccupancy.ts";
+import type { RoadPresetId, SidewalkWidthTier } from "../lib/map/cityRoadGraph.ts";
+import {
+  assertGridPlacementsAllowed,
+  CityEditorConflictError,
+} from "../lib/map/cityEditorOccupancy.ts";
+import type { MapEntryMode, MapLibraryRecord, MapSaveStatus } from "../lib/map/mapLibrary.ts";
 
 declare global {
   interface Window {
     render_game_to_text?: () => string;
     advanceTime?: (ms: number) => void;
+    reset_city_performance_samples?: () => void;
+    apply_city_performance_stress?: (multiplier: number) => Readonly<{
+      multiplier: number;
+      placements: number;
+      roads: number;
+      replicas: number;
+      renderApplyMs: number;
+      worldBounds: Readonly<{ minX: number; minZ: number; maxX: number; maxZ: number }>;
+      cameraFit: Readonly<{ cameraX: number; cameraY: number; cameraZ: number; near: number; far: number }>;
+      cameraRoute: readonly CityPerformanceCameraRoute[];
+    }>;
+    set_city_performance_route?: (routeId: CityPerformanceCameraRoute["id"]) => CityPerformanceCameraRoute;
+    capture_city_render_call_attribution?: () => ReturnType<ForestScene["captureCityRenderCallAttribution"]>;
   }
 }
 
@@ -51,6 +83,51 @@ type DriveHud = {
   reverse: boolean;
   drifting: boolean;
 };
+
+type PendingCityPlacement = Readonly<{
+  mode: "add" | "move";
+  placementId?: string;
+  catalogId: string;
+  i: number;
+  j: number;
+  yaw: GridPlacement["yaw"];
+  valid: boolean;
+  error: unknown | null;
+}>;
+
+type CityPlacementDrag = {
+  placementId: string;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  started: boolean;
+};
+
+type CityCameraGesture = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  moved: boolean;
+};
+
+const CITY_EDITOR_GRID_PREFERENCE_KEY = "forest-courier-city-editor-grid-visible";
+
+function readCityEditorGridPreference() {
+  try {
+    const stored = window.localStorage.getItem(CITY_EDITOR_GRID_PREFERENCE_KEY);
+    return stored === null ? true : stored !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeCityEditorGridPreference(visible: boolean) {
+  try {
+    window.localStorage.setItem(CITY_EDITOR_GRID_PREFERENCE_KEY, visible ? "1" : "0");
+  } catch {
+    // Storage can be unavailable in privacy modes; the in-memory toggle still works.
+  }
+}
 
 function cityMutationStatus(error: unknown, locale: Locale, fallback: Readonly<{ en: string; zh: string }>) {
   if (!(error instanceof CityEditorConflictError)) {
@@ -66,30 +143,63 @@ function cityMutationStatus(error: unknown, locale: Locale, fallback: Readonly<{
   return copy[error.code][locale];
 }
 
-export function MapStudio() {
+function playStatus(locale: Locale, entryMode: MapEntryMode) {
+  if (entryMode === "edit") return COPY[locale].statusPlay;
+  return locale === "zh"
+    ? "游玩模式 · W 加速 · Esc 返回地图列表"
+    : "Play mode · W accelerate · Esc map library";
+}
+
+function driveHint(locale: Locale, entryMode: MapEntryMode) {
+  if (entryMode === "edit") return COPY[locale].driveHint;
+  return locale === "zh"
+    ? "W 加速 · Shift 加力 · S 刹车/倒车 · Space 急刹/漂移 · A/D 转向 · 按住鼠标环视 · Esc 返回地图列表"
+    : "W accelerate · Shift boost · S brake/reverse · Space brake/drift · A/D steer · hold mouse to look · Esc map library";
+}
+
+type MapStudioProps = Readonly<{
+  map: MapLibraryRecord;
+  entryMode: MapEntryMode;
+  saveStatus: MapSaveStatus;
+  onSave: (update: Readonly<{
+    settings: MapSettings;
+    cityDocument?: CityMapDocumentSnapshot;
+  }>) => void;
+  onExit: () => void;
+}>;
+
+export function MapStudio({ map, entryMode, saveStatus, onSave, onExit }: MapStudioProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<ForestScene | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
-  const [settings, setSettings] = useState<MapSettings>(DEFAULT_SETTINGS);
-  const [draft, setDraft] = useState<MapSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<MapSettings>(() => structuredClone(map.settings));
+  const [draft, setDraft] = useState<MapSettings>(() => structuredClone(map.settings));
   const [stats, setStats] = useState<SceneStats>({ trees: 0, grass: 0, stones: 0, buildings: 0, streetLights: 0, deliveryStops: 0, drawCalls: 0, chunks: 0 });
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(entryMode === "edit");
   const [riderVisible, setRiderVisible] = useState(true);
   const [playMode, setPlayMode] = useState(false);
   const [audioMuted, setAudioMuted] = useState(false);
-  const [shatterMode, setShatterMode] = useState(DEFAULT_SETTINGS.shatterMode);
+  const [shatterMode, setShatterMode] = useState(map.settings.shatterMode);
   const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
   const [status, setStatus] = useState(COPY[DEFAULT_LOCALE].statusWaking);
-  const [citySession] = useState(() => new CityEditorSession(emptyCityDocument()));
+  const [citySession] = useState(() => new CityEditorSession(map.cityDocument ?? emptyCityDocument()));
   const citySnapshot = useSyncExternalStore(citySession.subscribe, citySession.getSnapshot, citySession.getSnapshot);
   const [cityTool, setCityTool] = useState<CityEditorTool>("select");
   const [activeCatalogId, setActiveCatalogId] = useState<string | null>("street-light");
   const [activeRoadPreset, setActiveRoadPreset] = useState<RoadPresetId>("two-way-1");
+  const [activeSidewalkWidth, setActiveSidewalkWidth] = useState<SidewalkWidthTier>("medium");
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
+  const [pendingPlacement, setPendingPlacement] = useState<PendingCityPlacement | null>(null);
   const [cityTopDown, setCityTopDown] = useState(false);
+  const [cityGridVisible, setCityGridVisible] = useState(true);
   const citySceneRevisionRef = useRef<number | null>(null);
   const roadStrokeStartRef = useRef<Readonly<{ x: number; z: number }> | null>(null);
+  const pendingPlacementRef = useRef<PendingCityPlacement | null>(null);
+  const placementDragRef = useRef<CityPlacementDrag | null>(null);
+  const cameraGestureRef = useRef<CityCameraGesture | null>(null);
+  const suppressNextCanvasClickRef = useRef(false);
+  const lastCityPointerClientRef = useRef<Readonly<{ x: number; y: number }> | null>(null);
   const [driveHud, setDriveHud] = useState<DriveHud>({
     speedKmh: 0,
     horsepower: 0,
@@ -97,16 +207,32 @@ export function MapStudio() {
     reverse: false,
     drifting: false,
   });
+  const [initialSettingsJson] = useState(() => JSON.stringify(map.settings));
   const localeRef = useRef(locale);
   const playModeRef = useRef(playMode);
+  const entryModeRef = useRef(entryMode);
+  const onSaveRef = useRef(onSave);
+  const onExitRef = useRef(onExit);
   const mapTypeRef = useRef(settings.mapType);
+  const canEdit = entryMode === "edit";
+  const immersive = entryMode === "play" || playMode;
+  const hasMapChanges = citySnapshot.revision > 0
+    || JSON.stringify(settings) !== initialSettingsJson;
   const t = COPY[locale];
+  const selectedPlacement = citySnapshot.document.placements.find((placement) => placement.id === selectedPlacementId);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       const stored = readStoredLocale();
       setLocale(stored);
       setStatus(COPY[stored].statusWaking);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setCityGridVisible(readCityEditorGridPreference());
     });
     return () => cancelAnimationFrame(frame);
   }, []);
@@ -120,6 +246,15 @@ export function MapStudio() {
   }, [playMode]);
 
   useEffect(() => {
+    entryModeRef.current = entryMode;
+  }, [entryMode]);
+
+  useEffect(() => {
+    onSaveRef.current = onSave;
+    onExitRef.current = onExit;
+  }, [onExit, onSave]);
+
+  useEffect(() => {
     mapTypeRef.current = settings.mapType;
   }, [settings.mapType]);
 
@@ -130,7 +265,12 @@ export function MapStudio() {
     }
     setStatus((current) => {
       // Refresh mode-bound status lines when language flips.
-      if (playModeRef.current) return COPY[locale].statusPlay;
+      if (playModeRef.current) return playStatus(locale, entryModeRef.current);
+      if (entryModeRef.current === "play") {
+        return mapTypeRef.current === "city"
+          ? (locale === "zh" ? "正在准备城市与碰撞…" : "Preparing city and collision…")
+          : (locale === "zh" ? "正在准备森林骑行…" : "Preparing forest ride…");
+      }
       if (
         current === COPY.en.statusWaking ||
         current === COPY.zh.statusWaking ||
@@ -143,7 +283,7 @@ export function MapStudio() {
         current.startsWith("Streaming") ||
         current.startsWith("流式加载")
       ) {
-        if (playModeRef.current) return COPY[locale].statusPlay;
+        if (playModeRef.current) return playStatus(locale, entryModeRef.current);
         return mapTypeRef.current === "city" ? COPY[locale].statusCityReady : COPY[locale].statusWorkshop;
       }
       return current;
@@ -160,30 +300,92 @@ export function MapStudio() {
         if (current === copy.statusPlay || current === copy.statusEnterPlay || current === copy.statusRiderLoading) {
           return current;
         }
-        if (playModeRef.current) return copy.statusPlay;
+        if (entryModeRef.current === "play" && !playModeRef.current) return current;
+        if (playModeRef.current) return playStatus(localeRef.current, entryModeRef.current);
         return mapTypeRef.current === "city" ? copy.statusCityReady : copy.statusStreaming(next.chunks);
       });
     }, modelPackOwner);
-    scene.applyCityDocument(citySession.document, CityDirtyLayer.All);
+    scene.setCityEditorGridVisible(canEdit && settings.mapType === "city" && cityGridVisible);
+    if (map.kind === "city") {
+      scene.applyCityDocument(citySession.document, CityDirtyLayer.All);
+    }
     sceneRef.current = scene;
     scene.setDriveModeListener((on) => {
       setPlayMode(on);
       const copy = COPY[localeRef.current];
       if (on) {
+        pendingPlacementRef.current = null;
+        placementDragRef.current = null;
+        cameraGestureRef.current = null;
+        setPendingPlacement(null);
+        scene.setCityPlacementDragging(false);
+        scene.setCityPlacementPreview(null);
         setRiderVisible(true);
         setPanelOpen(false);
-        setStatus(copy.statusPlay);
-      } else {
+        setStatus(playStatus(localeRef.current, entryModeRef.current));
+      } else if (entryModeRef.current === "edit") {
         setPanelOpen(true);
         setStatus(copy.statusWorkshop);
+      } else {
+        setPanelOpen(false);
       }
       requestAnimationFrame(() => scene.resize());
     });
+    scene.setDriveExitIntentListener(() => {
+      if (entryModeRef.current === "play") onExitRef.current();
+    });
     scene.setCityEditorCameraModeListener(setCityTopDown);
-    const renderHook = () => JSON.stringify(scene.getTextState());
+    const renderHook = () => JSON.stringify({
+      ...scene.getTextState(),
+      app: {
+        screen: "workspace",
+        mapId: map.id,
+        mapName: map.name,
+        entryMode: entryModeRef.current,
+        canEdit: entryModeRef.current === "edit" && !playModeRef.current,
+      },
+    });
     const advanceHook = (ms: number) => scene.advanceForTest(ms);
+    const resetPerformanceHook = () => scene.resetCityPerformanceSamples();
+    let performanceStressFixture: CityPerformanceStressFixture | null = null;
+    const applyPerformanceStressHook = (multiplier: number) => {
+      if (settings.mapType !== "city") throw new Error("city performance stress requires a city map");
+      if (!isCityPerformanceStressMultiplier(multiplier)) {
+        throw new TypeError(`unsupported city performance stress multiplier: ${multiplier}`);
+      }
+      const fixture = createCityPerformanceStressFixture(createCedarCrossingDocument(), multiplier);
+      performanceStressFixture = fixture;
+      const startedAt = performance.now();
+      scene.applyCityDocument(fixture.document, CityDirtyLayer.All);
+      const cameraFit = scene.fitCityPerformanceBounds(fixture.worldBounds);
+      return Object.freeze({
+        multiplier,
+        placements: fixture.document.placements.length,
+        roads: fixture.document.graph.edges.length,
+        replicas: fixture.replicas.length,
+        renderApplyMs: performance.now() - startedAt,
+        worldBounds: fixture.worldBounds,
+        cameraFit,
+        cameraRoute: fixture.cameraRoute,
+      });
+    };
+    const setPerformanceRouteHook = (routeId: CityPerformanceCameraRoute["id"]) => {
+      const fixture = performanceStressFixture;
+      if (!fixture) throw new Error("apply city performance stress before selecting a route");
+      const route = fixture.cameraRoute.find((candidate) => candidate.id === routeId);
+      if (!route) throw new TypeError(`unknown city performance route: ${routeId}`);
+      if (route.id === "editor-fit") scene.fitCityPerformanceBounds(fixture.worldBounds);
+      else scene.jumpTo(route.targetX, route.targetZ);
+      scene.requestCityShadowRefresh();
+      return route;
+    };
     window.render_game_to_text = renderHook;
     window.advanceTime = advanceHook;
+    window.reset_city_performance_samples = resetPerformanceHook;
+    window.apply_city_performance_stress = applyPerformanceStressHook;
+    window.set_city_performance_route = setPerformanceRouteHook;
+    const captureCityCallAttributionHook = () => scene.captureCityRenderCallAttribution();
+    window.capture_city_render_call_attribution = captureCityCallAttributionHook;
     if (minimapRef.current) scene.attachMinimap(minimapRef.current);
     const resize = () => scene.resize();
     window.addEventListener("resize", resize);
@@ -194,10 +396,41 @@ export function MapStudio() {
       sceneRef.current = null;
       if (window.render_game_to_text === renderHook) delete window.render_game_to_text;
       if (window.advanceTime === advanceHook) delete window.advanceTime;
+      if (window.reset_city_performance_samples === resetPerformanceHook) {
+        delete window.reset_city_performance_samples;
+      }
+      if (window.apply_city_performance_stress === applyPerformanceStressHook) {
+        delete window.apply_city_performance_stress;
+      }
+      if (window.set_city_performance_route === setPerformanceRouteHook) {
+        delete window.set_city_performance_route;
+      }
+      if (window.capture_city_render_call_attribution === captureCityCallAttributionHook) {
+        delete window.capture_city_render_call_attribution;
+      }
     };
   // The scene owns updates after creation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const visible = canEdit && settings.mapType === "city" && !playMode && cityGridVisible;
+    sceneRef.current?.setCityEditorGridVisible(visible);
+    if (!visible) sceneRef.current?.setCityEditorGridHover(null);
+  }, [canEdit, cityGridVisible, playMode, settings.mapType]);
+
+  useEffect(() => {
+    if (entryMode !== "play") return;
+    sceneRef.current?.setDriveMode(true);
+  }, [entryMode]);
+
+  useEffect(() => {
+    if (!canEdit || !hasMapChanges) return;
+    onSaveRef.current({
+      settings,
+      ...(map.kind === "city" ? { cityDocument: citySnapshot.document } : {}),
+    });
+  }, [canEdit, citySnapshot.document, citySnapshot.revision, hasMapChanges, map.kind, settings]);
 
   useEffect(() => {
     if (settings.mapType !== "city") return;
@@ -215,19 +448,25 @@ export function MapStudio() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (settings.mapType !== "city" || playModeRef.current) return;
+      if (!canEdit || settings.mapType !== "city" || playModeRef.current) return;
       const target = event.target;
       if (target instanceof HTMLElement
         && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       const command = event.metaKey || event.ctrlKey;
       if (command && event.code === "KeyZ") {
         event.preventDefault();
+        pendingPlacementRef.current = null;
+        setPendingPlacement(null);
+        sceneRef.current?.setCityPlacementPreview(null);
         if (event.shiftKey) citySession.redo();
         else citySession.undo();
         return;
       }
       if (command && event.code === "KeyD" && selectedPlacementId) {
         event.preventDefault();
+        pendingPlacementRef.current = null;
+        setPendingPlacement(null);
+        sceneRef.current?.setCityPlacementPreview(null);
         try {
           citySession.apply(duplicateGridPlacements(citySession.document, [selectedPlacementId]));
           setSelectedPlacementId(citySession.document.placements.at(-1)?.id ?? selectedPlacementId);
@@ -240,6 +479,9 @@ export function MapStudio() {
         const placement = citySession.document.placements.find((candidate) => candidate.id === selectedPlacementId);
         if (placement?.poseKind === "grid") {
           event.preventDefault();
+          pendingPlacementRef.current = null;
+          setPendingPlacement(null);
+          sceneRef.current?.setCityPlacementPreview(null);
           try {
             citySession.apply(createRotateGridPlacementDelta(citySession.document, selectedPlacementId));
           } catch (error) {
@@ -250,19 +492,28 @@ export function MapStudio() {
       }
       if ((event.code === "Delete" || event.code === "Backspace") && selectedPlacementId) {
         event.preventDefault();
+        pendingPlacementRef.current = null;
+        setPendingPlacement(null);
+        sceneRef.current?.setCityPlacementPreview(null);
         citySession.apply(createDeletePlacementsDelta(citySession.document, [selectedPlacementId]));
         setSelectedPlacementId(null);
         return;
       }
       if (event.code === "Escape") {
         roadStrokeStartRef.current = null;
+        placementDragRef.current = null;
+        cameraGestureRef.current = null;
+        pendingPlacementRef.current = null;
+        setPendingPlacement(null);
+        sceneRef.current?.setCityPlacementDragging(false);
+        sceneRef.current?.setCityPlacementPreview(null);
         setSelectedPlacementId(null);
         setCityTool("select");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [citySession, locale, selectedPlacementId, settings.mapType]);
+  }, [canEdit, citySession, locale, selectedPlacementId, settings.mapType]);
 
   useEffect(() => {
     if (minimapRef.current && sceneRef.current) {
@@ -271,10 +522,19 @@ export function MapStudio() {
   }, []);
 
   useEffect(() => {
-    const roadEditing = settings.mapType === "city" && !playMode && cityTool === "road";
-    sceneRef.current?.setCityRoadEditingEnabled(roadEditing);
+    const roadOwnsPrimary = canEdit && settings.mapType === "city" && !playMode && cityTool === "road";
+    sceneRef.current?.setCityRoadEditingEnabled(roadOwnsPrimary);
     return () => sceneRef.current?.setCityRoadEditingEnabled(false);
-  }, [cityTool, playMode, settings.mapType]);
+  }, [canEdit, cityTool, playMode, settings.mapType]);
+
+  useEffect(() => {
+    if (canEdit && settings.mapType === "city" && !playMode) return;
+    pendingPlacementRef.current = null;
+    placementDragRef.current = null;
+    cameraGestureRef.current = null;
+    sceneRef.current?.setCityPlacementDragging(false);
+    sceneRef.current?.setCityPlacementPreview(null);
+  }, [canEdit, playMode, settings.mapType]);
 
   useEffect(() => {
     if (!playMode) return;
@@ -299,26 +559,6 @@ export function MapStudio() {
     requestAnimationFrame(() => sceneRef.current?.build(next));
   };
 
-  const selectMap = (mapType: MapType) => {
-    if (mapType === draft.mapType) return;
-    const next: MapSettings = mapType === "city"
-      ? {
-          ...draft,
-          mapType,
-          roadWidth: 8,
-          deliveryStops: Math.max(6, draft.deliveryStops),
-          fogDensity: Math.min(draft.fogDensity, 0.0024),
-        }
-      : {
-          ...draft,
-          mapType,
-          roadWidth: DEFAULT_SETTINGS.roadWidth,
-          deliveryStops: DEFAULT_SETTINGS.deliveryStops,
-          fogDensity: DEFAULT_SETTINGS.fogDensity,
-        };
-    generate(next);
-  };
-
   const randomize = () => {
     const next = { ...draft, seed: Math.floor(10000 + Math.random() * 89999) };
     generate(next);
@@ -332,49 +572,238 @@ export function MapStudio() {
     sceneRef.current?.setShatterMode(next);
   };
 
-  const placeCatalogAtPointer = (catalogId: string, clientX: number, clientY: number) => {
+  const publishPendingPlacement = (next: PendingCityPlacement | null) => {
+    pendingPlacementRef.current = next;
+    setPendingPlacement(next);
+    sceneRef.current?.setCityPlacementPreview(next ? {
+      catalogId: next.catalogId,
+      i: next.i,
+      j: next.j,
+      yaw: next.yaw,
+      valid: next.valid,
+    } : null);
+  };
+
+  const cancelPendingPlacement = () => {
+    placementDragRef.current = null;
+    cameraGestureRef.current = null;
+    suppressNextCanvasClickRef.current = false;
+    sceneRef.current?.setCityPlacementDragging(false);
+    publishPendingPlacement(null);
+  };
+
+  const placementAtPointer = (
+    catalogId: string,
+    clientX: number,
+    clientY: number,
+    options: Readonly<{ mode: "add" | "move"; placementId?: string; yaw: GridPlacement["yaw"] }>,
+  ): PendingCityPlacement | null => {
     const entry = getCatalogEntry(catalogId);
     const point = sceneRef.current?.projectCityPointer(clientX, clientY);
-    if (!entry || !point) return;
-    const footprint = entry.footprintOverride ?? {
+    if (!entry || !point) return null;
+    const baseFootprint = entry.footprintOverride ?? {
       w: Math.ceil(entry.siteSizeMeters.x * entry.mapScale),
       d: Math.ceil(entry.siteSizeMeters.z * entry.mapScale),
     };
+    const rotated = options.yaw === 90 || options.yaw === 270;
+    const footprint = rotated
+      ? { w: baseFootprint.d, d: baseFootprint.w }
+      : baseFootprint;
     const corner = cityFootprintCornerAtCell(point.i, point.j, footprint.w, footprint.d);
+    const candidate: GridPlacement = {
+      id: options.placementId ?? "city-placement-preview",
+      catalogId,
+      poseKind: "grid",
+      i: corner.i,
+      j: corner.j,
+      yaw: options.yaw,
+    };
+    let error: unknown | null = null;
     try {
-      citySession.apply(createAddGridPlacementDelta(catalogId, corner.i, corner.j));
-    } catch (error) {
-      setStatus(cityMutationStatus(error, locale, { en: "Object could not be placed.", zh: "无法放置该物件。" }));
+      assertGridPlacementsAllowed(
+        citySession.document,
+        [candidate],
+        options.placementId ? new Set([options.placementId]) : new Set(),
+      );
+    } catch (nextError) {
+      error = nextError;
+    }
+    return Object.freeze({
+      ...options,
+      catalogId,
+      i: corner.i,
+      j: corner.j,
+      valid: error === null,
+      error,
+    });
+  };
+
+  const previewCatalogAtPointer = (catalogId: string, clientX: number, clientY: number) => {
+    const next = placementAtPointer(catalogId, clientX, clientY, { mode: "add", yaw: 0 });
+    if (!next) return;
+    const current = pendingPlacementRef.current;
+    if (current
+      && current.mode === "add"
+      && current.catalogId === next.catalogId
+      && current.i === next.i
+      && current.j === next.j
+      && current.valid === next.valid) return;
+    publishPendingPlacement(next);
+  };
+
+  const updatePendingPlacementAtPointer = (clientX: number, clientY: number) => {
+    const pending = pendingPlacementRef.current;
+    if (!pending) return;
+    const next = placementAtPointer(pending.catalogId, clientX, clientY, {
+      mode: pending.mode,
+      placementId: pending.placementId,
+      yaw: pending.yaw,
+    });
+    if (!next) return;
+    if (next.i === pending.i && next.j === pending.j && next.valid === pending.valid) return;
+    publishPendingPlacement(next);
+  };
+
+  const confirmPendingPlacement = (candidate: PendingCityPlacement) => {
+    if (!candidate.valid) {
+      setStatus(cityMutationStatus(candidate.error, locale, {
+        en: "That location is not available.",
+        zh: "该位置不能放置物件。",
+      }));
       return;
     }
-    const placed = citySession.document.placements.at(-1);
-    setSelectedPlacementId(placed?.id ?? null);
-    setActiveCatalogId(catalogId);
-    setCityTool("place");
+    try {
+      if (candidate.mode === "move" && candidate.placementId) {
+        citySession.apply(createMoveGridPlacementDelta(
+          citySession.document,
+          candidate.placementId,
+          candidate.i,
+          candidate.j,
+        ));
+        setSelectedPlacementId(candidate.placementId);
+        setStatus(locale === "zh" ? "已移动物件" : "Object moved");
+      } else {
+        citySession.apply(createAddGridPlacementDelta(
+          candidate.catalogId,
+          candidate.i,
+          candidate.j,
+          candidate.yaw,
+        ));
+        setSelectedPlacementId(citySession.document.placements.at(-1)?.id ?? null);
+        setStatus(locale === "zh" ? "已放置物件" : "Object placed");
+      }
+      publishPendingPlacement(null);
+    } catch (error) {
+      setStatus(cityMutationStatus(error, locale, { en: "Object could not be placed.", zh: "无法放置该物件。" }));
+    }
   };
 
   const onCityCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (playMode || settings.mapType !== "city" || cityTool === "road") return;
+    if (!canEdit || playMode || settings.mapType !== "city" || cityTool === "road") return;
+    if (suppressNextCanvasClickRef.current) {
+      suppressNextCanvasClickRef.current = false;
+      return;
+    }
+    const pending = pendingPlacementRef.current;
+    if (pending) {
+      updatePendingPlacementAtPointer(event.clientX, event.clientY);
+      const updated = placementAtPointer(pending.catalogId, event.clientX, event.clientY, {
+        mode: pending.mode,
+        placementId: pending.placementId,
+        yaw: pending.yaw,
+      });
+      if (updated) {
+        publishPendingPlacement(updated);
+        confirmPendingPlacement(updated);
+      }
+      return;
+    }
     if (cityTool === "place" && activeCatalogId) {
-      placeCatalogAtPointer(activeCatalogId, event.clientX, event.clientY);
+      const next = placementAtPointer(activeCatalogId, event.clientX, event.clientY, { mode: "add", yaw: 0 });
+      if (next) {
+        publishPendingPlacement(next);
+        confirmPendingPlacement(next);
+      }
       return;
     }
     setSelectedPlacementId(sceneRef.current?.pickCityPlacement(event.clientX, event.clientY) ?? null);
   };
 
   const onCityCanvasPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (playMode || settings.mapType !== "city" || cityTool !== "road") return;
-    const point = sceneRef.current?.projectCityPointer(event.clientX, event.clientY);
-    if (!point) return;
+    if (!canEdit || playMode || settings.mapType !== "city") return;
+    if (cityTool === "road") {
+      const point = sceneRef.current?.projectCityPointer(event.clientX, event.clientY);
+      if (!point) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      roadStrokeStartRef.current = point;
+      return;
+    }
+    if (cityTool !== "select" || pendingPlacementRef.current) {
+      cameraGestureRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        moved: false,
+      };
+      return;
+    }
+    const placementId = sceneRef.current?.pickCityPlacement(event.clientX, event.clientY) ?? null;
+    if (!placementId) {
+      cameraGestureRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        moved: false,
+      };
+      return;
+    }
+    const placement = citySession.document.placements.find((candidate) => candidate.id === placementId);
+    setSelectedPlacementId(placementId);
+    if (placement?.poseKind !== "grid") {
+      cameraGestureRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        moved: false,
+      };
+      return;
+    }
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    roadStrokeStartRef.current = point;
+    sceneRef.current?.setCityPlacementDragging(true);
+    placementDragRef.current = {
+      placementId,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      started: false,
+    };
   };
 
   const onCityCanvasPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const drag = placementDragRef.current;
+    if (drag?.pointerId === event.pointerId) {
+      placementDragRef.current = null;
+      sceneRef.current?.setCityPlacementDragging(false);
+      if (drag.started) suppressNextCanvasClickRef.current = true;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
+    const cameraGesture = cameraGestureRef.current;
+    if (cameraGesture?.pointerId === event.pointerId) {
+      cameraGestureRef.current = null;
+      if (cameraGesture.moved) suppressNextCanvasClickRef.current = true;
+      return;
+    }
     const start = roadStrokeStartRef.current;
     roadStrokeStartRef.current = null;
-    if (!start || playMode || settings.mapType !== "city" || cityTool !== "road") return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (!start || !canEdit || playMode || settings.mapType !== "city" || cityTool !== "road") return;
     const end = sceneRef.current?.projectCityPointer(event.clientX, event.clientY);
     if (!end) return;
     try {
@@ -385,14 +814,81 @@ export function MapStudio() {
         end.x,
         end.z,
         activeRoadPreset,
+        { sidewalkWidthTier: activeSidewalkWidth },
       ));
     } catch (error) {
       setStatus(cityMutationStatus(error, locale, { en: "Road could not be created.", zh: "道路无法创建。" }));
     }
   };
 
+  const onCityCanvasPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!canEdit || settings.mapType !== "city" || playMode) {
+      sceneRef.current?.setCityEditorGridHover(null);
+      return;
+    }
+    lastCityPointerClientRef.current = { x: event.clientX, y: event.clientY };
+    const point = sceneRef.current?.projectCityPointer(event.clientX, event.clientY);
+    sceneRef.current?.setCityEditorGridHover(cityGridVisible && point ? { i: point.i, j: point.j } : null);
+
+    const cameraGesture = cameraGestureRef.current;
+    if (cameraGesture?.pointerId === event.pointerId && !cameraGesture.moved) {
+      cameraGesture.moved = Math.hypot(
+        event.clientX - cameraGesture.startClientX,
+        event.clientY - cameraGesture.startClientY,
+      ) >= 4;
+    }
+
+    const drag = placementDragRef.current;
+    if (drag?.pointerId === event.pointerId) {
+      const distance = Math.hypot(
+        event.clientX - drag.startClientX,
+        event.clientY - drag.startClientY,
+      );
+      if (!drag.started && distance >= 4) {
+        drag.started = true;
+        const placement = citySession.document.placements.find((candidate) => candidate.id === drag.placementId);
+        if (placement?.poseKind === "grid") {
+          const next = placementAtPointer(placement.catalogId, event.clientX, event.clientY, {
+            mode: "move",
+            placementId: placement.id,
+            yaw: placement.yaw,
+          });
+          if (next) publishPendingPlacement(next);
+        }
+      } else if (drag.started) {
+        updatePendingPlacementAtPointer(event.clientX, event.clientY);
+      }
+      return;
+    }
+
+    if (pendingPlacementRef.current) {
+      updatePendingPlacementAtPointer(event.clientX, event.clientY);
+    } else if (cityTool === "place" && activeCatalogId) {
+      previewCatalogAtPointer(activeCatalogId, event.clientX, event.clientY);
+    }
+  };
+
+  const moveSelected = () => {
+    if (!selectedPlacementId) return;
+    const placement = citySession.document.placements.find((candidate) => candidate.id === selectedPlacementId);
+    if (placement?.poseKind !== "grid") return;
+    publishPendingPlacement(Object.freeze({
+      mode: "move",
+      placementId: placement.id,
+      catalogId: placement.catalogId,
+      i: placement.i,
+      j: placement.j,
+      yaw: placement.yaw,
+      valid: true,
+      error: null,
+    }));
+    setCityTool("select");
+    setStatus(locale === "zh" ? "移动鼠标预览位置，单击确认；Esc 取消" : "Move the pointer to preview, then click to confirm; Esc cancels");
+  };
+
   const rotateSelected = () => {
     if (!selectedPlacementId) return;
+    cancelPendingPlacement();
     const placement = citySession.document.placements.find((candidate) => candidate.id === selectedPlacementId);
     if (placement?.poseKind !== "grid") return;
     try {
@@ -404,12 +900,14 @@ export function MapStudio() {
 
   const deleteSelected = () => {
     if (!selectedPlacementId) return;
+    cancelPendingPlacement();
     citySession.apply(createDeletePlacementsDelta(citySession.document, [selectedPlacementId]));
     setSelectedPlacementId(null);
   };
 
   const duplicateSelected = () => {
     if (!selectedPlacementId) return;
+    cancelPendingPlacement();
     try {
       citySession.apply(duplicateGridPlacements(citySession.document, [selectedPlacementId]));
       setSelectedPlacementId(citySession.document.placements.at(-1)?.id ?? null);
@@ -418,15 +916,38 @@ export function MapStudio() {
     }
   };
 
+  const resizeSelectedStandardCommunity = (rowsPerSide: StandardCommunityRowOption) => {
+    if (!selectedPlacementId) return;
+    cancelPendingPlacement();
+    try {
+      citySession.apply(createReplaceGridPlacementCatalogDelta(
+        citySession.document,
+        selectedPlacementId,
+        standardCommunityCatalogId(rowsPerSide),
+      ));
+      setActiveCatalogId(standardCommunityCatalogId(rowsPerSide));
+      setStatus(locale === "zh"
+        ? `普通小区已调整为左右各${rowsPerSide}排`
+        : `Standard community resized to ${rowsPerSide} rows per side`);
+    } catch (error) {
+      setStatus(cityMutationStatus(error, locale, {
+        en: "The community cannot expand into occupied map cells.",
+        zh: "小区扩展范围与现有物件或道路冲突。",
+      }));
+    }
+  };
+
   const importDefaultCity = () => {
-    if (!window.confirm(locale === "zh" ? "用默认雨港替换当前城市？可用撤销恢复。" : "Replace the current city with Rain Harbor? You can undo this.")) return;
-    citySession.replace(cloneCityDocument(importRainHarborDocument(settings)), "import");
+    if (!window.confirm(locale === "zh" ? "用默认雪松新城替换当前城市？可用撤销恢复。" : "Replace the current city with Cedar Crossing? You can undo this.")) return;
+    cancelPendingPlacement();
+    citySession.replace(cloneCityDocument(createCedarCrossingDocument()), "import");
     setSelectedPlacementId(null);
-    setStatus(locale === "zh" ? "已导入默认雨港" : "Rain Harbor imported");
+    setStatus(locale === "zh" ? "已导入默认雪松新城" : "Cedar Crossing imported");
   };
 
   const clearCity = () => {
     if (!window.confirm(locale === "zh" ? "清空当前城市并回到空白镜框？可用撤销恢复。" : "Clear the city back to the empty frame? You can undo this.")) return;
+    cancelPendingPlacement();
     citySession.replace(cloneCityDocument(emptyCityDocument()), "clear");
     setSelectedPlacementId(null);
   };
@@ -440,7 +961,8 @@ export function MapStudio() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${settings.mapType}-map-${settings.seed}.json`;
+    const safeName = map.name.trim().replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^-+|-+$/g, "") || settings.mapType;
+    link.download = `${safeName}.json`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -461,6 +983,9 @@ export function MapStudio() {
         throw new Error("invalid map");
       }
       const next = { ...DEFAULT_SETTINGS, ...parsed.settings };
+      if (next.mapType !== map.kind) {
+        throw new Error("map type does not match the selected library entry");
+      }
       if (next.mapType === "city") {
         const document = parsed.version === 3 && parsed.cityDocument !== undefined
           ? parseCityMapDocument(parsed.cityDocument, {
@@ -479,23 +1004,45 @@ export function MapStudio() {
   };
 
   const enterPlay = () => {
+    if (!canEdit) return;
     if (settings.mapType === "city" && !sceneRef.current?.isCityDocumentCollisionReady()) {
       setStatus(locale === "zh" ? "正在编译城市碰撞，请稍候…" : "Compiling city collision…");
       return;
     }
+    cancelPendingPlacement();
     setStatus(sceneRef.current?.isRiderReady() ? t.statusEnterPlay : t.statusRiderLoading);
     setPanelOpen(false);
     sceneRef.current?.setDriveMode(true);
   };
 
   const enterWorkshop = () => {
+    if (!canEdit) return;
     sceneRef.current?.setDriveMode(false);
+  };
+
+  const exitToLibrary = () => {
+    if (canEdit && hasMapChanges) {
+      onSaveRef.current({
+        settings,
+        ...(map.kind === "city" ? { cityDocument: citySession.document } : {}),
+      });
+    }
+    sceneRef.current?.setDriveMode(false);
+    onExitRef.current();
   };
 
   const toggleAudio = () => {
     setAudioMuted((current) => {
       const next = !current;
       sceneRef.current?.setAudioMuted(next);
+      return next;
+    });
+  };
+
+  const toggleCityGrid = () => {
+    setCityGridVisible((current) => {
+      const next = !current;
+      writeCityEditorGridPreference(next);
       return next;
     });
   };
@@ -509,45 +1056,81 @@ export function MapStudio() {
     season === "spring" ? t.seasonSpring : season === "summer" ? t.seasonSummer : t.seasonAutumn;
 
   return (
-    <main className={`studio-shell ${settings.mapType}-map ${playMode ? "play-mode" : "workshop-mode"}`}>
-      <a className="skip-link" href="#map-controls">{t.skipLink}</a>
-      <section className="viewport" aria-label={settings.mapType === "city" ? (locale === "zh" ? "雨港新城三维预览" : "Rain Harbor city 3D preview") : playMode ? t.viewportPlay : t.viewportWorkshop}>
+    <main className={`studio-shell ${settings.mapType}-map ${immersive ? "play-mode" : "workshop-mode"}`}>
+      {canEdit && <a className="skip-link" href="#map-controls">{t.skipLink}</a>}
+      <section className="viewport" aria-label={settings.mapType === "city" ? (locale === "zh" ? `${map.name} 三维预览` : `${map.name} 3D preview`) : immersive ? t.viewportPlay : t.viewportWorkshop}>
         <canvas
           ref={canvasRef}
-          className={`scene-canvas ${settings.mapType === "city" && !playMode ? `city-${cityTool}-tool` : ""}`}
+          className={`scene-canvas ${canEdit && settings.mapType === "city" && !playMode ? `city-${cityTool}-tool` : ""}`}
           tabIndex={0}
           onClick={onCityCanvasClick}
+          onPointerMove={onCityCanvasPointerMove}
+          onPointerLeave={() => sceneRef.current?.setCityEditorGridHover(null)}
           onPointerDown={onCityCanvasPointerDown}
           onPointerUp={onCityCanvasPointerUp}
           onPointerCancel={(event) => {
             roadStrokeStartRef.current = null;
+            placementDragRef.current = null;
+            cameraGestureRef.current = null;
+            sceneRef.current?.setCityPlacementDragging(false);
+            sceneRef.current?.setCityEditorGridHover(null);
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
               event.currentTarget.releasePointerCapture(event.pointerId);
             }
           }}
           onDragOver={(event) => {
-            if (settings.mapType !== "city" || playMode) return;
+            if (!canEdit || settings.mapType !== "city" || playMode) return;
             if (event.dataTransfer.types.includes("application/x-forest-city-catalog")) {
               event.preventDefault();
               event.dataTransfer.dropEffect = "copy";
+              const catalogId = event.dataTransfer.getData("application/x-forest-city-catalog") || activeCatalogId;
+              if (catalogId) previewCatalogAtPointer(catalogId, event.clientX, event.clientY);
             }
           }}
           onDrop={(event) => {
-            if (settings.mapType !== "city" || playMode) return;
+            if (!canEdit || settings.mapType !== "city" || playMode) return;
             const catalogId = event.dataTransfer.getData("application/x-forest-city-catalog");
             if (!catalogId) return;
             event.preventDefault();
-            placeCatalogAtPointer(catalogId, event.clientX, event.clientY);
+            setActiveCatalogId(catalogId);
+            setCityTool("place");
+            previewCatalogAtPointer(catalogId, event.clientX, event.clientY);
+            setStatus(locale === "zh" ? "移动鼠标预览位置，单击确认；Esc 取消" : "Move the pointer to preview, then click to confirm; Esc cancels");
           }}
         />
         <div className="atmosphere" aria-hidden="true" />
+
+        {canEdit && settings.mapType === "city" && !playMode && pendingPlacement && (
+          <div
+            className={`city-placement-confirm ${pendingPlacement.valid ? "valid" : "invalid"}`}
+            role="status"
+            data-testid="city-placement-preview-status"
+            data-valid={pendingPlacement.valid}
+          >
+            <strong>{pendingPlacement.mode === "move"
+              ? (locale === "zh" ? "移动预览" : "Move preview")
+              : (locale === "zh" ? "放置预览" : "Placement preview")}</strong>
+            <span>{pendingPlacement.valid
+              ? (locale === "zh" ? "绿色格可用 · 单击确认 · Esc 取消" : "Green cells are available · click to confirm · Esc to cancel")
+              : (locale === "zh" ? "红色格有冲突 · 请移动到可用位置" : "Red cells conflict · move to an available location")}</span>
+            <button type="button" onClick={cancelPendingPlacement}>{locale === "zh" ? "取消" : "Cancel"}</button>
+          </div>
+        )}
+
+        {canEdit && settings.mapType === "city" && !playMode && selectedPlacement && !pendingPlacement && (
+          <div className="city-selection-toolbar" role="toolbar" aria-label={locale === "zh" ? "所选物件操作" : "Selected object actions"} data-testid="city-selection-toolbar">
+            <button type="button" onClick={moveSelected} disabled={selectedPlacement.poseKind !== "grid"}>{locale === "zh" ? "移动" : "Move"}</button>
+            <button type="button" onClick={rotateSelected} disabled={selectedPlacement.poseKind !== "grid"}>{locale === "zh" ? "旋转" : "Rotate"}</button>
+            <button type="button" className="danger" onClick={deleteSelected}>{locale === "zh" ? "删除" : "Delete"}</button>
+          </div>
+        )}
 
         <header className="brand-lockup" aria-label="Rabbit">
           <div className="brand-mark">兔</div>
           <p className="brand-version">{t.brandVersion}</p>
         </header>
 
-        <div className="mode-switch" role="tablist" aria-label={t.modeSwitch}>
+        {canEdit && <div className="mode-switch" role="tablist" aria-label={t.modeSwitch}>
           <button
             type="button"
             role="tab"
@@ -566,7 +1149,7 @@ export function MapStudio() {
           >
             {t.play}
           </button>
-        </div>
+        </div>}
 
         <div className="lang-switch" role="group" aria-label={t.langSwitch}>
           <button
@@ -587,14 +1170,14 @@ export function MapStudio() {
           </button>
         </div>
 
-        {!playMode && (
+        {canEdit && !playMode && (
           <a className="showcase-switch" href="/demos" aria-label={locale === "zh" ? "切换到城市模型展示区" : "Switch to the city model showcase"}>
             <span>{locale === "zh" ? "城市模型展示区" : "City model showcase"}</span>
             <i aria-hidden="true">↗</i>
           </a>
         )}
 
-        {!playMode && (
+        {canEdit && !playMode && (
           <div className="scene-stats" aria-live="polite">
             {settings.mapType === "city" ? (
               <>
@@ -615,7 +1198,21 @@ export function MapStudio() {
         )}
 
         <div className="view-actions">
-          {playMode ? (
+          {entryMode === "play" ? (
+            <>
+              <button type="button" className="active" onClick={exitToLibrary}>
+                {locale === "zh" ? "返回地图列表" : "Back to maps"}
+              </button>
+              <button
+                type="button"
+                className={audioMuted ? "" : "active"}
+                aria-pressed={!audioMuted}
+                onClick={toggleAudio}
+              >
+                {audioMuted ? t.unmute : t.mute}
+              </button>
+            </>
+          ) : playMode ? (
             <>
               <button type="button" className="active" onClick={enterWorkshop}>
                 {t.backToWorkshop}
@@ -641,6 +1238,9 @@ export function MapStudio() {
             </>
           ) : (
             <>
+              <button type="button" onClick={exitToLibrary}>
+                {locale === "zh" ? "地图列表" : "Map library"}
+              </button>
               <button type="button" className="play-cta" onClick={enterPlay}>
                 {t.play}
               </button>
@@ -668,13 +1268,13 @@ export function MapStudio() {
 
         <aside className="minimap-panel" aria-label="Minimap">
           <canvas ref={minimapRef} className="minimap-canvas" width={188} height={188} />
-          <p>{playMode ? t.minimapPlay : settings.mapType === "city" ? t.minimapCityWorkshop : t.minimapWorkshop}</p>
+          <p>{immersive ? t.minimapPlay : settings.mapType === "city" ? t.minimapCityWorkshop : t.minimapWorkshop}</p>
         </aside>
 
         <div className="status-pill"><i />{status}</div>
         {playMode && (
           <div className="drive-hint" role="status">
-            {t.driveHint}
+            {driveHint(locale, entryMode)}
           </div>
         )}
         {playMode && (
@@ -688,50 +1288,88 @@ export function MapStudio() {
             labelReverse={t.gaugeReverse}
           />
         )}
-        {!playMode && (
+        {canEdit && !playMode && (
           <div className="route-note">
             <span>{settings.mapType === "city" ? "ROUTE 02" : t.routeLabel}</span>
-            <p>{settings.mapType === "city" ? (locale === "zh" ? "穿过五个城区，把灯火送到港湾。" : "Carry the city lights all the way to the harbor.") : t.routeNote}</p>
+            <p>{settings.mapType === "city" ? (locale === "zh" ? "穿过住宅、商业、公共服务与工业街区，把城市连接起来。" : "Connect the residential, commercial, public-service and industrial blocks.") : t.routeNote}</p>
           </div>
         )}
       </section>
 
-      {settings.mapType === "city" ? (!playMode && panelOpen ? (
+      {settings.mapType === "city" ? (canEdit && !playMode && panelOpen ? (
         <CityEditorPanel
           document={citySnapshot.document}
           locale={locale}
           tool={cityTool}
           activeCatalogId={activeCatalogId}
           activeRoadPreset={activeRoadPreset}
+          activeSidewalkWidth={activeSidewalkWidth}
           selectedPlacementId={selectedPlacementId}
           topDown={cityTopDown}
+          gridVisible={cityGridVisible}
+          saveStatus={saveStatus}
+          onExit={exitToLibrary}
           onClose={() => setPanelOpen(false)}
-          onToolChange={setCityTool}
+          onToolChange={(tool) => {
+            cancelPendingPlacement();
+            setCityTool(tool);
+          }}
           onCatalogChange={(catalogId) => {
+            cancelPendingPlacement();
             setActiveCatalogId(catalogId);
             setCityTool("place");
+            const pointer = lastCityPointerClientRef.current;
+            if (pointer) previewCatalogAtPointer(catalogId, pointer.x, pointer.y);
           }}
           onRoadPresetChange={(preset) => {
+            cancelPendingPlacement();
             setActiveRoadPreset(preset);
             setCityTool("road");
           }}
+          onSidewalkWidthChange={(width) => {
+            cancelPendingPlacement();
+            setActiveSidewalkWidth(width);
+            setCityTool("road");
+          }}
+          onMoveSelection={moveSelected}
           onRotateSelection={rotateSelected}
           onDeleteSelection={deleteSelected}
           onDuplicateSelection={duplicateSelected}
-          onUndo={() => citySession.undo()}
-          onRedo={() => citySession.redo()}
+          onStandardCommunityRowsChange={resizeSelectedStandardCommunity}
+          onUndo={() => {
+            cancelPendingPlacement();
+            citySession.undo();
+          }}
+          onRedo={() => {
+            cancelPendingPlacement();
+            citySession.redo();
+          }}
           onToggleCamera={() => {
             const next = !cityTopDown;
             setCityTopDown(next);
             sceneRef.current?.setCityEditorTopDown(next);
           }}
+          onToggleGrid={toggleCityGrid}
           onImportDefault={importDefaultCity}
           onClear={clearCity}
           onExport={exportMap}
           onImportFile={() => importRef.current?.click()}
         />
-      ) : null) : (
+      ) : null) : (canEdit ? (
       <aside id="map-controls" className={`control-panel ${panelOpen && !playMode ? "open" : ""}`} hidden={playMode}>
+        <div className="workspace-panel-nav">
+          <button type="button" className="workspace-back-button" data-testid="editor-back-to-maps" onClick={exitToLibrary}>
+            <span aria-hidden="true">←</span>{locale === "zh" ? "返回地图列表" : "Back to map list"}
+          </button>
+          <span className={`map-autosave-status ${saveStatus}`} role="status" aria-live="polite" data-testid="map-autosave-status" data-state={saveStatus}>
+            <i aria-hidden="true" />
+            {saveStatus === "saving"
+              ? (locale === "zh" ? "正在自动保存" : "Autosaving")
+              : saveStatus === "error"
+                ? (locale === "zh" ? "保存失败" : "Save failed")
+                : (locale === "zh" ? "已自动保存" : "Autosaved")}
+          </span>
+        </div>
         <div className="panel-heading">
           <div>
             <p className="eyebrow">{t.panelEyebrow}</p>
@@ -741,25 +1379,9 @@ export function MapStudio() {
         </div>
         <p className="panel-intro">
           {draft.mapType === "city"
-            ? (locale === "zh" ? "调节雨港的建筑与街道，然后骑上小兔子摩托穿过五个城区配送。" : "Tune Rain Harbor, then ride the rabbit scooter through all five city districts.")
+            ? (locale === "zh" ? "编辑雪松新城的道路、建筑与多种场景，然后随时骑上小兔子摩托试玩。" : "Edit Cedar Crossing's roads, buildings and districts, then test the ride at any time.")
             : t.panelIntro}
         </p>
-
-        <section className="control-group map-choice-group">
-          <div className="section-label"><span>{t.mapChoice}</span><b>00</b></div>
-          <div className="map-choice-grid">
-            <button type="button" className={draft.mapType === "forest" ? "active" : ""} onClick={() => selectMap("forest")}>
-              <span className="map-choice-icon forest">林</span>
-              <strong>{t.forestMap}</strong>
-              <small>{t.forestMapDesc}</small>
-            </button>
-            <button type="button" className={draft.mapType === "city" ? "active" : ""} onClick={() => selectMap("city")}>
-              <span className="map-choice-icon city">市</span>
-              <strong>{t.cityMap}</strong>
-              <small>{t.cityMapDesc}</small>
-            </button>
-          </div>
-        </section>
 
         <section className="control-group">
           <div className="section-label"><span>{t.worldParams}</span><b>01</b></div>
@@ -832,7 +1454,7 @@ export function MapStudio() {
         <a className="model-showcase-entry" href="/demos">
           <span>
             <b>{locale === "zh" ? "模型展示区" : "Model showcase"}</b>
-            <small>{locale === "zh" ? "街道装饰 · 居民建筑 · 医院 · 游乐园 · 学校 · 商业中心 · 完整社区 · 消防局 · 城市公园 · 体育中心 · 城市中心 · 市镇中心" : "Street · Residential · Hospital · Amusement park · School · Shopping mall · Community · Fire station · City park · Sports center · City center · Town center"}</small>
+            <small>{locale === "zh" ? "街道装饰 · 交通工具 · 居民建筑 · 医院 · 游乐园 · 学校 · 商业中心 · 完整社区 · 消防局 · 城市公园 · 体育中心 · 城市中心 · 市镇中心" : "Street · Transportation · Residential · Hospital · Amusement park · School · Shopping mall · Community · Fire station · City park · Sports center · City center · Town center"}</small>
           </span>
           <i>↗</i>
         </a>
@@ -850,9 +1472,9 @@ export function MapStudio() {
           <button type="button" onClick={() => importRef.current?.click()}>{t.importMap}</button>
         </div>
 
-        <footer className="panel-footer"><span>{draft.mapType === "city" ? "RAIN HARBOR CITY" : "DEEP FOREST CANOPY"}</span><span>v0.6</span></footer>
+        <footer className="panel-footer"><span>{map.name}</span><span>v0.7</span></footer>
       </aside>
-      )}
+      ) : null)}
       <input
         ref={importRef}
         type="file"

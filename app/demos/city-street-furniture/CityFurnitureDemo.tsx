@@ -26,6 +26,18 @@ import {
 } from "../../lib/map/cityFurnitureShatter";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
+import {
+  acquireResourceCacheLease,
+  disposeSceneResources,
+  internScenePrimitiveGeometries,
+  retireResourceCacheGeneration,
+} from "../../lib/map/cityResourceCache";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
+import {
+  buildLowPolyPremiumResidentialGate,
+  buildLowPolyStandardResidentialGate,
+  buildLowPolyVillaResidentialGate,
+} from "../../lib/map/residentialGates";
 import styles from "./CityFurnitureDemo.module.css";
 
 const TREE_URL = "/models/forest/tree_normal_medium_redwood_a.glb";
@@ -49,11 +61,14 @@ const MODEL_FOCUS = {
   villa: { target: new THREE.Vector3(10, 4.7, 18), camera: new THREE.Vector3(27, 13, 43) },
   highrise: { target: new THREE.Vector3(26, 27, 20), camera: new THREE.Vector3(59, 49, 91) },
   office: { target: new THREE.Vector3(0, 12, 48), camera: new THREE.Vector3(47, 39, 102) },
+  standardGate: { target: new THREE.Vector3(-26, 3, -14), camera: new THREE.Vector3(-13, 10, 4) },
+  premiumGate: { target: new THREE.Vector3(0, 3.8, -14), camera: new THREE.Vector3(17, 13, 7) },
+  villaGate: { target: new THREE.Vector3(26, 3.2, -14), camera: new THREE.Vector3(39, 11, 5) },
 } as const;
 
 const CATEGORY_OVERVIEW: Record<ShowcaseCategory, { target: THREE.Vector3; camera: THREE.Vector3 }> = {
   street: { target: new THREE.Vector3(0, 3.6, 0), camera: new THREE.Vector3(35, 22, 42) },
-  residential: { target: new THREE.Vector3(5, 16, 31), camera: new THREE.Vector3(78, 53, 108) },
+  residential: { target: new THREE.Vector3(4, 13, 23), camera: new THREE.Vector3(82, 53, 108) },
 };
 
 const CATEGORY_RIDER_FOREGROUND: Record<ShowcaseCategory, THREE.Vector3> = {
@@ -66,7 +81,7 @@ type ModelFocus = Exclude<Focus, "all">;
 type ModelCardMetrics = ModelGeometryMetrics & { shatteredFaceCount: number };
 
 const STREET_MODELS = new Set<ModelFocus>(["tree", "lamp", "signal", "phone", "truck", "hotdog", "newsstand", "planter"]);
-const RESIDENTIAL_MODELS = new Set<ModelFocus>(["apartment", "villa", "highrise", "office"]);
+const RESIDENTIAL_MODELS = new Set<ModelFocus>(["apartment", "villa", "highrise", "office", "standardGate", "premiumGate", "villaGate"]);
 
 const MODEL_CARDS: Array<{
   id: ModelFocus;
@@ -218,6 +233,42 @@ const MODEL_CARDS: Array<{
       { label: "可用交互", value: "办公内饰剖面 / 夜间办公灯光" },
     ],
   },
+  {
+    id: "standardGate",
+    number: "MODEL 13",
+    title: "普通小区入口大门",
+    summary: "20 × 6 格 · 双车道 · 独立人行门",
+    stats: [
+      { label: "模块占地", value: "20 × 6 个 1 m 地图格" },
+      { label: "通行组织", value: "2 条 5.5 m 车道 / 1 条 2 m 人行道" },
+      { label: "门卫设施", value: "玻璃岗亭、对讲机、车牌摄像机与雨棚" },
+      { label: "动态交互", value: "双道闸与人行门联动 / 夜间照明" },
+    ],
+  },
+  {
+    id: "premiumGate",
+    number: "MODEL 14",
+    title: "高档小区入口大门",
+    summary: "24 × 8 格 · 礼宾亭 · 景观门廊",
+    stats: [
+      { label: "模块占地", value: "24 × 8 个 1 m 地图格" },
+      { label: "通行组织", value: "2 条 6.2 m 车道 / 两侧独立人行门" },
+      { label: "礼宾设施", value: "玻璃礼宾亭、悬浮雨棚、景观水池与访客屏" },
+      { label: "动态交互", value: "伸缩滑门与双人行门联动 / 夜间照明" },
+    ],
+  },
+  {
+    id: "villaGate",
+    number: "MODEL 15",
+    title: "别墅小区入口大门",
+    summary: "18 × 7 格 · 石材门柱 · 铸铁对开门",
+    stats: [
+      { label: "模块占地", value: "18 × 7 个 1 m 地图格" },
+      { label: "通行组织", value: "1 条 6 m 车道 / 1 条 2 m 人行道" },
+      { label: "建筑语言", value: "坡顶门卫室、石材门柱、铸铁门与庭院灯" },
+      { label: "动态交互", value: "对开车门与人行门联动 / 夜间照明" },
+    ],
+  },
 ];
 
 type DemoApi = {
@@ -231,6 +282,7 @@ type DemoApi = {
   setHighRiseInteriorCutaway: (cutaway: boolean) => void;
   setHighRiseElevatorAuto: (enabled: boolean) => void;
   setOfficeInteriorCutaway: (cutaway: boolean) => void;
+  setResidentialGatesOpen: (open: boolean) => void;
   setShattered: (shattered: boolean) => void;
   setAutoRotate: (enabled: boolean) => void;
   focus: (focus: Focus) => void;
@@ -266,6 +318,7 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
   const [highRiseInteriorCutaway, setHighRiseInteriorCutaway] = useState(false);
   const [highRiseElevatorAuto, setHighRiseElevatorAuto] = useState(true);
   const [officeInteriorCutaway, setOfficeInteriorCutaway] = useState(false);
+  const [residentialGatesOpen, setResidentialGatesOpen] = useState(false);
   const [operationsCollapsed, setOperationsCollapsed] = useState(false);
   const [shattered, setShattered] = useState(false);
   const [focus, setFocus] = useState<Focus>("all");
@@ -302,6 +355,7 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
     controls.minDistance = 7;
     controls.maxDistance = 120;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
 
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(72, 64),
@@ -352,6 +406,7 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
 
     const shatterPairs: FurnitureShatterPair[] = [];
     const shatterMorph = new ShatterMorphController(0);
+    const resourceCacheLease = acquireResourceCacheLease();
     const initialMetrics: Partial<Record<ModelFocus, ModelCardMetrics>> = {};
     const addPairedDecoration = (
       id: ModelFocus,
@@ -400,6 +455,13 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
     if (highRise) addPairedDecoration("highrise", highRise, new THREE.Vector3(31, 0.42, 21), 0, 367, HIGH_RISE_SHOWCASE_SCALE, 8);
     const office = category === "residential" ? buildLowPolyOfficeCampus() : null;
     if (office) addPairedDecoration("office", office, new THREE.Vector3(0, 0.42, 50), 0, 401, OFFICE_SHOWCASE_SCALE, 12);
+    const standardGate = category === "residential" ? buildLowPolyStandardResidentialGate() : null;
+    if (standardGate) addPairedDecoration("standardGate", standardGate, new THREE.Vector3(-26, 0, -14), 0, 443);
+    const premiumGate = category === "residential" ? buildLowPolyPremiumResidentialGate() : null;
+    if (premiumGate) addPairedDecoration("premiumGate", premiumGate, new THREE.Vector3(0, 0, -14), 0, 487);
+    const villaGate = category === "residential" ? buildLowPolyVillaResidentialGate() : null;
+    if (villaGate) addPairedDecoration("villaGate", villaGate, new THREE.Vector3(26, 0, -14), 0, 521);
+    internScenePrimitiveGeometries(scene, resourceCacheLease);
     setModelMetrics(initialMetrics);
 
     let disposed = false;
@@ -454,24 +516,22 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
           ...current,
           tree: { ...normalTreeMetrics, shatteredFaceCount: shatteredTreeMetrics.faceCount },
         }));
-        shatteredTreeSource.traverse((object) => {
-          if (!(object instanceof THREE.Mesh)) return;
-          object.geometry.dispose();
-          const materials = Array.isArray(object.material) ? object.material : [object.material];
-          materials.forEach((material) => material.dispose());
-        });
+        disposeSceneResources(shatteredTreeSource);
         setTreeLoaded(true);
       })
       .catch(() => {
         if (!disposed) setTreeLoaded(false);
       });
-    else setTreeLoaded(true);
+    else queueMicrotask(() => {
+      if (!disposed) setTreeLoaded(true);
+    });
 
     const desiredTarget = CATEGORY_OVERVIEW[category].target.clone();
     const desiredCamera = CATEGORY_OVERVIEW[category].camera.clone();
     let rotating = false;
     let interacting = false;
     let focusBlend = 0;
+    let elevatorAuto = category === "residential";
     controls.addEventListener("start", () => { interacting = true; focusBlend = 0; });
     controls.addEventListener("end", () => { interacting = false; });
     const setNightMode = (on: boolean) => {
@@ -490,6 +550,9 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
       villa?.userData.setPowered(on);
       highRise?.userData.setPowered(on);
       office?.userData.setPowered(on);
+      standardGate?.userData.setPowered(on);
+      premiumGate?.userData.setPowered(on);
+      villaGate?.userData.setPowered(on);
     };
     const focusModel = (next: Focus) => {
       desiredTarget.copy(next === "all" ? CATEGORY_OVERVIEW[category].target : MODEL_FOCUS[next].target);
@@ -509,8 +572,16 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
       setVillaDoorOpen: (open) => villa?.userData.setDoorOpen(open),
       setVillaInteriorCutaway: (cutaway) => villa?.userData.setInteriorCutaway(cutaway),
       setHighRiseInteriorCutaway: (cutaway) => highRise?.userData.setInteriorCutaway(cutaway),
-      setHighRiseElevatorAuto: (enabled) => highRise?.userData.setElevatorAuto(enabled),
+      setHighRiseElevatorAuto: (enabled) => {
+        elevatorAuto = enabled;
+        highRise?.userData.setElevatorAuto(enabled);
+      },
       setOfficeInteriorCutaway: (cutaway) => office?.userData.setInteriorCutaway(cutaway),
+      setResidentialGatesOpen: (open) => {
+        standardGate?.userData.setGateOpen(open);
+        premiumGate?.userData.setGateOpen(open);
+        villaGate?.userData.setGateOpen(open);
+      },
       setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.75; },
       focus: focusModel,
@@ -528,6 +599,9 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
     highRise?.userData.setElevatorFloors([4, 13]);
     highRise?.userData.setElevatorAuto(true);
     office?.userData.setInteriorCutaway(false);
+    standardGate?.userData.setGateOpen(false);
+    premiumGate?.userData.setGateOpen(false);
+    villaGate?.userData.setGateOpen(false);
 
     const clock = new THREE.Clock();
     let frame = 0;
@@ -535,7 +609,8 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
       frame = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
       highRise?.userData.updateElevators(dt);
-      if (shatterMorph.update(dt)) {
+      const morphChanged = shatterMorph.update(dt);
+      if (morphChanged) {
         const amount = shatterMorph.getAmount();
         shatterPairs.forEach((pair) => pair.setAmount(amount));
       }
@@ -544,8 +619,11 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged,
+        internalAnimation: elevatorAuto, controlsChanged,
+      }));
     };
     animate();
 
@@ -562,14 +640,12 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      resourceCacheLease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };
@@ -634,6 +710,11 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
     apiRef.current?.setOfficeInteriorCutaway(next);
     chooseFocus("office");
   };
+  const toggleResidentialGates = () => {
+    const next = !residentialGatesOpen;
+    setResidentialGatesOpen(next);
+    apiRef.current?.setResidentialGatesOpen(next);
+  };
   const toggleShattered = () => {
     const next = !shattered;
     setShattered(next);
@@ -669,7 +750,7 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
         <div id="city-demo-operations" className={styles.headerContent} hidden={operationsCollapsed}>
           <p className={styles.intro}>{category === "street"
             ? "本展厅仅展示行道树、路灯、信号灯、餐车、街边亭、电话亭与花坛；居民楼与其他建筑已移至居民建筑展厅。"
-            : "本展厅集中展示社区居民楼、坡顶别墅、18 层高层住宅及宽体办公园区，并保留完整内饰与建筑交互。"}</p>
+            : "本展厅集中展示社区居民楼、坡顶别墅、高层住宅、办公园区，以及按 1 × 1 m 地图格构建的普通、高档、别墅小区入口大门。"}</p>
           <div className={styles.actions}>
             <button type="button" className={shattered ? styles.danger : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复全部模型" : "破碎全部模型"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换晴天" : "查看夜间灯光"}</button>
@@ -684,6 +765,7 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
               <button type="button" className={highRiseInteriorCutaway ? styles.active : ""} aria-pressed={highRiseInteriorCutaway} onClick={toggleHighRiseInterior}>{highRiseInteriorCutaway ? "恢复高层外观" : "查看高层内部"}</button>
               <button type="button" className={highRiseElevatorAuto ? styles.active : ""} aria-pressed={highRiseElevatorAuto} onClick={toggleHighRiseElevatorAuto}>{highRiseElevatorAuto ? "关闭电梯自动运行" : "开启电梯自动运行"}</button>
               <button type="button" className={officeInteriorCutaway ? styles.active : ""} aria-pressed={officeInteriorCutaway} onClick={toggleOfficeInterior}>{officeInteriorCutaway ? "恢复办公楼外观" : "查看办公楼内部"}</button>
+              <button type="button" className={residentialGatesOpen ? styles.active : ""} aria-pressed={residentialGatesOpen} onClick={toggleResidentialGates}>{residentialGatesOpen ? "关闭三套小区大门" : "打开三套小区大门"}</button>
             </>}
             <button type="button" className={autoRotate ? styles.active : ""} onClick={toggleRotate}>{autoRotate ? "停止旋转" : "自动旋转"}</button>
             <button type="button" onClick={() => chooseFocus("all")}>全景</button>

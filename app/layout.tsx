@@ -8,7 +8,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const socialImage = new URL("/og.png", `${protocol}://${host}`).toString();
   const title = "Forest Courier · World Workshop";
-  const description = "Ride a rabbit scooter through a procedural forest or the streets of Rain Harbor.";
+  const description = "Ride a rabbit scooter through a procedural forest or the districts of Cedar Crossing.";
   return {
     title,
     description,

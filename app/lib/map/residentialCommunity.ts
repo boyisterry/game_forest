@@ -5,6 +5,7 @@ import {
   buildLowPolyRoadsidePlanter,
   buildLowPolyStreetLight,
 } from "./cityFurniture.ts";
+import { createInstancedPrototypeBatch, createMergedStaticBatch } from "./sceneInstanceBatch.ts";
 
 export type ResidentialCommunityZone = "residential" | "commercial" | "kindergarten";
 
@@ -27,6 +28,9 @@ export type ResidentialCommunityModel = THREE.Group & {
     treeAnchorCount: number;
     streetLightCount: number;
     planterCount: number;
+    renderBatchCount: number;
+    unbatchedSourceMeshCount: number;
+    treeRenderBatchCount: number;
     scaleReferenceLengthMeters: number;
     scaleStandard: "rabbit-rider";
     decorationSources: string[];
@@ -46,10 +50,17 @@ function communityMesh<T extends THREE.BufferGeometry>(geometry: T, material: TH
   object.castShadow = !isFlatSurface && !isTransparentSurface;
   object.receiveShadow = true;
   if (zone) object.userData.zone = zone;
+  if (/residential-community-(?:commercial-(?:interior|tenant-furnishing|upper-corridor|floor-slab|stair|upper-landing)|kindergarten-(?:classroom|floor-slab|corridor|internal-stair|multipurpose-seat|kitchen-counter|admin-desk))/.test(name)) {
+    object.userData.mapLayer = "interior";
+  } else if (/(?:marking|line)$/.test(name)) {
+    object.userData.mapLayer = "micro-detail";
+  }
   return object;
 }
 
-export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
+export function buildLowPolyResidentialCommunity(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): ResidentialCommunityModel {
   const community = new THREE.Group() as ResidentialCommunityModel;
   community.name = "city-residential-community-lowpoly";
   const cutawayShell: THREE.Object3D[] = [];
@@ -149,6 +160,7 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
 
   const fenceMaterial = new THREE.MeshStandardMaterial({ color: 0x40545a, roughness: 0.56, metalness: 0.36 });
   let fenceSegmentCount = 0;
+  const fenceGroups: THREE.Group[] = [];
   const addFenceSegment = (name: string, x: number, z: number, length: number, horizontal: boolean, zone: ResidentialCommunityZone) => {
     const segment = new THREE.Group();
     segment.name = name;
@@ -172,6 +184,7 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
       segment.add(rail);
     }
     community.add(segment);
+    fenceGroups.push(segment);
   };
 
   // Residential compound: one controlled opening on its southern edge.
@@ -204,11 +217,42 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
 
   // Eight residential buildings create a mixed high-rise and mid-rise community.
   const residentialModels: THREE.Group[] = [];
+  const materialKey = (material: THREE.Material) => {
+    const standard = material as THREE.MeshStandardMaterial;
+    return [
+      material.type,
+      standard.color?.getHexString() ?? "",
+      standard.emissive?.getHexString() ?? "",
+      standard.emissiveIntensity ?? "",
+      standard.roughness ?? "",
+      standard.metalness ?? "",
+      material.transparent,
+      material.opacity,
+      material.side,
+      material.depthWrite,
+    ].join("|");
+  };
+  const shareModelMaterials = (root: THREE.Object3D, registry: Map<string, THREE.Material>) => {
+    root.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      const shared = materials.map((material) => {
+        const key = materialKey(material);
+        const existing = registry.get(key);
+        if (existing) return existing;
+        registry.set(key, material);
+        return material;
+      });
+      child.material = Array.isArray(child.material) ? shared : shared[0];
+    });
+  };
   let householdCount = 0;
+  const highRiseMaterials = new Map<string, THREE.Material>();
   for (const [index, x, z] of [
     [0, -72, -48], [1, -43, -48], [2, -72, -13], [3, -43, -13],
   ] as Array<[number, number, number]>) {
     const tower = buildLowPolyHighRiseResidential();
+    shareModelMaterials(tower, highRiseMaterials);
     tower.name = `residential-community-high-rise-${index + 1}`;
     tower.position.set(x, 0.5, z);
     tower.scale.set(1.25, 1.7, 1.25);
@@ -220,10 +264,12 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     residentialModels.push(tower);
     community.add(tower);
   }
+  const midRiseMaterials = new Map<string, THREE.Material>();
   for (const [index, x, z] of [
     [0, -13, -50], [1, -13, -28], [2, -68, 16], [3, -19, 15],
   ] as Array<[number, number, number]>) {
     const building = buildLowPolyResidentialBuilding();
+    shareModelMaterials(building, midRiseMaterials);
     building.name = `residential-community-mid-rise-${index + 1}`;
     building.position.set(x, 0.5, z);
     building.scale.set(1.35, 1.85, 1.35);
@@ -233,6 +279,22 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     residentialModels.push(building);
     community.add(building);
   }
+  const highRiseModels = residentialModels.slice(0, 4);
+  const midRiseModels = residentialModels.slice(4);
+  const highRiseRenderBatch = createInstancedPrototypeBatch({
+    name: "residential-community-high-rise-render-batch",
+    parent: community,
+    prototype: highRiseModels[0],
+    placements: highRiseModels,
+    enabled: options.optimizeStatic !== false,
+  });
+  const midRiseRenderBatch = createInstancedPrototypeBatch({
+    name: "residential-community-mid-rise-render-batch",
+    parent: community,
+    prototype: midRiseModels[0],
+    placements: midRiseModels,
+    enabled: options.optimizeStatic !== false,
+  });
 
   const addResidentialAccessibleEntry = (
     buildingName: string,
@@ -776,6 +838,7 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     community.add(layby);
   }
   const parkingCenters = [-86, -79.5, -73, -66.5, -60, -53.5, -32, -25.5, -19, -12.5, -6, 0.5, 7, 13.5, 20, 26.5, 33, 39.5];
+  const parkingDetails: THREE.Object3D[] = [];
   parkingCenters.forEach((x, index) => {
     const parking = communityMesh(new THREE.BoxGeometry(5.2, 0.04, 2.7), asphalt, "residential-community-commercial-parking-bay", "commercial");
     parking.position.set(x, 0.62, 64.05);
@@ -783,11 +846,13 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     const stripe = communityMesh(new THREE.BoxGeometry(0.09, 0.025, 2.6), cream, "residential-community-commercial-parking-line", "commercial");
     stripe.position.set(x - 2.65, 0.655, 64.05);
     community.add(parking, stripe);
+    parkingDetails.push(parking, stripe);
   });
   for (const x of [-82.75, -63.25, -28.75, -9.25, 10.25, 29.75]) {
     const island = communityMesh(new THREE.BoxGeometry(1.25, 0.14, 2.8), warmPaving, "residential-community-commercial-light-island", "commercial");
     island.position.set(x, 0.66, 64.05);
     community.add(island);
+    parkingDetails.push(island);
   }
 
   // Kindergarten has its own secure boundary, gate and separated pick-up area.
@@ -997,7 +1062,13 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
       const classroom = new THREE.Group();
       classroom.name = "residential-community-kindergarten-classroom";
       classroom.position.set(-17 + room * 11.2, floor * 3.45, 0);
-      classroom.userData = { roomNumber: kindergartenClassroomCount, capacity: 20, furnished: true, frontDirection: "+z" };
+      classroom.userData = {
+        mapLayer: "interior",
+        roomNumber: kindergartenClassroomCount,
+        capacity: 20,
+        furnished: true,
+        frontDirection: "+z",
+      };
       for (let table = 0; table < 4; table += 1) {
         const desk = communityMesh(new THREE.CylinderGeometry(0.72, 0.72, 0.42, 12), playYellow, "residential-community-kindergarten-activity-table", "kindergarten");
         desk.position.set((table % 2) * 2.4 - 1.2, 1.09, Math.floor(table / 2) * 2.2 - 1.1);
@@ -1304,8 +1375,10 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     [21, 24, 0.5, 0, "kindergarten"],
     [85, 27.5, 0.5, Math.PI, "kindergarten"],
   ];
+  const streetLightMaterials = new Map<string, THREE.Material>();
   lightPositions.forEach(([x, z, surfaceY, rotationY, zone]) => {
     const light = buildLowPolyStreetLight();
+    shareModelMaterials(light, streetLightMaterials);
     light.position.set(x, surfaceY, z);
     light.rotation.y = rotationY;
     light.userData.sourceCollection = "city-street-furniture";
@@ -1323,8 +1396,11 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     [-75, 10, 0.5, "residential"], [-20, -10, 0.5, "residential"],
     [28, 27, 0.5, "kindergarten"], [75, 28.2, 0.5, "kindergarten"],
   ];
+  const planterGroups: THREE.Group[] = [];
+  const planterMaterials = new Map<string, THREE.Material>();
   planterPositions.forEach(([x, z, surfaceY, zone]) => {
     const planter = buildLowPolyRoadsidePlanter();
+    shareModelMaterials(planter, planterMaterials);
     planter.position.set(x, surfaceY, z);
     planter.scale.setScalar(1.1);
     planter.userData.sourceCollection = "city-street-furniture";
@@ -1332,6 +1408,7 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     planter.userData.surfaceY = surfaceY;
     planter.userData.grounded = true;
     community.add(planter);
+    planterGroups.push(planter);
   });
   const treePositions: Array<[number, number]> = [
     [-80, -58], [-70, -58], [-45, -58], [-4, -60], [-68, -30], [-38, -29], [-62, -23], [-5, -12], [-80, 17], [-61, 7],
@@ -1347,6 +1424,66 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     anchor.userData.grounded = true;
     community.add(anchor);
   });
+
+  const staticRenderBatch = createMergedStaticBatch({
+    name: "residential-community-static-detail-render-batch",
+    parent: community,
+    sources: [...fenceGroups, ...reusedStreetLights, ...planterGroups, ...parkingDetails],
+    enabled: options.optimizeStatic !== false,
+  });
+  const nightLightPool = new THREE.Group();
+  nightLightPool.name = "residential-community-night-light-pool";
+  const nightLightSources: THREE.PointLight[] = [];
+  const pooledLightPlacements: Array<[number, number, number, number]> = [
+    [-72, 18, -48, 42], [-43, 18, -48, 42], [-72, 18, -13, 42], [-43, 18, -13, 42],
+    [-13, 12, -40, 36], [-44, 12, 16, 36],
+    [-70, 8, 64, 32], [4, 8, 64, 32], [28, 8, 64, 32],
+    [40, 8, -20, 36], [72, 8, -20, 36], [55, 8, 18, 32],
+  ];
+  for (const [x, y, z, distance] of pooledLightPlacements) {
+    const light = new THREE.PointLight(0xffc57d, 0, distance, 1.9);
+    light.name = "residential-community-pooled-night-light";
+    light.position.set(x, y, z);
+    light.castShadow = false;
+    light.visible = false;
+    light.userData = { pooled: true, coversMultipleFixtures: true };
+    nightLightPool.add(light);
+    nightLightSources.push(light);
+  }
+  community.add(nightLightPool);
+  const hideSourceLights = (root: THREE.Object3D) => {
+    root.traverse((object) => {
+      if (object instanceof THREE.Light) object.visible = false;
+    });
+  };
+  const setResidentialBuildingCutaway = (cutaway: boolean) => {
+    const optimizeStatic = options.optimizeStatic !== false;
+    highRiseRenderBatch.visible = optimizeStatic && !cutaway;
+    midRiseRenderBatch.visible = optimizeStatic && !cutaway;
+    residentialModels.forEach((model) => {
+      if (cutaway) {
+        model.visible = true;
+        model.traverse((object) => {
+          if (object instanceof THREE.Mesh) object.visible = true;
+        });
+        const setCutaway = model.userData.setInteriorCutaway as undefined | ((value: boolean) => void);
+        setCutaway?.(true);
+        hideSourceLights(model);
+        return;
+      }
+      const setCutaway = model.userData.setInteriorCutaway as undefined | ((value: boolean) => void);
+      setCutaway?.(false);
+      if (!optimizeStatic) {
+        model.visible = true;
+        hideSourceLights(model);
+        return;
+      }
+      model.traverse((object) => {
+        if (object instanceof THREE.Mesh) object.visible = false;
+      });
+      model.visible = false;
+    });
+  };
 
   community.userData = {
     mapLayer: "exterior",
@@ -1367,6 +1504,13 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
     treeAnchorCount: treePositions.length,
     streetLightCount: lightPositions.length,
     planterCount: planterPositions.length,
+    renderBatchCount: highRiseRenderBatch.userData.batchCount
+      + midRiseRenderBatch.userData.batchCount
+      + staticRenderBatch.userData.batchCount,
+    unbatchedSourceMeshCount: highRiseRenderBatch.userData.sourceMeshCount
+      + midRiseRenderBatch.userData.sourceMeshCount
+      + staticRenderBatch.userData.sourceMeshCount,
+    treeRenderBatchCount: 0,
     scaleReferenceLengthMeters: 2.4,
     scaleStandard: "rabbit-rider",
     decorationSources: [
@@ -1385,18 +1529,23 @@ export function buildLowPolyResidentialCommunity(): ResidentialCommunityModel {
       glass.emissiveIntensity = powered ? 1.2 : 0.1;
       warmGlass.emissiveIntensity = powered ? 2.1 : 0.12;
       water.emissiveIntensity = powered ? 0.55 : 0.12;
-      reusedStreetLights.forEach((light) => light.userData.setPowered(powered));
+      reusedStreetLights.forEach((light) => {
+        light.userData.setPowered(powered);
+        hideSourceLights(light);
+      });
       residentialModels.forEach((model) => {
         const setPowered = model.userData.setPowered as undefined | ((value: boolean) => void);
         setPowered?.(powered);
+        hideSourceLights(model);
+      });
+      nightLightSources.forEach((light) => {
+        light.visible = powered;
+        light.intensity = powered ? 3.4 : 0;
       });
     },
     setInteriorCutaway: (cutaway) => {
       cutawayShell.forEach((object) => { object.visible = !cutaway; });
-      residentialModels.forEach((model) => {
-        const setCutaway = model.userData.setInteriorCutaway as undefined | ((value: boolean) => void);
-        setCutaway?.(cutaway);
-      });
+      setResidentialBuildingCutaway(cutaway);
     },
     update: (deltaSeconds) => {
       residentialModels.forEach((model) => {

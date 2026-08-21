@@ -24,6 +24,8 @@ import {
   type RuntimeBoundaryHandle,
   type RuntimeContactHandle,
   type RuntimeSurfaceHandle,
+  type RoadBoundaryHandleRecord,
+  type RoadSurfaceHandleRecord,
   type SurfaceSampleOut,
   type SurfaceSampleQuery,
 } from "./cityCollisionTypes.ts";
@@ -36,8 +38,18 @@ import {
 const GEOMETRY_EPSILON = 1e-9;
 const SWEEP_EPSILON = 1e-8;
 const SURFACE_EPSILON = 1e-7;
+const OWNER_SPATIAL_CELL_SIZE_METERS = 16;
+const OWNER_SPATIAL_MAX_CELLS_PER_OWNER = 1024;
 const utf8Encoder = new TextEncoder();
 let nextCompiledRuntimeWorldId = 1;
+const sourceBoundsCache = new WeakMap<CompiledCollisionSource, Readonly<{
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+}>>();
 
 /**
  * Matches THREE.Matrix4.makeRotationY: local +X turns toward world -Z for a
@@ -49,6 +61,7 @@ export type CompiledCollisionOwnerTransform = Readonly<{
   z: number;
   yawRadians: number;
   uniformScale: number;
+  heightScale: number;
 }>;
 
 export type CompiledCollisionRuntimeOwner = Readonly<{
@@ -56,9 +69,32 @@ export type CompiledCollisionRuntimeOwner = Readonly<{
   ownerGeneration: number;
   source: CompiledCollisionSource;
   transform?: Partial<CompiledCollisionOwnerTransform>;
+  roadSurfaceHandles?: readonly RoadSurfaceHandleRecord[];
+  roadBoundaryHandles?: readonly RoadBoundaryHandleRecord[];
+  /** Surface-only child owners retain the placement's stable public handle. */
+  surfaceHandleOwner?: Readonly<{ ownerId: string; ownerGeneration: number }>;
+}>;
+
+export type CompiledCollisionRuntimeBuildStats = Readonly<{
+  fullOwnerIndexRebuild: boolean;
+  reusedOwnerCount: number;
+  addedOwnerCount: number;
+  updatedOwnerCount: number;
+  removedOwnerCount: number;
+  affectedSpatialCellCount: number;
+}>;
+
+export type CompiledCollisionOwnerWorldBounds = Readonly<{
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
 }>;
 
 type NormalizedOwner = Readonly<{
+  index: number;
   ownerId: string;
   ownerGeneration: number;
   source: CompiledCollisionSource;
@@ -67,8 +103,20 @@ type NormalizedOwner = Readonly<{
   z: number;
   yawRadians: number;
   uniformScale: number;
+  heightScale: number;
   cos: number;
   sin: number;
+  minX: number;
+  minY: number;
+  minZ: number;
+  maxX: number;
+  maxY: number;
+  maxZ: number;
+  roadSurfaceIdByKey: ReadonlyMap<number, string>;
+  roadSurfaceKeyById: ReadonlyMap<string, number>;
+  roadBoundaryByGroupKey: ReadonlyMap<number, RoadBoundaryHandleRecord>;
+  surfaceHandleOwnerId: string;
+  surfaceHandleOwnerGeneration: number;
 }>;
 
 export type CompiledCircleSweepRequest = Readonly<{
@@ -101,6 +149,17 @@ export type CompiledCircleSweepResult = Readonly<{
   ties: readonly CompiledCircleSweepHit[];
   /** Number of fallback triangles admitted by the actual MeshBVH traversal. */
   fallbackTriangleCandidateCount: number;
+}>;
+
+export type CompiledCollisionRuntimePerformanceStats = Readonly<{
+  ownerCount: number;
+  spatialCellSizeMeters: number;
+  spatialCellCount: number;
+  globalOwnerCount: number;
+  lastCandidateOwnerCount: number;
+  maxCandidateOwnerCount: number;
+  lastBucketEntryVisitCount: number;
+  maxBucketEntryVisitCount: number;
 }>;
 
 export type CompiledSurfaceBoundaryCrossing = Readonly<{
@@ -198,6 +257,31 @@ function compareUtf8(left: string, right: string): number {
   return a.length - b.length;
 }
 
+function compareBoundaryHandles(left: RuntimeBoundaryHandle, right: RuntimeBoundaryHandle): number {
+  const kind = compareUtf8(left.kind, right.kind);
+  if (kind !== 0) return kind;
+  if (left.kind === "owner-local" && right.kind === "owner-local") {
+    return left.worldId - right.worldId
+      || compareUtf8(left.ownerId, right.ownerId)
+      || left.ownerGeneration - right.ownerGeneration
+      || left.localBoundaryGroupKey - right.localBoundaryGroupKey;
+  }
+  if (left.kind === "road" && right.kind === "road") {
+    return left.worldId - right.worldId
+      || left.documentGeneration - right.documentGeneration
+      || compareUtf8(left.roadEdgeId, right.roadEdgeId)
+      || compareUtf8(left.side, right.side)
+      || left.curbRun - right.curbRun;
+  }
+  if (left.kind === "surface-stitch" && right.kind === "surface-stitch") {
+    return left.worldId - right.worldId
+      || left.documentGeneration - right.documentGeneration
+      || compareUtf8(left.stitchId, right.stitchId)
+      || compareUtf8(left.groupId, right.groupId);
+  }
+  return 0;
+}
+
 function compareLocalCandidates(left: LocalSweepCandidate, right: LocalSweepCandidate): number {
   return left.toi - right.toi
     || compareUtf8(left.owner.ownerId, right.owner.ownerId)
@@ -208,7 +292,71 @@ function compareLocalCandidates(left: LocalSweepCandidate, right: LocalSweepCand
     || left.canonicalFeatureId - right.canonicalFeatureId;
 }
 
-function normalizeOwner(owner: CompiledCollisionRuntimeOwner): NormalizedOwner {
+function sourceLocalBounds(source: CompiledCollisionSource) {
+  const cached = sourceBoundsCache.get(source);
+  if (cached) return cached;
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  const include = (x: number, y: number, z: number) => {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    minZ = Math.min(minZ, z);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    maxZ = Math.max(maxZ, z);
+  };
+  const walls = source.walls;
+  for (let index = 0; index < walls.sourceTriangleIds.length; index += 1) {
+    const segmentOffset = index * 4;
+    const triangleOffset = index * 6;
+    const ax = walls.segmentXZ[segmentOffset];
+    const az = walls.segmentXZ[segmentOffset + 1];
+    const bx = walls.segmentXZ[segmentOffset + 2];
+    const bz = walls.segmentXZ[segmentOffset + 3];
+    for (let vertex = 0; vertex < 3; vertex += 1) {
+      const t = walls.triangleTY[triangleOffset + vertex * 2];
+      const y = walls.triangleTY[triangleOffset + vertex * 2 + 1];
+      const length = Math.hypot(bx - ax, bz - az);
+      const fraction = length <= GEOMETRY_EPSILON ? 0 : t / length;
+      include(ax + (bx - ax) * fraction, y, az + (bz - az) * fraction);
+    }
+  }
+  const surface = source.surfaceChunk;
+  if (surface) {
+    for (let triangle = 0; triangle < surface.triangleSurfaceKeys.length; triangle += 1) {
+      const xzOffset = triangle * 6;
+      const yOffset = triangle * 2;
+      for (let vertex = 0; vertex < 3; vertex += 1) {
+        include(
+          surface.triangleXZ[xzOffset + vertex * 2],
+          vertex === 0 ? surface.triangleYRanges[yOffset] : surface.triangleYRanges[yOffset + 1],
+          surface.triangleXZ[xzOffset + vertex * 2 + 1],
+        );
+      }
+    }
+    for (let boundary = 0; boundary < surface.boundaryTransitionProfileIndices.length; boundary += 1) {
+      const offset = boundary * 4;
+      include(surface.boundaryXZ[offset], 0, surface.boundaryXZ[offset + 1]);
+      include(surface.boundaryXZ[offset + 2], 0, surface.boundaryXZ[offset + 3]);
+    }
+  }
+  const fallbackBounds = source.fallback?.geometry.boundingBox;
+  if (fallbackBounds) {
+    include(fallbackBounds.min.x, fallbackBounds.min.y, fallbackBounds.min.z);
+    include(fallbackBounds.max.x, fallbackBounds.max.y, fallbackBounds.max.z);
+  }
+  const bounds = Object.freeze(Number.isFinite(minX)
+    ? { minX, minY, minZ, maxX, maxY, maxZ }
+    : { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 });
+  sourceBoundsCache.set(source, bounds);
+  return bounds;
+}
+
+function normalizeOwner(owner: CompiledCollisionRuntimeOwner, index = 0): NormalizedOwner {
   if (!owner.ownerId) throw new TypeError("compiled collision ownerId must not be empty");
   assertNonNegativeSafeInteger(owner.ownerGeneration, "compiled collision ownerGeneration");
   const transform: CompiledCollisionOwnerTransform = {
@@ -217,17 +365,96 @@ function normalizeOwner(owner: CompiledCollisionRuntimeOwner): NormalizedOwner {
     z: owner.transform?.z ?? 0,
     yawRadians: owner.transform?.yawRadians ?? 0,
     uniformScale: owner.transform?.uniformScale ?? 1,
+    heightScale: owner.transform?.heightScale ?? 1,
   };
   for (const [label, value] of Object.entries(transform)) assertFinite(value, `owner transform ${label}`);
   if (transform.uniformScale <= 0) throw new RangeError("owner uniformScale must be positive");
+  if (transform.heightScale <= 0) throw new RangeError("owner heightScale must be positive");
+  const cos = Math.cos(transform.yawRadians);
+  const sin = Math.sin(transform.yawRadians);
+  const localBounds = sourceLocalBounds(owner.source);
+  const corners = [
+    { x: localBounds.minX, z: localBounds.minZ },
+    { x: localBounds.minX, z: localBounds.maxZ },
+    { x: localBounds.maxX, z: localBounds.minZ },
+    { x: localBounds.maxX, z: localBounds.maxZ },
+  ].map((corner) => ({
+    x: transform.x + transform.uniformScale * (cos * corner.x + sin * corner.z),
+    z: transform.z + transform.uniformScale * (-sin * corner.x + cos * corner.z),
+  }));
+  const roadSurfaceIdByKey = new Map(
+    (owner.roadSurfaceHandles ?? []).map((record) => [record.localSurfaceKey, record.roadSurfaceId]),
+  );
   return Object.freeze({
+    index,
     ownerId: owner.ownerId,
     ownerGeneration: owner.ownerGeneration,
     source: owner.source,
     ...transform,
-    cos: Math.cos(transform.yawRadians),
-    sin: Math.sin(transform.yawRadians),
+    cos,
+    sin,
+    minX: Math.min(...corners.map((corner) => corner.x)),
+    minY: transform.y + transform.uniformScale * transform.heightScale * localBounds.minY,
+    minZ: Math.min(...corners.map((corner) => corner.z)),
+    maxX: Math.max(...corners.map((corner) => corner.x)),
+    maxY: transform.y + transform.uniformScale * transform.heightScale * localBounds.maxY,
+    maxZ: Math.max(...corners.map((corner) => corner.z)),
+    roadSurfaceIdByKey,
+    roadSurfaceKeyById: new Map([...roadSurfaceIdByKey].map(([key, id]) => [id, key])),
+    roadBoundaryByGroupKey: new Map(
+      (owner.roadBoundaryHandles ?? []).map((record) => [record.localBoundaryGroupKey, record]),
+    ),
+    surfaceHandleOwnerId: owner.surfaceHandleOwner?.ownerId ?? owner.ownerId,
+    surfaceHandleOwnerGeneration: owner.surfaceHandleOwner?.ownerGeneration ?? owner.ownerGeneration,
   });
+}
+
+function ownerMatchesSource(
+  normalized: NormalizedOwner,
+  owner: CompiledCollisionRuntimeOwner,
+): boolean {
+  const transform = owner.transform;
+  if (normalized.source !== owner.source
+    || normalized.x !== (transform?.x ?? 0)
+    || normalized.y !== (transform?.y ?? 0)
+    || normalized.z !== (transform?.z ?? 0)
+    || normalized.yawRadians !== (transform?.yawRadians ?? 0)
+    || normalized.uniformScale !== (transform?.uniformScale ?? 1)
+    || normalized.heightScale !== (transform?.heightScale ?? 1)
+    || normalized.surfaceHandleOwnerId !== (owner.surfaceHandleOwner?.ownerId ?? owner.ownerId)) {
+    return false;
+  }
+  const roadSurfaces = owner.roadSurfaceHandles ?? [];
+  if (normalized.roadSurfaceIdByKey.size !== roadSurfaces.length
+    || roadSurfaces.some((record) => normalized.roadSurfaceIdByKey.get(record.localSurfaceKey) !== record.roadSurfaceId)) {
+    return false;
+  }
+  const roadBoundaries = owner.roadBoundaryHandles ?? [];
+  if (normalized.roadBoundaryByGroupKey.size !== roadBoundaries.length) return false;
+  for (const record of roadBoundaries) {
+    const existing = normalized.roadBoundaryByGroupKey.get(record.localBoundaryGroupKey);
+    if (!existing || existing.kind !== record.kind) return false;
+    if (record.kind === "road"
+      && (existing.kind !== "road"
+        || existing.roadEdgeId !== record.roadEdgeId
+        || existing.side !== record.side
+        || existing.curbRun !== record.curbRun)) return false;
+  }
+  return true;
+}
+
+function ownerSpatialCellKeys(owner: NormalizedOwner): readonly string[] | null {
+  const minCellX = Math.floor(owner.minX / OWNER_SPATIAL_CELL_SIZE_METERS);
+  const minCellZ = Math.floor(owner.minZ / OWNER_SPATIAL_CELL_SIZE_METERS);
+  const maxCellX = Math.floor(owner.maxX / OWNER_SPATIAL_CELL_SIZE_METERS);
+  const maxCellZ = Math.floor(owner.maxZ / OWNER_SPATIAL_CELL_SIZE_METERS);
+  const cellCount = (maxCellX - minCellX + 1) * (maxCellZ - minCellZ + 1);
+  if (cellCount > OWNER_SPATIAL_MAX_CELLS_PER_OWNER) return null;
+  const keys: string[] = [];
+  for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) keys.push(`${cellX},${cellZ}`);
+  }
+  return keys;
 }
 
 function worldPointToLocal(owner: NormalizedOwner, x: number, z: number): Point2 {
@@ -586,8 +813,9 @@ function wallCandidates(
   const start = worldPointToLocal(owner, request.startX, request.startZ);
   const delta = worldVectorToLocal(owner, request.deltaX, request.deltaZ);
   const radius = (request.radius ?? BIKE_COLLISION_RADIUS_METERS) / owner.uniformScale;
-  const minY = (request.minY - owner.y) / owner.uniformScale;
-  const maxY = (request.maxY - owner.y) / owner.uniformScale;
+  const verticalScale = owner.uniformScale * owner.heightScale;
+  const minY = (request.minY - owner.y) / verticalScale;
+  const maxY = (request.maxY - owner.y) / verticalScale;
   const walls = owner.source.walls;
   const count = walls.sourceTriangleIds.length;
   const candidates: LocalSweepCandidate[] = [];
@@ -641,8 +869,9 @@ function fallbackCandidates(
   const start = worldPointToLocal(owner, request.startX, request.startZ);
   const delta = worldVectorToLocal(owner, request.deltaX, request.deltaZ);
   const radius = (request.radius ?? BIKE_COLLISION_RADIUS_METERS) / owner.uniformScale;
-  const minY = (request.minY - owner.y) / owner.uniformScale;
-  const maxY = (request.maxY - owner.y) / owner.uniformScale;
+  const verticalScale = owner.uniformScale * owner.heightScale;
+  const minY = (request.minY - owner.y) / verticalScale;
+  const maxY = (request.maxY - owner.y) / verticalScale;
   const queryBox = new Box3(
     new Vector3(
       Math.min(start.x, start.x + delta.x) - radius,
@@ -685,7 +914,8 @@ function fallbackCandidates(
       const normalX = uy * vz - uz * vy;
       const normalY = uz * vx - ux * vz;
       const normalZ = ux * vy - uy * vx;
-      const normalLength = Math.hypot(normalX, normalY, normalZ);
+      const transformedNormalY = normalY / owner.heightScale;
+      const normalLength = Math.hypot(normalX, transformedNormalY, normalZ);
       if (normalLength <= GEOMETRY_EPSILON
         || Math.hypot(normalX, normalZ) / normalLength
           < CITY_SOLID_HORIZONTAL_RESPONSE_MIN_NORMAL_XZ) {
@@ -805,11 +1035,20 @@ function ownerSurfaceHandle(
   owner: NormalizedOwner,
   localSurfaceKey: number,
 ): RuntimeSurfaceHandle {
+  const roadSurfaceId = owner.roadSurfaceIdByKey.get(localSurfaceKey);
+  if (roadSurfaceId) {
+    return Object.freeze({
+      kind: "road",
+      worldId,
+      documentGeneration: owner.ownerGeneration,
+      roadSurfaceId,
+    });
+  }
   return Object.freeze({
     kind: "owner-local",
     worldId,
-    ownerId: owner.ownerId,
-    ownerGeneration: owner.ownerGeneration,
+    ownerId: owner.surfaceHandleOwnerId,
+    ownerGeneration: owner.surfaceHandleOwnerGeneration,
     localSurfaceKey,
   });
 }
@@ -859,23 +1098,27 @@ function sampleOwnerSurfaceCandidates(
     const d = chunk.trianglePlanes[planeOffset + 3];
     if (ny <= GEOMETRY_EPSILON) continue;
     const localHeight = -(nx * local.x + nz * local.z + d) / ny;
-    const height = owner.y + localHeight * owner.uniformScale;
+    const height = owner.y + localHeight * owner.uniformScale * owner.heightScale;
     const handle = ownerSurfaceHandle(worldId, owner, surfaceKey);
     const preservesPrevious = sameSurfaceHandle(query.previousHandle, handle);
     if (!preservesPrevious && height > query.currentY + query.maxStepUpMeters + SURFACE_EPSILON) continue;
     const profileIndex = chunk.triangleProfileIndices[triangleIndex];
     const profile = owner.source.surfaceProfiles[profileIndex];
     if (!profile) continue;
-    const worldNormalXZ = localNormalToWorld(owner, nx, nz);
+    const transformedNormalY = ny / owner.heightScale;
+    const normalLength = Math.hypot(nx, transformedNormalY, nz);
+    if (normalLength <= GEOMETRY_EPSILON) continue;
+    const worldNormalXZ = localNormalToWorld(owner, nx / normalLength, nz / normalLength);
+    const worldNormalY = transformedNormalY / normalLength;
     const sample: SurfaceSampleOut = {
       handle,
       profileId: profile.id,
       height,
       normalX: worldNormalXZ.x,
-      normalY: ny,
+      normalY: worldNormalY,
       normalZ: worldNormalXZ.z,
-      gx: -worldNormalXZ.x / ny,
-      gz: -worldNormalXZ.z / ny,
+      gx: -worldNormalXZ.x / worldNormalY,
+      gz: -worldNormalXZ.z / worldNormalY,
       speedCap: chunk.triangleSpeedCaps[triangleIndex],
     };
     result.push({
@@ -924,10 +1167,72 @@ function segmentIntersectionFraction(
 
 function currentLocalSurfaceKey(current: RuntimeSurfaceHandle, owner: NormalizedOwner): number | null {
   if (current.kind === "implicit-ground") return IMPLICIT_GROUND_SURFACE_KEY;
+  if (current.kind === "road") return owner.roadSurfaceKeyById.get(current.roadSurfaceId) ?? null;
   if (current.kind === "owner-local"
-    && current.ownerId === owner.ownerId
-    && current.ownerGeneration === owner.ownerGeneration) return current.localSurfaceKey;
+    && current.ownerId === owner.surfaceHandleOwnerId
+    && current.ownerGeneration === owner.surfaceHandleOwnerGeneration) return current.localSurfaceKey;
   return null;
+}
+
+function boundaryRefsForLocalSweep(
+  chunk: PackedSurfaceChunk,
+  startX: number,
+  startZ: number,
+  deltaX: number,
+  deltaZ: number,
+): readonly number[] {
+  const originX = chunk.chunkX * CITY_SURFACE_CHUNK_SIZE_METERS;
+  const originZ = chunk.chunkZ * CITY_SURFACE_CHUNK_SIZE_METERS;
+  const minCellX = Math.max(0, Math.floor(Math.min(startX, startX + deltaX)
+    - SURFACE_BOUNDARY_PROBE_EPS_METERS - originX));
+  const minCellZ = Math.max(0, Math.floor(Math.min(startZ, startZ + deltaZ)
+    - SURFACE_BOUNDARY_PROBE_EPS_METERS - originZ));
+  const maxCellX = Math.min(CITY_SURFACE_CELLS_PER_AXIS - 1, Math.floor(Math.max(startX, startX + deltaX)
+    + SURFACE_BOUNDARY_PROBE_EPS_METERS - originX));
+  const maxCellZ = Math.min(CITY_SURFACE_CELLS_PER_AXIS - 1, Math.floor(Math.max(startZ, startZ + deltaZ)
+    + SURFACE_BOUNDARY_PROBE_EPS_METERS - originZ));
+  if (minCellX > maxCellX || minCellZ > maxCellZ) return Object.freeze([]);
+  const seen = new Set<number>();
+  const refs: number[] = [];
+  for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+    for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+      const cell = cellZ * CITY_SURFACE_CELLS_PER_AXIS + cellX;
+      for (let offset = chunk.cellBoundaryStart[cell]; offset < chunk.cellBoundaryStart[cell + 1]; offset += 1) {
+        const boundary = chunk.cellBoundaryRefs[offset];
+        if (seen.has(boundary)) continue;
+        seen.add(boundary);
+        refs.push(boundary);
+      }
+    }
+  }
+  refs.sort((left, right) => left - right);
+  return refs;
+}
+
+function ownerBoundaryHandle(
+  worldId: number,
+  documentGeneration: number,
+  owner: NormalizedOwner,
+  localBoundaryGroupKey: number,
+): RuntimeBoundaryHandle {
+  const road = owner.roadBoundaryByGroupKey.get(localBoundaryGroupKey);
+  if (road?.kind === "road") {
+    return Object.freeze({
+      kind: "road",
+      worldId,
+      documentGeneration,
+      roadEdgeId: road.roadEdgeId,
+      side: road.side,
+      curbRun: road.curbRun,
+    });
+  }
+  return Object.freeze({
+    kind: "owner-local",
+    worldId,
+    ownerId: owner.ownerId,
+    ownerGeneration: owner.ownerGeneration,
+    localBoundaryGroupKey,
+  });
 }
 
 function copyBoundaryCrossing(crossing: SurfaceBridgeBoundaryCrossing): CompiledSurfaceBoundaryCrossing {
@@ -1007,9 +1312,18 @@ export class CompiledCityCollisionRuntime {
   readonly worldId: number;
   readonly documentGeneration: number;
   private owners: readonly NormalizedOwner[];
+  private ownerCells = new Map<string, readonly NormalizedOwner[]>();
+  private globalOwners: readonly NormalizedOwner[] = Object.freeze([]);
+  private lastCandidateOwnerCount = 0;
+  private maxCandidateOwnerCount = 0;
+  private lastBucketEntryVisitCount = 0;
+  private maxBucketEntryVisitCount = 0;
+  private ownerVisitMarks = new Uint32Array(0);
+  private ownerVisitEpoch = 0;
   private readonly surfaceBridge: CompiledSurfaceRuntimeBridge | null;
   private activeContacts = new Set<string>();
   private readonly bridgeSample: SurfaceSampleOut;
+  private buildStats: CompiledCollisionRuntimeBuildStats;
 
   constructor(
     owners: readonly CompiledCollisionRuntimeOwner[],
@@ -1017,6 +1331,7 @@ export class CompiledCityCollisionRuntime {
       worldId?: number;
       documentGeneration?: number;
       surfaceBridge?: CompiledSurfaceRuntimeBridge | null;
+      reuseOwnerIndexFrom?: CompiledCityCollisionRuntime | null;
     }> = {},
   ) {
     this.worldId = options.worldId ?? nextCompiledRuntimeWorldId++;
@@ -1024,19 +1339,86 @@ export class CompiledCityCollisionRuntime {
     assertNonNegativeSafeInteger(this.worldId, "compiled collision worldId");
     assertNonNegativeSafeInteger(this.documentGeneration, "compiled collision documentGeneration");
     this.surfaceBridge = options.surfaceBridge ?? null;
-    this.owners = Object.freeze(owners.map(normalizeOwner));
+    this.owners = Object.freeze([]);
+    this.buildStats = Object.freeze({
+      fullOwnerIndexRebuild: true,
+      reusedOwnerCount: 0,
+      addedOwnerCount: owners.length,
+      updatedOwnerCount: 0,
+      removedOwnerCount: 0,
+      affectedSpatialCellCount: 0,
+    });
+    if (options.reuseOwnerIndexFrom) {
+      this.reuseOwnerSpatialIndex(owners, options.reuseOwnerIndexFrom);
+    } else {
+      this.owners = Object.freeze(owners.map((owner, index) => normalizeOwner(owner, index)));
+      this.rebuildOwnerSpatialIndex();
+      this.buildStats = Object.freeze({
+        ...this.buildStats,
+        affectedSpatialCellCount: this.ownerCells.size,
+      });
+    }
     this.bridgeSample = createImplicitGroundSurfaceSample(this.worldId, this.documentGeneration);
     this.assertUniqueOwners();
   }
 
   replaceOwners(owners: readonly CompiledCollisionRuntimeOwner[]): void {
-    this.owners = Object.freeze(owners.map(normalizeOwner));
+    this.owners = Object.freeze(owners.map((owner, index) => normalizeOwner(owner, index)));
+    this.rebuildOwnerSpatialIndex();
+    this.buildStats = Object.freeze({
+      fullOwnerIndexRebuild: true,
+      reusedOwnerCount: 0,
+      addedOwnerCount: owners.length,
+      updatedOwnerCount: 0,
+      removedOwnerCount: 0,
+      affectedSpatialCellCount: this.ownerCells.size,
+    });
     this.assertUniqueOwners();
     this.resetRiderContacts();
   }
 
+  getBuildStats(): CompiledCollisionRuntimeBuildStats {
+    return this.buildStats;
+  }
+
+  getOwnerWorldBounds(ownerId: string): CompiledCollisionOwnerWorldBounds | null {
+    const owner = this.owners.find((candidate) => candidate.ownerId === ownerId);
+    if (!owner) return null;
+    return Object.freeze({
+      minX: owner.minX,
+      minY: owner.minY,
+      minZ: owner.minZ,
+      maxX: owner.maxX,
+      maxY: owner.maxY,
+      maxZ: owner.maxZ,
+    });
+  }
+
   querySweep(request: Readonly<CompiledCircleSweepRequest>): CompiledCircleSweepResult {
-    return queryNormalizedCollisionSweep(this.owners, request);
+    const radius = request.radius ?? BIKE_COLLISION_RADIUS_METERS;
+    const endX = request.startX + request.deltaX;
+    const endZ = request.startZ + request.deltaZ;
+    return queryNormalizedCollisionSweep(this.queryOwners(
+      Math.min(request.startX, endX) - radius,
+      Math.min(request.startZ, endZ) - radius,
+      Math.max(request.startX, endX) + radius,
+      Math.max(request.startZ, endZ) + radius,
+      request.minY,
+      request.maxY,
+    ), request);
+  }
+
+  getPerformanceStats(): CompiledCollisionRuntimePerformanceStats {
+    return Object.freeze({
+      ownerCount: this.owners.length,
+      spatialCellSizeMeters: OWNER_SPATIAL_CELL_SIZE_METERS,
+      spatialCellCount: this.ownerCells.size,
+      globalOwnerCount: this.globalOwners.length,
+      lastCandidateOwnerCount: this.lastCandidateOwnerCount,
+      maxCandidateOwnerCount: this.maxCandidateOwnerCount,
+      lastBucketEntryVisitCount: this.lastBucketEntryVisitCount,
+      maxBucketEntryVisitCount: this.maxBucketEntryVisitCount,
+    });
   }
 
   sampleCitySurface(
@@ -1046,7 +1428,14 @@ export class CompiledCityCollisionRuntime {
     out: SurfaceSampleOut,
   ): SurfaceSampleOut {
     const candidates: SurfaceCandidate[] = [];
-    for (const owner of this.owners) {
+    for (const owner of this.queryOwners(
+      x,
+      z,
+      x,
+      z,
+      Number.NEGATIVE_INFINITY,
+      query.currentY + query.maxStepUpMeters + 0.01,
+    )) {
       candidates.push(...sampleOwnerSurfaceCandidates(owner, this.worldId, x, z, query));
     }
     if (this.surfaceBridge) {
@@ -1094,14 +1483,27 @@ export class CompiledCityCollisionRuntime {
     );
     if (bridgeCrossing) crossings.push(copyBoundaryCrossing(bridgeCrossing));
 
-    for (const owner of this.owners) {
+    for (const owner of this.queryOwners(
+      Math.min(startX, startX + deltaX) - SURFACE_BOUNDARY_PROBE_EPS_METERS,
+      Math.min(startZ, startZ + deltaZ) - SURFACE_BOUNDARY_PROBE_EPS_METERS,
+      Math.max(startX, startX + deltaX) + SURFACE_BOUNDARY_PROBE_EPS_METERS,
+      Math.max(startZ, startZ + deltaZ) + SURFACE_BOUNDARY_PROBE_EPS_METERS,
+      current.height - 0.31,
+      current.height + 0.31,
+    )) {
       const chunk = owner.source.surfaceChunk;
       if (!chunk) continue;
       const start = worldPointToLocal(owner, startX, startZ);
       const delta = worldVectorToLocal(owner, deltaX, deltaZ);
       const currentKey = currentLocalSurfaceKey(current.handle, owner);
       if (currentKey === null) continue;
-      for (let boundary = 0; boundary < chunk.boundaryTransitionProfileIndices.length; boundary += 1) {
+      for (const boundary of boundaryRefsForLocalSweep(
+        chunk,
+        start.x,
+        start.z,
+        delta.x,
+        delta.z,
+      )) {
         const offset = boundary * 4;
         const ax = chunk.boundaryXZ[offset];
         const az = chunk.boundaryXZ[offset + 1];
@@ -1118,11 +1520,34 @@ export class CompiledCityCollisionRuntime {
         const rightKey = chunk.boundarySurfaceKeyPairs[boundary * 2 + 1];
         const targetKey = cross >= 0 ? leftKey : rightKey;
         const fromKey = cross >= 0 ? rightKey : leftKey;
-        if (fromKey !== currentKey || targetKey === currentKey) continue;
         const transition = owner.source.surfaceTransitionProfiles[
           chunk.boundaryTransitionProfileIndices[boundary]
         ];
         if (!transition) continue;
+        if (targetKey === currentKey) continue;
+        if (fromKey !== currentKey) {
+          // Road bands at the same height (for example asphalt -> bike lane)
+          // intentionally have no transition record. Confirm the actual band
+          // immediately before this curb instead of requiring the frozen
+          // microstep handle to have observed every unmarked band.
+          if (transition.kind !== "road-curb") continue;
+          const beforeFraction = Math.max(0, fraction - SURFACE_BOUNDARY_PROBE_EPS_METERS
+            / owner.uniformScale / Math.max(Math.hypot(delta.x, delta.z), GEOMETRY_EPSILON));
+          const beforeWorld = localPointToWorld(
+            owner,
+            start.x + delta.x * beforeFraction,
+            start.z + delta.z * beforeFraction,
+          );
+          const beforeCandidates = sampleOwnerSurfaceCandidates(
+            owner,
+            this.worldId,
+            beforeWorld.x,
+            beforeWorld.z,
+            { currentY: current.height + 1000, previousHandle: null, maxStepUpMeters: 1000 },
+            fromKey,
+          );
+          if (beforeCandidates.length === 0) continue;
+        }
         let targetSample: SurfaceSampleOut | null = null;
         if (targetKey === IMPLICIT_GROUND_SURFACE_KEY) {
           targetSample = createImplicitGroundSurfaceSample(this.worldId, this.documentGeneration);
@@ -1164,13 +1589,12 @@ export class CompiledCityCollisionRuntime {
           z: worldCrossing.z,
           normalX: normal.x,
           normalZ: normal.z,
-          handle: Object.freeze({
-            kind: "owner-local",
-            worldId: this.worldId,
-            ownerId: owner.ownerId,
-            ownerGeneration: owner.ownerGeneration,
-            localBoundaryGroupKey: chunk.boundaryGroupKeys[boundary],
-          }),
+          handle: ownerBoundaryHandle(
+            this.worldId,
+            this.documentGeneration,
+            owner,
+            chunk.boundaryGroupKeys[boundary],
+          ),
           fromSurface: cloneSurfaceHandle(current.handle),
           toSurface: targetSample ? cloneSurfaceHandle(targetSample.handle) : cloneSurfaceHandle(current.handle),
           fromHeight: current.height,
@@ -1183,7 +1607,7 @@ export class CompiledCityCollisionRuntime {
       }
     }
     crossings.sort((left, right) => left.distance - right.distance
-      || compareUtf8(JSON.stringify(left.handle), JSON.stringify(right.handle)));
+      || compareBoundaryHandles(left.handle, right.handle));
     return crossings[0] ?? null;
   }
 
@@ -1358,6 +1782,170 @@ export class CompiledCityCollisionRuntime {
     return out;
   }
 
+  private reuseOwnerSpatialIndex(
+    owners: readonly CompiledCollisionRuntimeOwner[],
+    previous: CompiledCityCollisionRuntime,
+  ) {
+    const previousById = new Map(previous.owners.map((owner) => [owner.ownerId, owner]));
+    const desiredIds = new Set(owners.map((owner) => owner.ownerId));
+    const retainedIds = new Set<string>();
+    const usedIndices = new Set(previous.owners
+      .filter((owner) => desiredIds.has(owner.ownerId))
+      .map((owner) => owner.index));
+    const normalizedOwners: NormalizedOwner[] = [];
+    const removedOwners: NormalizedOwner[] = [];
+    const addedOwners: NormalizedOwner[] = [];
+    let reusedOwnerCount = 0;
+    let addedOwnerCount = 0;
+    let updatedOwnerCount = 0;
+    let nextIndex = 0;
+    const allocateIndex = () => {
+      while (usedIndices.has(nextIndex)) nextIndex += 1;
+      const index = nextIndex;
+      usedIndices.add(index);
+      nextIndex += 1;
+      return index;
+    };
+
+    for (const owner of owners) {
+      const prior = previousById.get(owner.ownerId);
+      retainedIds.add(owner.ownerId);
+      if (prior && ownerMatchesSource(prior, owner)) {
+        normalizedOwners.push(prior);
+        reusedOwnerCount += 1;
+        continue;
+      }
+      const index = prior?.index ?? allocateIndex();
+      const normalized = normalizeOwner(owner, index);
+      normalizedOwners.push(normalized);
+      addedOwners.push(normalized);
+      if (prior) {
+        removedOwners.push(prior);
+        updatedOwnerCount += 1;
+      } else {
+        addedOwnerCount += 1;
+      }
+    }
+    for (const prior of previous.owners) {
+      if (!retainedIds.has(prior.ownerId)) removedOwners.push(prior);
+    }
+    this.owners = Object.freeze(normalizedOwners);
+
+    const cells = new Map(previous.ownerCells);
+    let globalOwners = [...previous.globalOwners];
+    const affectedCells = new Set<string>();
+    for (const owner of removedOwners) {
+      const keys = ownerSpatialCellKeys(owner);
+      if (keys === null) {
+        globalOwners = globalOwners.filter((candidate) => candidate !== owner);
+        continue;
+      }
+      for (const key of keys) {
+        affectedCells.add(key);
+        const bucket = (cells.get(key) ?? []).filter((candidate) => candidate !== owner);
+        if (bucket.length > 0) cells.set(key, Object.freeze(bucket));
+        else cells.delete(key);
+      }
+    }
+    for (const owner of addedOwners) {
+      const keys = ownerSpatialCellKeys(owner);
+      if (keys === null) {
+        globalOwners.push(owner);
+        continue;
+      }
+      for (const key of keys) {
+        affectedCells.add(key);
+        cells.set(key, Object.freeze([...(cells.get(key) ?? []), owner]));
+      }
+    }
+    this.ownerCells = cells;
+    this.globalOwners = Object.freeze(globalOwners);
+    const maxOwnerIndex = normalizedOwners.reduce((max, owner) => Math.max(max, owner.index), -1);
+    this.ownerVisitMarks = new Uint32Array(maxOwnerIndex + 1);
+    this.ownerVisitEpoch = 0;
+    this.lastCandidateOwnerCount = 0;
+    this.maxCandidateOwnerCount = 0;
+    this.lastBucketEntryVisitCount = 0;
+    this.maxBucketEntryVisitCount = 0;
+    this.buildStats = Object.freeze({
+      fullOwnerIndexRebuild: false,
+      reusedOwnerCount,
+      addedOwnerCount,
+      updatedOwnerCount,
+      removedOwnerCount: removedOwners.length - updatedOwnerCount,
+      affectedSpatialCellCount: affectedCells.size,
+    });
+  }
+
+  private rebuildOwnerSpatialIndex() {
+    this.lastCandidateOwnerCount = 0;
+    this.maxCandidateOwnerCount = 0;
+    this.lastBucketEntryVisitCount = 0;
+    this.maxBucketEntryVisitCount = 0;
+    const mutable = new Map<string, NormalizedOwner[]>();
+    const global: NormalizedOwner[] = [];
+    for (const owner of this.owners) {
+      const keys = ownerSpatialCellKeys(owner);
+      if (keys === null) {
+        global.push(owner);
+        continue;
+      }
+      for (const key of keys) {
+        const bucket = mutable.get(key) ?? [];
+        bucket.push(owner);
+        mutable.set(key, bucket);
+      }
+    }
+    this.ownerCells = new Map([...mutable].map(([key, bucket]) => [key, Object.freeze(bucket)]));
+    this.globalOwners = Object.freeze(global);
+    this.ownerVisitMarks = new Uint32Array(this.owners.length);
+    this.ownerVisitEpoch = 0;
+  }
+
+  private queryOwners(
+    minX: number,
+    minZ: number,
+    maxX: number,
+    maxZ: number,
+    minY: number,
+    maxY: number,
+  ): readonly NormalizedOwner[] {
+    const minCellX = Math.floor(minX / OWNER_SPATIAL_CELL_SIZE_METERS);
+    const minCellZ = Math.floor(minZ / OWNER_SPATIAL_CELL_SIZE_METERS);
+    const maxCellX = Math.floor(maxX / OWNER_SPATIAL_CELL_SIZE_METERS);
+    const maxCellZ = Math.floor(maxZ / OWNER_SPATIAL_CELL_SIZE_METERS);
+    this.ownerVisitEpoch += 1;
+    if (this.ownerVisitEpoch >= 0xffff_ffff) {
+      this.ownerVisitMarks.fill(0);
+      this.ownerVisitEpoch = 1;
+    }
+    const visitEpoch = this.ownerVisitEpoch;
+    const result: NormalizedOwner[] = [];
+    let bucketEntryVisitCount = 0;
+    const include = (owner: NormalizedOwner) => {
+      if (this.ownerVisitMarks[owner.index] === visitEpoch) return;
+      this.ownerVisitMarks[owner.index] = visitEpoch;
+      if (owner.maxX < minX || owner.minX > maxX
+        || owner.maxZ < minZ || owner.minZ > maxZ
+        || owner.maxY < minY || owner.minY > maxY) return;
+      result.push(owner);
+    };
+    for (const owner of this.globalOwners) include(owner);
+    for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ += 1) {
+      for (let cellX = minCellX; cellX <= maxCellX; cellX += 1) {
+        for (const owner of this.ownerCells.get(`${cellX},${cellZ}`) ?? []) {
+          bucketEntryVisitCount += 1;
+          include(owner);
+        }
+      }
+    }
+    this.lastCandidateOwnerCount = result.length;
+    this.maxCandidateOwnerCount = Math.max(this.maxCandidateOwnerCount, result.length);
+    this.lastBucketEntryVisitCount = bucketEntryVisitCount;
+    this.maxBucketEntryVisitCount = Math.max(this.maxBucketEntryVisitCount, bucketEntryVisitCount);
+    return result;
+  }
+
   resetRiderContacts(): void {
     this.activeContacts.clear();
   }
@@ -1366,6 +1954,14 @@ export class CompiledCityCollisionRuntime {
     // Compiled buffers are borrowed. Cache/lease owners dispose them.
     this.resetRiderContacts();
     this.owners = Object.freeze([]);
+    this.ownerCells.clear();
+    this.globalOwners = Object.freeze([]);
+    this.lastCandidateOwnerCount = 0;
+    this.maxCandidateOwnerCount = 0;
+    this.lastBucketEntryVisitCount = 0;
+    this.maxBucketEntryVisitCount = 0;
+    this.ownerVisitMarks = new Uint32Array(0);
+    this.ownerVisitEpoch = 0;
   }
 
   private assertUniqueOwners(): void {

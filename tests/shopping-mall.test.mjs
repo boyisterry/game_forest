@@ -706,17 +706,20 @@ test("supports commercial night lighting and structural cutaway", () => {
   const sign = namedObjects(mall, "shopping-mall-store-sign")[0];
   const roof = namedObjects(mall, "shopping-mall-flat-roof")[0];
   const streetLights = namedObjects(mall, "street-light-point-light");
+  const pooledLights = mall.getObjectByName("shopping-mall-pooled-night-lights").children;
   const interiorLights = namedObjects(mall, "shopping-mall-interior-luminaire");
   const interiors = namedObjects(mall, "shopping-mall-store-interior-module");
   const interiorFixtures = namedObjects(mall, "shopping-mall-tenant-fixture");
   const interiorNameplates = namedObjects(mall, "shopping-mall-store-interior-nameplate");
+  const renderedOrMerged = (object) => object.visible || typeof object.userData.renderProxySource === "string";
   assert.ok(sign instanceof THREE.Mesh && roof instanceof THREE.Mesh);
   assert.ok(interiorLights.length >= 62);
   assert.ok(interiorLights.every((light) => light instanceof THREE.Mesh && "emissiveIntensity" in light.material));
   const daytimeInteriorIntensity = interiorLights.map((light) => light.material.emissiveIntensity);
   mall.userData.setPowered(true);
   assert.ok(sign.material.emissiveIntensity > 1);
-  assert.ok(streetLights.every((light) => light.intensity > 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(pooledLights.every((light) => light.visible && light.intensity > 0));
   assert.ok(interiorLights.every((light, index) => light.material.emissiveIntensity > daytimeInteriorIntensity[index]));
   mall.userData.setPowered(false);
   assert.ok(streetLights.every((light) => light.intensity === 0));
@@ -730,10 +733,10 @@ test("supports commercial night lighting and structural cutaway", () => {
   assert.ok(namedObjects(mall, "shopping-mall-curtain-wall-mullion").every((mullion) => !mullion.visible));
   assert.ok(namedObjects(mall, "shopping-mall-storefront-glass").every((pane) => !pane.visible));
   assert.ok(namedObjects(mall, "shopping-mall-interior-floor-slab").every((slab) => slab.visible));
-  assert.ok(namedObjects(mall, "shopping-mall-food-counter").every((counter) => counter.visible));
-  assert.ok(interiors.every((interior) => interior.visible));
-  assert.ok(interiorFixtures.every((fixture) => fixture.visible));
-  assert.ok(interiorNameplates.every((nameplate) => nameplate.visible));
+  assert.ok(namedObjects(mall, "shopping-mall-food-counter").every(renderedOrMerged));
+  assert.ok(interiors.every(renderedOrMerged));
+  assert.ok(interiorFixtures.every(renderedOrMerged));
+  assert.ok(interiorNameplates.every(renderedOrMerged));
   assert.ok(namedObjects(mall, "shopping-mall-service-core").every((core) => core.visible));
   assert.ok(namedObjects(mall, "shopping-mall-accessible-lift").every((lift) => lift.visible));
   assert.ok(namedObjects(mall, "shopping-mall-fire-stair").every((stair) => stair.visible));
@@ -795,6 +798,7 @@ test("keeps the late-night light rig bounded, shadow-free and dormant during day
   const mall = buildLowPolyShoppingMall();
   const nightSources = namedObjects(mall, "shopping-mall-night-light-source");
   const streetSources = namedObjects(mall, "street-light-point-light");
+  const pooledSources = mall.getObjectByName("shopping-mall-pooled-night-lights").children;
   const allPointLights = [];
   mall.traverse((object) => { if (object instanceof THREE.PointLight) allPointLights.push(object); });
 
@@ -804,13 +808,14 @@ test("keeps the late-night light rig bounded, shadow-free and dormant during day
     new Set(nightSources.map((light) => light.userData.zone)),
     new Set(mall.userData.nightLightingZones),
   );
-  assert.ok(allPointLights.length <= 19, "six mall sources plus thirteen reused street lights is the complete budget");
+  assert.ok(pooledSources.length < streetSources.length, "street fixtures should collapse into fewer regional light sources");
   assert.ok(allPointLights.every((light) => light.castShadow === false));
   assert.ok(allPointLights.every((light) => light.intensity === 0 && light.visible === false));
 
   mall.userData.setPowered(true);
   assert.ok(nightSources.every((light) => light.visible && light.intensity === light.userData.onIntensity));
-  assert.ok(streetSources.every((light) => light.visible && light.intensity > 0));
+  assert.ok(streetSources.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(pooledSources.every((light) => light.visible && light.intensity > 0));
 
   mall.userData.setPowered(false);
   assert.ok(allPointLights.every((light) => light.intensity === 0 && light.visible === false));

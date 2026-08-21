@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   toTemplateBuildDescriptor,
   type TemplateBuildDescriptorSnapshot,
@@ -7,14 +8,27 @@ import type {
   CatalogSourceRegistry,
   OwnedCatalogSource,
 } from "./cityCatalogSources.ts";
+import {
+  disposeMaterialsAndTextures,
+  disposeSceneResources,
+  type ResourceCacheLease,
+} from "./cityResourceCache.ts";
 import type {
   CityVisualLayerManager,
   VisualLayerPort,
 } from "./cityVisualLayerManager.ts";
 import type { ResourceLease } from "./resourceLease.ts";
-import { canonicalFloat64Bits, canonicalTupleKey } from "./cityCollisionTypes.ts";
+import { canonicalTupleKey } from "./cityCollisionTypes.ts";
+import {
+  cityMaterialBatchKey,
+  encodeCityMaterialBatchKey,
+} from "./cityMaterialBatchKey.ts";
 import type { PackedCollisionCompileSource } from "./cityCollisionWire.ts";
-import { packTemplateCollisionSource } from "./cityTemplateCollisionSource.ts";
+import {
+  packTemplateCollisionSource,
+  packTemplateSurfaceCollisionSources,
+} from "./cityTemplateCollisionSource.ts";
+import type { CityBatchTemplateDefinition } from "./cityBatchWorld.ts";
 
 export type VisualTemplateSourceRef =
   | Readonly<{ kind: "catalog"; catalogId: string }>
@@ -29,6 +43,7 @@ export type Matrix4Snapshot = readonly [
 
 export type VisualAttachRequest = Readonly<{
   targetLayer: VisualLayerPort;
+  batchSelection?: "all" | "special-only" | "signal-special-only";
   placements: readonly Readonly<{
     placementId: string;
     worldFromLocal: Matrix4Snapshot;
@@ -57,6 +72,14 @@ export type CityTemplateVisualMetrics = Readonly<{
   mapDrawCalls: number;
 }>;
 
+export type CityTemplateBatchKeyMetrics = Readonly<{
+  batchCount: number;
+  materialKeys: readonly string[];
+  compatibilityKeys: readonly string[];
+  tintMaterialFamilyKeys: readonly string[];
+  tintCompatibilityKeys: readonly string[];
+}>;
+
 export class CatalogVisualSourceMissingError extends Error {
   readonly code = "CATALOG_VISUAL_SOURCE_MISSING";
 
@@ -73,11 +96,27 @@ export type CityTemplateCache = Readonly<{
     request: VisualAttachRequest,
   ) => ResourceLease<VisualAttachmentHandle>;
   getVisualMetrics: (handle: VisualTemplateHandle) => CityTemplateVisualMetrics;
+  getVisualBatchKeyMetrics: (handle: VisualTemplateHandle) => CityTemplateBatchKeyMetrics;
+  getBatchTemplateDefinition: (handle: VisualTemplateHandle) => CityBatchTemplateDefinition | null;
+  getSignalBatchTemplateDefinition: (
+    handle: VisualTemplateHandle,
+    phase: "red" | "green",
+  ) => CityBatchTemplateDefinition | null;
   createCollisionCompileSource: (
     source: VisualTemplateSourceRef,
-    resolvedHeightScale: number,
     signal?: AbortSignal,
   ) => Promise<PackedCollisionCompileSource>;
+  createSurfaceCollisionCompileSources: (
+    source: VisualTemplateSourceRef,
+    signal?: AbortSignal,
+  ) => Promise<readonly PackedCollisionCompileSource[]>;
+  releaseCanonicalSourceTree: (source: VisualTemplateSourceRef) => boolean;
+  getCanonicalSourceLifecycle: (handle: VisualTemplateHandle) => Readonly<{
+    sourceTreeReleased: boolean;
+    sourceTreeChildCount: number;
+    packedCollisionReady: boolean;
+    packedSurfaceCollisionReady: boolean;
+  }>;
   retire: () => Promise<void>;
   readonly retired: boolean;
 }>;
@@ -85,13 +124,39 @@ export type CityTemplateCache = Readonly<{
 type TemplateRecord = {
   handle: VisualTemplateHandle;
   canonicalSource: THREE.Group;
+  canonicalMaterials: readonly THREE.Material[];
   descriptor: TemplateBuildDescriptorSnapshot;
   signalPhaseBindings: ReadonlyMap<string, SignalPhaseBinding>;
+  visualBatches: readonly VisualBatch[] | null;
+  signalVisualBatches: Readonly<Record<"red" | "green", readonly VisualBatch[]>> | null;
+  ownedVisualMaterials: readonly THREE.Material[];
+  resourceCacheLease: ResourceCacheLease;
+  resourceCacheLeaseReleased: boolean;
+  packedCollisionPromise?: Promise<PackedCollisionCompileSource>;
+  packedSurfaceCollisionPromise?: Promise<readonly PackedCollisionCompileSource[]>;
+  packedCollisionReady: boolean;
+  packedSurfaceCollisionReady: boolean;
+  canonicalSourceReleased: boolean;
   metrics: CityTemplateVisualMetrics;
+  batchKeyMetrics: CityTemplateBatchKeyMetrics;
+  batchTemplateDefinition?: CityBatchTemplateDefinition | null;
+  ownedFarGeometries: THREE.BufferGeometry[];
   borrowers: number;
   attachmentPins: number;
+  collisionPackingPins: number;
   disposed: boolean;
 };
+
+type VisualBatch = Readonly<{
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material | readonly THREE.Material[];
+  baseTint?: THREE.Color;
+  castShadow: boolean;
+  receiveShadow: boolean;
+  renderOrder: number;
+  drawCalls: number;
+  signalPhaseRole?: string;
+}>;
 
 type SignalMaterialState = Readonly<{
   color?: readonly [number, number, number];
@@ -113,6 +178,7 @@ type VisualMaterial = THREE.Material & Readonly<{
 }>;
 
 const SIGNAL_PHASE_SLOT_KEYS = "citySignalPhaseSlotKeys";
+export const CITY_VISUAL_INSTANCE_CELL_SIZE_METERS = 512;
 
 const STATIC_FALSE_HOOKS = Object.freeze([
   "setPowered",
@@ -251,7 +317,8 @@ function captureSignalPhaseBindings(root: THREE.Group): ReadonlyMap<string, Sign
   return bindings;
 }
 
-function applyMapLod(root: THREE.Group, descriptor: TemplateBuildDescriptorSnapshot) {
+export function applyCityTemplateMapLod(root: THREE.Group, descriptor: TemplateBuildDescriptorSnapshot) {
+  const nonCollidingOverhangNames = new Set(descriptor.nonCollidingOverhangNames ?? []);
   const hiddenLayers = descriptor.mapLod.mode === "tagged-exterior"
     ? new Set(descriptor.mapLod.hideLayers)
     : new Set<string>();
@@ -261,30 +328,421 @@ function applyMapLod(root: THREE.Group, descriptor: TemplateBuildDescriptorSnaps
       remove.push(object);
       return;
     }
+    if (nonCollidingOverhangNames.has(object.name)) {
+      object.userData.mapCollisionRole = "ignore";
+    }
     const mapLayer = object.userData.mapLayer as string | undefined;
     if (mapLayer && hiddenLayers.has(mapLayer)) object.visible = false;
   });
   for (const object of remove) object.removeFromParent();
 }
 
+function isEffectivelyVisible(object: THREE.Object3D) {
+  for (let node: THREE.Object3D | null = object; node; node = node.parent) {
+    if (!node.visible) return false;
+  }
+  return true;
+}
+
+function geometryLayoutKey(geometry: THREE.BufferGeometry) {
+  const attributes = Object.entries(geometry.attributes)
+    .map(([name, attribute]) => {
+      const array = attribute.array as ArrayLike<number> & { constructor: { name: string } };
+      return `${name}:${attribute.itemSize}:${Number(attribute.normalized)}:${array.constructor.name}`;
+    })
+    .sort()
+    .join(",");
+  return `${geometry.index ? "indexed" : "plain"}|${attributes}`;
+}
+
+function materialBatchKey(material: THREE.Material, includeDiffuseColor = true) {
+  return cityMaterialBatchKey(material, { includeDiffuseColor });
+}
+
+export function createCityMapRuntimeMaterialDerivative(
+  material: THREE.Material,
+): THREE.Material | null {
+  if (!(material instanceof THREE.MeshPhysicalMaterial) || material.transmission <= 0) {
+    return null;
+  }
+  const runtime = material.clone();
+  const originalTransmission = runtime.transmission;
+  runtime.name = material.name
+    ? `${material.name}-city-map-alpha`
+    : "city-map-alpha-material";
+  runtime.transmission = 0;
+  runtime.userData = {
+    ...runtime.userData,
+    cityMapTransmissionDowngrade: true,
+    cityMapOriginalTransmission: originalTransmission,
+  };
+  runtime.needsUpdate = true;
+  return runtime;
+}
+
+function createCityMapRuntimeVisualBatches(
+  batches: readonly VisualBatch[],
+  derivatives: Map<THREE.Material, THREE.Material>,
+  ownedMaterials: Set<THREE.Material>,
+): readonly VisualBatch[] {
+  const resolveMaterial = (material: THREE.Material) => {
+    const existing = derivatives.get(material);
+    if (existing) return existing;
+    const derivative = createCityMapRuntimeMaterialDerivative(material);
+    if (!derivative) return material;
+    derivatives.set(material, derivative);
+    ownedMaterials.add(derivative);
+    return derivative;
+  };
+  return Object.freeze(batches.map((batch) => Object.freeze({
+    ...batch,
+    material: batch.material instanceof THREE.Material
+      ? resolveMaterial(batch.material)
+      : Object.freeze(batch.material.map(resolveMaterial)),
+  })));
+}
+
+function visualBatchCompatibilityKey(batch: VisualBatch) {
+  const materials = batch.material instanceof THREE.Material ? [batch.material] : batch.material;
+  return [
+    materials.map((material) => materialBatchKey(material)).join("||material-slot||"),
+    geometryLayoutKey(batch.geometry),
+    Number(batch.castShadow),
+    Number(batch.receiveShadow),
+    batch.renderOrder,
+    batch.signalPhaseRole ?? "",
+  ].join("||batch-field||");
+}
+
+function isCityBatchEligible(batch: VisualBatch, allowSignalPhaseRole = false) {
+  if (!(batch.material instanceof THREE.Material)) return false;
+  return !batch.material.transparent
+    && batch.material.opacity >= 1
+    && (allowSignalPhaseRole || batch.signalPhaseRole === undefined);
+}
+
+function createCityMapTintVisualBatches(
+  batches: readonly VisualBatch[],
+  familyMaterials: Map<string, THREE.Material>,
+  ownedMaterials: Set<THREE.Material>,
+): readonly VisualBatch[] {
+  const nearestTier = (value: number, tiers: readonly number[]) => tiers.reduce(
+    (nearest, tier) => Math.abs(tier - value) < Math.abs(nearest - value) ? tier : nearest,
+  );
+  const roughnessTiers = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1] as const;
+  const metalnessTiers = [0, 0.2, 0.4, 0.6, 0.8, 1] as const;
+  return Object.freeze(batches.map((batch) => {
+    if (!isCityBatchEligible(batch, true) || !(batch.material instanceof THREE.Material)) {
+      return batch;
+    }
+    const visual = batch.material as THREE.Material & {
+      color?: THREE.Color;
+      roughness?: number;
+      metalness?: number;
+    };
+    if (!(visual.color instanceof THREE.Color)) return batch;
+    const candidate = batch.material.clone() as THREE.Material & {
+      color: THREE.Color;
+      roughness?: number;
+      metalness?: number;
+    };
+    candidate.color.set(0xffffff);
+    if (typeof candidate.roughness === "number") {
+      candidate.roughness = nearestTier(candidate.roughness, roughnessTiers);
+    }
+    if (typeof candidate.metalness === "number") {
+      candidate.metalness = nearestTier(candidate.metalness, metalnessTiers);
+    }
+    const familyKey = encodeCityMaterialBatchKey(candidate, { includeDiffuseColor: false });
+    const requiresDerivative = visual.color.getHex() !== 0xffffff
+      || ("roughness" in visual && visual.roughness !== candidate.roughness)
+      || ("metalness" in visual && visual.metalness !== candidate.metalness);
+    if (!familyKey) {
+      candidate.dispose();
+      return batch;
+    }
+    let familyMaterial = familyMaterials.get(familyKey);
+    if (!familyMaterial) {
+      if (!requiresDerivative) {
+        familyMaterial = batch.material;
+        candidate.dispose();
+      } else {
+        candidate.name = batch.material.name
+          ? `${batch.material.name}-city-map-tint-base`
+          : "city-map-tint-base-material";
+        candidate.userData = {
+          ...candidate.userData,
+          cityMapInstanceTintBase: true,
+        };
+        candidate.needsUpdate = true;
+        familyMaterial = candidate;
+        ownedMaterials.add(candidate);
+      }
+      familyMaterials.set(familyKey, familyMaterial);
+    } else {
+      candidate.dispose();
+    }
+    return Object.freeze({
+      ...batch,
+      material: familyMaterial,
+      baseTint: visual.color.clone(),
+    });
+  }));
+}
+
+function farMassingGeometry(
+  bounds: THREE.Box3,
+  prototype: THREE.BufferGeometry,
+): THREE.BufferGeometry | null {
+  const supported = new Set(["position", "normal", "uv", "uv1", "uv2", "color", "tangent"]);
+  const names = Object.keys(prototype.attributes);
+  if (!names.includes("position") || names.some((name) => !supported.has(name))) return null;
+  if (Object.values(prototype.attributes).some((attribute) => (
+    attribute instanceof THREE.InterleavedBufferAttribute
+    || !(attribute.array instanceof Float32Array)
+  ))) return null;
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  let geometry: THREE.BufferGeometry = new THREE.BoxGeometry(
+    Math.max(size.x, 0.05),
+    Math.max(size.y, 0.05),
+    Math.max(size.z, 0.05),
+  ).translate(center.x, center.y, center.z);
+  if (!prototype.getIndex()) {
+    const nonIndexed = geometry.toNonIndexed();
+    geometry.dispose();
+    geometry = nonIndexed;
+  }
+  for (const existing of Object.keys(geometry.attributes)) {
+    if (!names.includes(existing)) geometry.deleteAttribute(existing);
+  }
+  const vertexCount = geometry.getAttribute("position").count;
+  for (const name of names) {
+    if (geometry.getAttribute(name)) continue;
+    const source = prototype.getAttribute(name);
+    const values = new Float32Array(vertexCount * source.itemSize);
+    if (name === "color") values.fill(1);
+    if (name === "tangent") {
+      for (let offset = 0; offset < values.length; offset += source.itemSize) {
+        values[offset] = 1;
+        if (source.itemSize > 3) values[offset + 3] = 1;
+      }
+    }
+    const attribute = new THREE.BufferAttribute(values, source.itemSize, source.normalized);
+    attribute.gpuType = source.gpuType;
+    geometry.setAttribute(name, attribute);
+  }
+  if (geometryLayoutKey(geometry) !== geometryLayoutKey(prototype)) {
+    geometry.dispose();
+    return null;
+  }
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function buildCatalogBatchTemplateDefinition(record: TemplateRecord): CityBatchTemplateDefinition | null {
+  const batches = record.visualBatches;
+  if (!batches) return null;
+  const eligible = batches
+    .map((batch, index) => ({ batch, index }))
+    .filter(({ batch }) => isCityBatchEligible(batch) && batch.material instanceof THREE.Material);
+  if (eligible.length === 0) return null;
+  const bounds = new THREE.Box3().makeEmpty();
+  for (const { batch } of eligible) {
+    if (!batch.geometry.boundingBox) batch.geometry.computeBoundingBox();
+    if (batch.geometry.boundingBox) bounds.union(batch.geometry.boundingBox);
+  }
+  const hosts = eligible
+    .map((entry) => {
+      const box = entry.batch.geometry.boundingBox!;
+      const size = box.getSize(new THREE.Vector3());
+      return { ...entry, volume: size.x * size.y * size.z };
+    })
+    .sort((left, right) => Number(right.batch.castShadow) - Number(left.batch.castShadow)
+      || right.volume - left.volume
+      || left.index - right.index);
+  let hostIndex = -1;
+  let proxy: THREE.BufferGeometry | null = null;
+  for (const host of hosts) {
+    proxy = farMassingGeometry(bounds, host.batch.geometry);
+    if (proxy) {
+      hostIndex = host.index;
+      break;
+    }
+  }
+  if (hostIndex < 0 || !proxy) return null;
+  record.ownedFarGeometries.push(proxy);
+  const slots = eligible.map(({ batch, index }) => Object.freeze({
+    slotId: `visual-batch-${index}`,
+    poolKey: visualBatchCompatibilityKey(batch),
+    material: batch.material as THREE.Material,
+    nearGeometry: batch.geometry,
+    ...(index === hostIndex ? { farGeometry: proxy!, farStrategy: "proxy" as const } : { farStrategy: "hidden" as const }),
+    castShadow: batch.castShadow,
+    receiveShadow: batch.receiveShadow,
+    renderOrder: batch.renderOrder,
+    ...(batch.baseTint ? { baseTint: batch.baseTint } : {}),
+  }));
+  return Object.freeze({ templateId: record.metrics.templateId, slots: Object.freeze(slots) });
+}
+
+function visualBatchKeyMetrics(batches: readonly VisualBatch[]): CityTemplateBatchKeyMetrics {
+  const materialKeys = new Set<string>();
+  const compatibilityKeys = new Set<string>();
+  const tintMaterialFamilyKeys = new Set<string>();
+  const tintCompatibilityKeys = new Set<string>();
+  for (const batch of batches) {
+    const materials = batch.material instanceof THREE.Material ? [batch.material] : batch.material;
+    const materialKey = materials.map((material) => materialBatchKey(material)).join("||material-slot||");
+    const tintMaterialFamilyKey = materials
+      .map((material) => materialBatchKey(material, false))
+      .join("||material-slot||");
+    materialKeys.add(materialKey);
+    tintMaterialFamilyKeys.add(tintMaterialFamilyKey);
+    compatibilityKeys.add(visualBatchCompatibilityKey(batch));
+    tintCompatibilityKeys.add([
+      tintMaterialFamilyKey,
+      geometryLayoutKey(batch.geometry),
+      Number(batch.castShadow),
+      Number(batch.receiveShadow),
+      batch.renderOrder,
+      batch.signalPhaseRole ?? "",
+    ].join("||batch-field||"));
+  }
+  return Object.freeze({
+    batchCount: batches.length,
+    materialKeys: Object.freeze([...materialKeys].sort()),
+    compatibilityKeys: Object.freeze([...compatibilityKeys].sort()),
+    tintMaterialFamilyKeys: Object.freeze([...tintMaterialFamilyKeys].sort()),
+    tintCompatibilityKeys: Object.freeze([...tintCompatibilityKeys].sort()),
+  });
+}
+
+function createVisualBatches(root: THREE.Group): readonly VisualBatch[] {
+  root.updateMatrixWorld(true);
+  type PendingBatch = {
+    material: THREE.Material;
+    geometries: THREE.BufferGeometry[];
+    castShadow: boolean;
+    receiveShadow: boolean;
+    renderOrder: number;
+    signalPhaseRole?: string;
+  };
+  const pending = new Map<string, PendingBatch>();
+  const completed: VisualBatch[] = [];
+  const addGeometry = (
+    source: THREE.BufferGeometry,
+    matrix: THREE.Matrix4,
+    material: THREE.Material,
+    mesh: THREE.Mesh,
+  ) => {
+    const geometry = source.clone();
+    geometry.applyMatrix4(matrix);
+    const key = [
+      materialBatchKey(material),
+      geometryLayoutKey(geometry),
+      Number(mesh.castShadow),
+      Number(mesh.receiveShadow),
+      mesh.renderOrder,
+      mesh.userData.signalPhaseRole ?? "",
+    ].join("|");
+    const batch = pending.get(key) ?? {
+      material,
+      geometries: [],
+      castShadow: mesh.castShadow,
+      receiveShadow: mesh.receiveShadow,
+      renderOrder: mesh.renderOrder,
+      ...(typeof mesh.userData.signalPhaseRole === "string"
+        ? { signalPhaseRole: mesh.userData.signalPhaseRole }
+        : {}),
+    };
+    batch.geometries.push(geometry);
+    pending.set(key, batch);
+  };
+
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) || !isEffectivelyVisible(object)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    if (Array.isArray(object.material)) {
+      const geometry = object.geometry.clone();
+      geometry.applyMatrix4(object.matrixWorld);
+      completed.push(Object.freeze({
+        geometry,
+        material: Object.freeze([...materials]),
+        castShadow: object.castShadow,
+        receiveShadow: object.receiveShadow,
+        renderOrder: object.renderOrder,
+        drawCalls: Math.max(1, object.geometry.groups.length),
+        ...(typeof object.userData.signalPhaseRole === "string"
+          ? { signalPhaseRole: object.userData.signalPhaseRole }
+          : {}),
+      }));
+      return;
+    }
+    if (object instanceof THREE.InstancedMesh) {
+      const instanceMatrix = new THREE.Matrix4();
+      const combined = new THREE.Matrix4();
+      for (let index = 0; index < object.count; index += 1) {
+        object.getMatrixAt(index, instanceMatrix);
+        combined.multiplyMatrices(object.matrixWorld, instanceMatrix);
+        addGeometry(object.geometry, combined, materials[0], object);
+      }
+      return;
+    }
+    addGeometry(object.geometry, object.matrixWorld, materials[0], object);
+  });
+
+  for (const batch of pending.values()) {
+    const merged = batch.geometries.length === 1
+      ? batch.geometries[0]
+      : mergeGeometries(batch.geometries, false);
+    if (!merged) {
+      for (const geometry of batch.geometries) {
+        completed.push(Object.freeze({
+          geometry,
+          material: batch.material,
+          castShadow: batch.castShadow,
+          receiveShadow: batch.receiveShadow,
+          renderOrder: batch.renderOrder,
+          drawCalls: 1,
+          ...(batch.signalPhaseRole ? { signalPhaseRole: batch.signalPhaseRole } : {}),
+        }));
+      }
+      continue;
+    }
+    if (merged !== batch.geometries[0] || batch.geometries.length > 1) {
+      for (const geometry of batch.geometries) geometry.dispose();
+    }
+    merged.computeBoundingBox();
+    merged.computeBoundingSphere();
+    completed.push(Object.freeze({
+      geometry: merged,
+      material: batch.material,
+      castShadow: batch.castShadow,
+      receiveShadow: batch.receiveShadow,
+      renderOrder: batch.renderOrder,
+      drawCalls: 1,
+      ...(batch.signalPhaseRole ? { signalPhaseRole: batch.signalPhaseRole } : {}),
+    }));
+  }
+  return Object.freeze(completed);
+}
+
 function disposeObjectResources(root: THREE.Object3D) {
-  const geometries = new Set<THREE.BufferGeometry>();
+  disposeSceneResources(root);
+  root.clear();
+}
+
+function collectSceneMaterials(root: THREE.Object3D): readonly THREE.Material[] {
   const materials = new Set<THREE.Material>();
-  const textures = new Set<THREE.Texture>();
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
-    if (object.geometry) geometries.add(object.geometry);
-    const source = Array.isArray(object.material) ? object.material : [object.material];
-    for (const material of source) {
-      if (!material) continue;
-      materials.add(material);
-      for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      if (material) materials.add(material);
     }
   });
-  for (const texture of textures) texture.dispose();
-  for (const material of materials) material.dispose();
-  for (const geometry of geometries) geometry.dispose();
-  root.clear();
+  return Object.freeze([...materials]);
 }
 
 function prepareCanonicalSource(
@@ -293,7 +751,11 @@ function prepareCanonicalSource(
 ): Readonly<{
   group: THREE.Group;
   signalPhaseBindings: ReadonlyMap<string, SignalPhaseBinding>;
+  visualBatches: readonly VisualBatch[] | null;
+  signalVisualBatches: Readonly<Record<"red" | "green", readonly VisualBatch[]>> | null;
+  ownedVisualMaterials: readonly THREE.Material[];
   metrics: CityTemplateVisualMetrics;
+  batchKeyMetrics: CityTemplateBatchKeyMetrics;
 }> {
   const group = owned.group;
   const showcaseMeshCount = countMeshes(group, false);
@@ -302,19 +764,63 @@ function prepareCanonicalSource(
     ? captureSignalPhaseBindings(group)
     : new Map<string, SignalPhaseBinding>();
   group.scale.multiplyScalar(descriptor.mapScale);
-  applyMapLod(group, descriptor);
+  applyCityTemplateMapLod(group, descriptor);
   stripFunctionUserData(group);
   group.userData.cityCanonicalTemplate = true;
   group.updateMatrixWorld(true);
   const mapVisibleMeshCount = countMeshes(group, true);
+  const ownedVisualMaterials = new Set<THREE.Material>();
+  const mapRuntimeMaterialDerivatives = new Map<THREE.Material, THREE.Material>();
+  const mapTintFamilyMaterials = new Map<string, THREE.Material>();
+  let signalVisualBatches: Readonly<Record<"red" | "green", readonly VisualBatch[]>> | null = null;
+  const visualBatches = descriptor.templateId === "traffic-light"
+    ? null
+    : createCityMapTintVisualBatches(
+        createCityMapRuntimeVisualBatches(
+          createVisualBatches(group),
+          mapRuntimeMaterialDerivatives,
+          ownedVisualMaterials,
+        ),
+        mapTintFamilyMaterials,
+        ownedVisualMaterials,
+      );
+  if (descriptor.templateId === "traffic-light") {
+    const buildPhase = (phase: "red" | "green") => {
+      const phaseRoot = group.clone(true);
+      for (const material of applySignalPhase(phaseRoot, phase, signalPhaseBindings)) {
+        ownedVisualMaterials.add(material);
+      }
+      return createCityMapTintVisualBatches(
+        createCityMapRuntimeVisualBatches(
+          createVisualBatches(phaseRoot),
+          mapRuntimeMaterialDerivatives,
+          ownedVisualMaterials,
+        ),
+        mapTintFamilyMaterials,
+        ownedVisualMaterials,
+      );
+    };
+    signalVisualBatches = Object.freeze({ red: buildPhase("red"), green: buildPhase("green") });
+  }
   const metrics = Object.freeze({
     templateId: descriptor.templateId,
     showcaseMeshCount,
     mapVisibleMeshCount,
-    // PR6a records the unmerged baseline. A later measured merge may lower it.
-    mapDrawCalls: mapVisibleMeshCount,
+    mapDrawCalls: (visualBatches ?? signalVisualBatches?.red)
+      ?.reduce((sum, batch) => sum + batch.drawCalls, 0) ?? mapVisibleMeshCount,
   });
-  return Object.freeze({ group, signalPhaseBindings, metrics });
+  const allBatches = visualBatches
+    ?? [...(signalVisualBatches?.red ?? []), ...(signalVisualBatches?.green ?? [])];
+  const batchKeyMetrics = visualBatchKeyMetrics(allBatches);
+  return Object.freeze({
+    group,
+    signalPhaseBindings,
+    visualBatches,
+    signalVisualBatches,
+    ownedVisualMaterials: Object.freeze([...ownedVisualMaterials]),
+    metrics,
+    batchKeyMetrics,
+  });
 }
 
 function assertMatrixSnapshot(matrix: readonly number[]): asserts matrix is Matrix4Snapshot {
@@ -384,6 +890,20 @@ export function createCityTemplateCache(options: Readonly<{
   let resolveRetirement: (() => void) | null = null;
   const retirement = new Promise<void>((resolve) => { resolveRetirement = resolve; });
 
+  const abortReason = (signal: AbortSignal) => signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("collision template request aborted", "AbortError");
+
+  const awaitWithAbort = <T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> => {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(abortReason(signal));
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => reject(abortReason(signal));
+      signal.addEventListener("abort", onAbort, { once: true });
+      void promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+    });
+  };
+
   const requireLiveRecord = (handle: VisualTemplateHandle) => {
     const record = handleRecords.get(handle);
     if (!record || record.disposed || handle.generation !== cacheGeneration) {
@@ -395,13 +915,24 @@ export function createCityTemplateCache(options: Readonly<{
   const disposeRecord = (record: TemplateRecord) => {
     if (record.disposed) return;
     record.disposed = true;
-    disposeObjectResources(record.canonicalSource);
+    for (const batch of record.visualBatches ?? []) batch.geometry.dispose();
+    for (const batches of Object.values(record.signalVisualBatches ?? {})) {
+      for (const batch of batches) batch.geometry.dispose();
+    }
+    for (const material of record.ownedVisualMaterials) material.dispose();
+    for (const geometry of record.ownedFarGeometries) geometry.dispose();
+    if (record.canonicalSourceReleased) {
+      disposeMaterialsAndTextures(record.canonicalMaterials);
+    } else {
+      disposeObjectResources(record.canonicalSource);
+    }
+    if (!record.resourceCacheLeaseReleased) record.resourceCacheLease.release();
   };
 
   const maybeFinishRetirement = () => {
     if (!retired || retirementResolved) return;
     for (const record of records.values()) {
-      if (record.borrowers !== 0 || record.attachmentPins !== 0) return;
+      if (record.borrowers !== 0 || record.attachmentPins !== 0 || record.collisionPackingPins !== 0) return;
     }
     for (const record of records.values()) disposeRecord(record);
     records.clear();
@@ -450,11 +981,23 @@ export function createCityTemplateCache(options: Readonly<{
       const record: TemplateRecord = {
         handle,
         canonicalSource: canonical.group,
+        canonicalMaterials: collectSceneMaterials(canonical.group),
         descriptor,
         signalPhaseBindings: canonical.signalPhaseBindings,
+        visualBatches: canonical.visualBatches,
+        signalVisualBatches: canonical.signalVisualBatches,
+        ownedVisualMaterials: canonical.ownedVisualMaterials,
+        resourceCacheLease: owned.resourceCacheLease,
+        resourceCacheLeaseReleased: false,
+        packedCollisionReady: false,
+        packedSurfaceCollisionReady: false,
+        canonicalSourceReleased: false,
         metrics: canonical.metrics,
+        batchKeyMetrics: canonical.batchKeyMetrics,
+        ownedFarGeometries: [],
         borrowers: 0,
         attachmentPins: 0,
+        collisionPackingPins: 0,
         disposed: false,
       };
       records.set(key, record);
@@ -462,7 +1005,10 @@ export function createCityTemplateCache(options: Readonly<{
       owned = undefined;
       return borrowRecord(record);
     } catch (error) {
-      if (owned) disposeObjectResources(owned.group);
+      if (owned) {
+        disposeObjectResources(owned.group);
+        owned.resourceCacheLease.release();
+      }
       throw error;
     } finally {
       snapshotLease.release();
@@ -477,9 +1023,91 @@ export function createCityTemplateCache(options: Readonly<{
     const record = requireLiveRecord(handle);
     const roots: THREE.Group[] = [];
     const mappings: Array<{ object: THREE.Object3D; placementId: string }> = [];
+    const instanceMappings: Array<{
+      object: THREE.InstancedMesh;
+      placementIds: readonly string[];
+    }> = [];
     const ownedPhaseMaterials = new Set<THREE.Material>();
     let mounted: ResourceLease<unknown> | null = null;
     try {
+      const requestedSignalPhase = request.placements[0]?.signalPhase;
+      if (request.placements.some((placement) => placement.signalPhase !== requestedSignalPhase)) {
+        throw new TypeError("one visual attachment cannot mix traffic-light phases");
+      }
+      const activeBatches = record.visualBatches
+        ?? record.signalVisualBatches?.[requestedSignalPhase ?? "red"]
+        ?? null;
+      const selectedBatches = request.batchSelection === "special-only"
+        ? activeBatches?.filter((batch) => !isCityBatchEligible(batch)) ?? null
+        : request.batchSelection === "signal-special-only"
+          ? activeBatches?.filter((batch) => !isCityBatchEligible(batch, true)) ?? null
+          : activeBatches;
+      if (selectedBatches) {
+        const matrix = new THREE.Matrix4();
+        const group = new THREE.Group();
+        const ownedInstances: THREE.InstancedMesh[] = [];
+        group.name = `city-template-batches-${record.metrics.templateId}`;
+        for (const placement of request.placements) {
+          if (!placement.placementId) throw new TypeError("visual placement id must be non-empty");
+          if (placement.signalPhase !== undefined && record.metrics.templateId !== "traffic-light") {
+            throw new TypeError("signalPhase is only valid for the traffic-light derived template");
+          }
+          assertMatrixSnapshot(placement.worldFromLocal);
+        }
+        const buckets = new Map<string, typeof request.placements extends readonly (infer T)[] ? T[] : never>();
+        for (const placement of request.placements) {
+          const cellX = Math.floor(placement.worldFromLocal[12] / CITY_VISUAL_INSTANCE_CELL_SIZE_METERS);
+          const cellZ = Math.floor(placement.worldFromLocal[14] / CITY_VISUAL_INSTANCE_CELL_SIZE_METERS);
+          const key = `${cellX},${cellZ}`;
+          const bucket = buckets.get(key) ?? [];
+          bucket.push(placement);
+          buckets.set(key, bucket);
+        }
+        for (let batchIndex = 0; batchIndex < selectedBatches.length; batchIndex += 1) {
+          const batch = selectedBatches[batchIndex];
+          const material: THREE.Material | THREE.Material[] = batch.material instanceof THREE.Material
+            ? batch.material
+            : [...batch.material];
+          for (const [cellKey, placements] of buckets) {
+            const instances = new THREE.InstancedMesh(batch.geometry, material, placements.length);
+            instances.name = `city-template-${record.metrics.templateId}-batch-${batchIndex}-${cellKey}`;
+            instances.userData.templateId = record.metrics.templateId;
+            if (requestedSignalPhase) instances.userData.signalPhase = requestedSignalPhase;
+            if (batch.signalPhaseRole) instances.userData.signalPhaseRole = batch.signalPhaseRole;
+            const batchMaterials = Array.isArray(material) ? material : [material];
+            instances.castShadow = batch.castShadow
+              && batchMaterials.every((candidate) => !candidate.transparent && candidate.opacity >= 1);
+            instances.receiveShadow = batch.receiveShadow;
+            instances.renderOrder = batch.renderOrder;
+            instances.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+            placements.forEach((placement, placementIndex) => {
+              matrix.fromArray(placement.worldFromLocal);
+              instances.setMatrixAt(placementIndex, matrix);
+            });
+            instances.instanceMatrix.needsUpdate = true;
+            instances.computeBoundingBox();
+            instances.computeBoundingSphere();
+            group.add(instances);
+            ownedInstances.push(instances);
+            instanceMappings.push({
+              object: instances,
+              placementIds: Object.freeze(placements.map((placement) => placement.placementId)),
+            });
+          }
+        }
+        roots.push(group);
+        mounted = layers.mount(request.targetLayer, {
+          objects: roots,
+          instancePlacements: instanceMappings,
+          disposeOwnedResources() {
+            for (const instances of ownedInstances) instances.dispose();
+            ownedInstances.length = 0;
+          },
+        });
+      } else {
+      if (record.canonicalSourceReleased) {
+        throw new Error("canonical source tree was released without a baked visual representation");
+      }
       for (const placement of request.placements) {
         if (!placement.placementId) throw new TypeError("visual placement id must be non-empty");
         assertMatrixSnapshot(placement.worldFromLocal);
@@ -518,6 +1146,7 @@ export function createCityTemplateCache(options: Readonly<{
           },
         } : {}),
       });
+      }
     } catch (error) {
       for (const material of ownedPhaseMaterials) material.dispose();
       ownedPhaseMaterials.clear();
@@ -540,31 +1169,156 @@ export function createCityTemplateCache(options: Readonly<{
   };
 
   const getVisualMetrics = (handle: VisualTemplateHandle) => requireLiveRecord(handle).metrics;
+  const getVisualBatchKeyMetrics = (handle: VisualTemplateHandle) => requireLiveRecord(handle).batchKeyMetrics;
+  const getBatchTemplateDefinition = (handle: VisualTemplateHandle): CityBatchTemplateDefinition | null => {
+    const record = requireLiveRecord(handle);
+    if (record.batchTemplateDefinition === undefined) {
+      record.batchTemplateDefinition = buildCatalogBatchTemplateDefinition(record);
+    }
+    return record.batchTemplateDefinition;
+  };
+
+  const getSignalBatchTemplateDefinition = (
+    handle: VisualTemplateHandle,
+    phase: "red" | "green",
+  ): CityBatchTemplateDefinition | null => {
+    const record = requireLiveRecord(handle);
+    const batches = record.signalVisualBatches?.[phase];
+    if (!batches) return null;
+    const slots = batches.flatMap((batch, index) => {
+      if (!isCityBatchEligible(batch, true) || !(batch.material instanceof THREE.Material)) return [];
+      return [Object.freeze({
+        slotId: `visual-batch-${index}`,
+        poolKey: visualBatchCompatibilityKey(batch),
+        material: batch.material,
+        nearGeometry: batch.geometry,
+        castShadow: batch.castShadow,
+        receiveShadow: batch.receiveShadow,
+        renderOrder: batch.renderOrder,
+        ...(batch.baseTint ? { baseTint: batch.baseTint } : {}),
+      })];
+    });
+    if (slots.length === 0) return null;
+    return Object.freeze({
+      templateId: `${record.metrics.templateId}:${phase}`,
+      slots: Object.freeze(slots),
+    });
+  };
 
   const createCollisionCompileSource = async (
     source: VisualTemplateSourceRef,
-    resolvedHeightScale: number,
     signal?: AbortSignal,
   ): Promise<PackedCollisionCompileSource> => {
     const lease = getVisualTemplate(source);
     try {
       const record = requireLiveRecord(lease.value);
+      if (record.packedCollisionPromise) return await awaitWithAbort(record.packedCollisionPromise, signal);
+      if (signal?.aborted) throw abortReason(signal);
+      if (record.canonicalSourceReleased) {
+        throw new Error("canonical collision source was not retained before source-tree release");
+      }
       const sourceId = canonicalTupleKey([
         "city-template-collision",
         source.kind,
         source.kind === "catalog" ? source.catalogId : source.templateId,
         record.handle.sourceIdentity,
-        canonicalFloat64Bits(resolvedHeightScale),
       ]);
-      return await packTemplateCollisionSource(record.canonicalSource, record.descriptor, {
+      record.collisionPackingPins += 1;
+      const promise = packTemplateCollisionSource(record.canonicalSource, record.descriptor, {
         sourceId,
         generation: record.handle.sourceRegistryGeneration,
-        resolvedHeightScale,
-        signal,
+        resolvedHeightScale: 1,
+      }).then((packed) => {
+        record.packedCollisionReady = true;
+        return packed;
+      }).catch((error) => {
+        if (record.packedCollisionPromise === promise) record.packedCollisionPromise = undefined;
+        throw error;
+      }).finally(() => {
+        record.collisionPackingPins -= 1;
+        if (record.collisionPackingPins < 0) throw new Error("collision packing pin underflow");
+        maybeFinishRetirement();
       });
+      record.packedCollisionPromise = promise;
+      return await awaitWithAbort(promise, signal);
     } finally {
       lease.release();
     }
+  };
+
+  const createSurfaceCollisionCompileSources = async (
+    source: VisualTemplateSourceRef,
+    signal?: AbortSignal,
+  ): Promise<readonly PackedCollisionCompileSource[]> => {
+    const lease = getVisualTemplate(source);
+    try {
+      const record = requireLiveRecord(lease.value);
+      if (record.packedSurfaceCollisionPromise) {
+        return await awaitWithAbort(record.packedSurfaceCollisionPromise, signal);
+      }
+      if (signal?.aborted) throw abortReason(signal);
+      if (record.canonicalSourceReleased) {
+        throw new Error("canonical surface source was not retained before source-tree release");
+      }
+      const sourceId = canonicalTupleKey([
+        "city-template-collision",
+        source.kind,
+        source.kind === "catalog" ? source.catalogId : source.templateId,
+        record.handle.sourceIdentity,
+      ]);
+      record.collisionPackingPins += 1;
+      const promise = packTemplateSurfaceCollisionSources(record.canonicalSource, record.descriptor, {
+        sourceId,
+        generation: record.handle.sourceRegistryGeneration,
+        resolvedHeightScale: 1,
+      }).then((packed) => {
+        record.packedSurfaceCollisionReady = true;
+        return packed;
+      }).catch((error) => {
+        if (record.packedSurfaceCollisionPromise === promise) {
+          record.packedSurfaceCollisionPromise = undefined;
+        }
+        throw error;
+      }).finally(() => {
+        record.collisionPackingPins -= 1;
+        if (record.collisionPackingPins < 0) throw new Error("surface collision packing pin underflow");
+        maybeFinishRetirement();
+      });
+      record.packedSurfaceCollisionPromise = promise;
+      return await awaitWithAbort(promise, signal);
+    } finally {
+      lease.release();
+    }
+  };
+
+  const releaseCanonicalSourceTree = (source: VisualTemplateSourceRef): boolean => {
+    const lease = getVisualTemplate(source);
+    try {
+      const record = requireLiveRecord(lease.value);
+      if (record.canonicalSourceReleased) return false;
+      if (!record.packedCollisionReady || !record.packedSurfaceCollisionReady) return false;
+      if (record.visualBatches === null && record.signalVisualBatches === null) return false;
+      disposeSceneResources(record.canonicalSource, { disposeMaterials: false });
+      record.canonicalSource.clear();
+      record.canonicalSourceReleased = true;
+      if (!record.resourceCacheLeaseReleased) {
+        record.resourceCacheLeaseReleased = true;
+        record.resourceCacheLease.release();
+      }
+      return true;
+    } finally {
+      lease.release();
+    }
+  };
+
+  const getCanonicalSourceLifecycle = (handle: VisualTemplateHandle) => {
+    const record = requireLiveRecord(handle);
+    return Object.freeze({
+      sourceTreeReleased: record.canonicalSourceReleased,
+      sourceTreeChildCount: record.canonicalSource.children.length,
+      packedCollisionReady: record.packedCollisionReady,
+      packedSurfaceCollisionReady: record.packedSurfaceCollisionReady,
+    });
   };
 
   const retire = () => {
@@ -580,7 +1334,13 @@ export function createCityTemplateCache(options: Readonly<{
     getVisualTemplate,
     attachVisualTemplate,
     getVisualMetrics,
+    getVisualBatchKeyMetrics,
+    getBatchTemplateDefinition,
+    getSignalBatchTemplateDefinition,
     createCollisionCompileSource,
+    createSurfaceCollisionCompileSources,
+    releaseCanonicalSourceTree,
+    getCanonicalSourceLifecycle,
     retire,
     get retired() { return retired; },
   });

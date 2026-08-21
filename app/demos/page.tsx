@@ -4,7 +4,7 @@ import styles from "./ModelShowcaseHome.module.css";
 
 export const metadata: Metadata = {
   title: "城市模型展示区 · 分类入口",
-  description: "按街道装饰、居民建筑、医院、大型游乐园、现代学校、商业中心、完整住宅社区、消防局、城市公园、体育中心、城市中心和市镇中心浏览原创低模模型的正常与破碎版本。",
+  description: "按街道装饰、交通工具、居民建筑、医院、游乐园、学校、商业中心、住宅社区、科技园区、食品加工厂、机械化工厂和城市公共建筑浏览原创低模模型的正常与破碎版本。",
 };
 
 const categories = [
@@ -23,6 +23,14 @@ const categories = [
     href: "/demos/city-street-furniture",
     visual: "street",
     tags: ["8 组模型", "正常 / 破碎", "灯光与开合交互"],
+  },
+  {
+    number: "COLLECTION 13",
+    title: "交通工具",
+    description: "面向城市道路系统的精细载具，包含纯电公交、专用校车、营运出租车、私家小轿车与SUV，并完整设计驾驶区和乘坐空间。",
+    href: "/demos/transportation",
+    visual: "transport",
+    tags: ["公交 / 校车 / 出租车 / 轿车 / SUV", "完整精细内饰", "车门 / 尾门 / 灯光交互", "正常 / 破碎"],
   },
   {
     number: "COLLECTION 02",
@@ -63,6 +71,46 @@ const categories = [
     href: "/demos/shopping-mall",
     visual: "shopping",
     tags: ["5 栋商业建筑", "62 个首层商铺", "露天中庭 / 夜景", "正常 / 破碎"],
+  },
+  {
+    number: "COLLECTION 07A",
+    title: "普通住宅小区",
+    description: "由18栋统一社区居民楼组成的模块化普通小区，三排住宅均配置路边地面停车，并提供30%绿化与室外健身花园。",
+    href: "/demos/standard-residential-community",
+    visual: "community",
+    tags: ["18 栋住宅 / 360 户", "3 排停车 / 66 个车位", "30% 绿化 / 室外健身", "正常 / 破碎"],
+  },
+  {
+    number: "COLLECTION 07B",
+    title: "豪华别墅小区",
+    description: "15栋独立庭院别墅沿连续曲线景观环路组成五个林谷组团，中央生态园集中布置网球、户外娱乐与小桥流水。",
+    href: "/demos/luxury-villa-community",
+    visual: "community",
+    tags: ["15 栋一户一院别墅", "五组团 / 有机景观环路", "80% 生态景观", "中央网球 / 娱乐 / 正常 / 破碎"],
+  },
+  {
+    number: "COLLECTION 08A",
+    title: "超现代科技园区",
+    description: "大型独立研发制造园区，以创新研发、数据中心和机器人原型制造连接智慧仓储、无人物流与清洁能源。",
+    href: "/demos/technology-park",
+    visual: "center",
+    tags: ["260 × 180 米", "2 条柔性自动线", "光伏微电网 / 立体仓库", "正常 / 破碎"],
+  },
+  {
+    number: "COLLECTION 08B",
+    title: "现代食品加工厂",
+    description: "按原料、洁净加工、品质检测、自动包装与冷链出货组织的超现代食品工厂，配置水循环和光伏储能。",
+    href: "/demos/food-processing-plant",
+    visual: "shopping",
+    tags: ["280 × 200 米", "3 条自动化流水线", "冷链立库 / CIP / 水回收", "正常 / 破碎"],
+  },
+  {
+    number: "COLLECTION 08C",
+    title: "超现代机械化工厂",
+    description: "面向重型装备制造的数控加工、机器人焊接、自动总装和封闭喷涂园区，配置龙门吊与智慧能源系统。",
+    href: "/demos/mechanized-factory",
+    visual: "fire",
+    tags: ["300 × 210 米", "8 台 CNC / 3 条自动线", "20 吨龙门吊 / AGV", "正常 / 破碎"],
   },
   {
     number: "COLLECTION 07",
@@ -122,7 +170,7 @@ export default function ModelShowcaseHome() {
           <p className={styles.eyebrow}>FOREST COURIER / MODEL ARCHIVE</p>
           <h1>城市模型展示区</h1>
         </div>
-        <p className={styles.intro}>从街道细节到完整建筑院区、游乐园、现代校园、商业中心、住宅社区、消防局、城市公园、体育中心、城市中心与市镇中心，所有模型均在项目内独立生成，并提供正常与破碎双版本、结构参数与可交互状态。</p>
+        <p className={styles.intro}>从街道细节、交通工具到完整建筑院区、游乐园、现代校园、商业中心、住宅社区、超现代工业园区与城市公共中心，所有模型均在项目内独立生成，并提供正常与破碎双版本、结构参数与可交互状态。</p>
         <Link className={styles.homeLink} href="/">← 返回地图工坊</Link>
       </header>
       <section className={styles.categories} aria-label="模型分类">

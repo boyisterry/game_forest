@@ -11,6 +11,10 @@ function namedObjects(root, name) {
   return objects;
 }
 
+function renderedOrMerged(object) {
+  return object.visible || typeof object.userData.renderProxySource === "string";
+}
+
 test("builds a complete seven-zone walkable town center", () => {
   const center = buildLowPolyTownCenter();
   assert.equal(center.userData.modelType, "town-center");
@@ -199,13 +203,17 @@ test("supports night lighting and cutaway inspection", () => {
   assert.ok(window instanceof THREE.Mesh);
   center.userData.setPowered(true);
   assert.ok(window.material.emissiveIntensity > 1);
-  assert.ok(streetLights.every((light) => light.intensity > 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  const pooledLights = namedObjects(center, "town-center-night-light-pool")
+    .flatMap((pool) => pool.children.filter((light) => light instanceof THREE.PointLight));
+  assert.ok(pooledLights.length > 0 && pooledLights.every((light) => light.visible && light.intensity > 0));
   center.userData.setMarketDay(true);
   center.userData.update(0.7);
   assert.ok(center.getObjectByName("town-center-clock-face").material.emissiveIntensity > 2.5);
   center.userData.setMarketDay(false);
   center.userData.setPowered(false);
-  assert.ok(streetLights.every((light) => light.intensity === 0));
+  assert.ok(streetLights.every((light) => !light.visible && light.intensity === 0));
+  assert.ok(pooledLights.every((light) => !light.visible && light.intensity === 0));
   const handSet = center.getObjectByName("town-center-clock-hand-set");
   const handRotation = handSet.rotation.z;
   center.userData.update(2.2);
@@ -216,7 +224,7 @@ test("supports night lighting and cutaway inspection", () => {
   assert.equal(center.getObjectByName("town-center-clock-tower-shaft").visible, false);
   assert.equal(center.getObjectByName("town-center-clock-face").visible, false);
   assert.equal(center.getObjectByName("town-center-town-hall-interior").visible, true);
-  assert.equal(center.getObjectByName("town-center-clock-tower-clockwork-gear").visible, true);
+  assert.equal(renderedOrMerged(center.getObjectByName("town-center-clock-tower-clockwork-gear")), true);
   center.userData.setInteriorCutaway(false);
   assert.equal(shell.visible, true);
   assert.equal(center.getObjectByName("town-center-clock-tower-shaft").visible, true);

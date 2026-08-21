@@ -8,6 +8,8 @@ import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
 import { buildLowPolySportsCenter, type SportsCenterZone } from "../../lib/map/sportsCenter";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
+import { createCachedPrimitiveScene, disposeSceneResources, retireResourceCacheGeneration } from "../../lib/map/cityResourceCache";
 import styles from "../residential-community/ResidentialCommunityDemo.module.css";
 
 type Focus = "overview" | SportsCenterZone;
@@ -82,6 +84,7 @@ export function SportsCenterDemo() {
     controls.minDistance = 14;
     controls.maxDistance = 360;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
     const ground = new THREE.Mesh(new THREE.CircleGeometry(195, 64), new THREE.MeshStandardMaterial({ color: 0xa8b7a7, roughness: 0.98 }));
     ground.rotation.x = -Math.PI * 0.5;
     ground.position.y = -0.02;
@@ -101,7 +104,8 @@ export function SportsCenterDemo() {
     fill.position.set(82, 34, -72);
     scene.add(hemi, sun, fill);
 
-    const sportsCenter = buildLowPolySportsCenter();
+    const cachedScene = createCachedPrimitiveScene(buildLowPolySportsCenter);
+    const sportsCenter = cachedScene.root;
     const pair = createSceneShatterPair(sportsCenter, { seed: 407, spread: 5 });
     const shatterMorph = new ShatterMorphController(0);
     scene.add(pair.root);
@@ -145,6 +149,7 @@ export function SportsCenterDemo() {
     let focusBlend = 0;
     let interacting = false;
     let rotating = false;
+    let eventActive = false;
     controls.addEventListener("start", () => { interacting = true; focusBlend = 0; });
     controls.addEventListener("end", () => { interacting = false; });
     const setNightMode = (on: boolean) => {
@@ -160,7 +165,10 @@ export function SportsCenterDemo() {
     apiRef.current = {
       focus: (next) => { desiredTarget.copy(FOCUS[next].target); desiredCamera.copy(FOCUS[next].camera); riderAnchor.position.copy(FOCUS[next].rider); focusBlend = 1; },
       setNight: setNightMode,
-      setEvent: (active) => sportsCenter.userData.setEventMode(active),
+      setEvent: (active) => {
+        eventActive = active;
+        sportsCenter.userData.setEventMode(active);
+      },
       setCutaway: (on) => sportsCenter.userData.setInteriorCutaway(on),
       setShattered: (on) => shatterMorph.animateTo(on),
       setAutoRotate: (enabled) => { rotating = enabled; controls.autoRotate = enabled; controls.autoRotateSpeed = 0.42; },
@@ -173,14 +181,18 @@ export function SportsCenterDemo() {
       frame = requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.05);
       sportsCenter.userData.update(clock.elapsedTime);
-      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
+      const morphChanged = shatterMorph.update(delta);
+      if (morphChanged) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged,
+        internalAnimation: eventActive, controlsChanged,
+      }));
     };
     animate();
     const resize = () => {
@@ -196,14 +208,12 @@ export function SportsCenterDemo() {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      cachedScene.lease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };

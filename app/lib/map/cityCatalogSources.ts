@@ -33,10 +33,35 @@ import { buildLowPolyCityPark } from "./cityPark.ts";
 import { buildLowPolySportsCenter } from "./sportsCenter.ts";
 import { buildLowPolyCityCenter } from "./cityCenter.ts";
 import { buildLowPolyTownCenter } from "./townCenter.ts";
+import { buildLowPolyStandardResidentialCommunity } from "./standardResidentialCommunity.ts";
+import { buildLowPolyLuxuryVillaCommunity } from "./luxuryVillaCommunity.ts";
+import {
+  buildLowPolyFoodProcessingPlant,
+  buildLowPolyMechanizedFactory,
+  buildLowPolyTechnologyPark,
+} from "./modernIndustrialDistricts.ts";
+import {
+  buildLowPolyPremiumResidentialGate,
+  buildLowPolyStandardResidentialGate,
+  buildLowPolyVillaResidentialGate,
+} from "./residentialGates.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
+import {
+  acquireResourceCacheLease,
+  disposeSceneResources,
+  internScenePrimitiveGeometries,
+  retireResourceCacheGeneration,
+  type ResourceCacheLease,
+} from "./cityResourceCache.ts";
 
 export type CatalogFactoryAdapter = Readonly<{
   factoryId: string;
-  build: () => THREE.Group;
+  build: (options?: CatalogSourceBuildOptions) => THREE.Group;
+}>;
+
+export type CatalogSourceBuildOptions = Readonly<{
+  /** Profiling/test control; production catalog construction keeps the default enabled path. */
+  optimizeStatic?: boolean;
 }>;
 
 export type CatalogModelPackView = Readonly<{
@@ -51,6 +76,7 @@ export type CatalogModelPackView = Readonly<{
 export type OwnedCatalogSource = Readonly<{
   group: THREE.Group;
   sourceIdentity: string;
+  resourceCacheLease: ResourceCacheLease;
 }>;
 
 export type CatalogSourceSnapshotView = Readonly<{
@@ -60,7 +86,10 @@ export type CatalogSourceSnapshotView = Readonly<{
   getCatalogEntry: (id: string) => CatalogEntrySnapshot | undefined;
   getDerivedTemplateDescriptor: (id: string) => DerivedTemplateDescriptorSnapshot | undefined;
   getFactoryAdapter: (factoryId: string) => CatalogFactoryAdapter | undefined;
-  createOwnedSource: (source: CatalogSource) => OwnedCatalogSource | undefined;
+  createOwnedSource: (
+    source: CatalogSource,
+    options?: CatalogSourceBuildOptions,
+  ) => OwnedCatalogSource | undefined;
 }>;
 
 export type CatalogSourceSnapshotLease = Readonly<{
@@ -93,11 +122,22 @@ export const DEFAULT_CATALOG_FACTORY_ADAPTERS: readonly CatalogFactoryAdapter[] 
   Object.freeze({ factoryId: "residential-building", build: buildLowPolyResidentialBuilding }),
   Object.freeze({ factoryId: "high-rise-residential", build: buildLowPolyHighRiseResidential }),
   Object.freeze({ factoryId: "small-villa", build: buildLowPolySmallVilla }),
+  Object.freeze({ factoryId: "residential-gate-standard", build: buildLowPolyStandardResidentialGate }),
+  Object.freeze({ factoryId: "residential-gate-premium", build: buildLowPolyPremiumResidentialGate }),
+  Object.freeze({ factoryId: "residential-gate-villa", build: buildLowPolyVillaResidentialGate }),
   Object.freeze({ factoryId: "office-campus", build: buildLowPolyOfficeCampus }),
   Object.freeze({ factoryId: "hospital-campus", build: buildLowPolyHospitalCampus }),
   Object.freeze({ factoryId: "amusement-park", build: buildLowPolyAmusementPark }),
   Object.freeze({ factoryId: "school-campus", build: buildLowPolySchoolCampus }),
   Object.freeze({ factoryId: "shopping-mall", build: buildLowPolyShoppingMall }),
+  Object.freeze({ factoryId: "technology-park", build: buildLowPolyTechnologyPark }),
+  Object.freeze({ factoryId: "food-processing-plant", build: buildLowPolyFoodProcessingPlant }),
+  Object.freeze({ factoryId: "mechanized-factory", build: buildLowPolyMechanizedFactory }),
+  Object.freeze({ factoryId: "standard-residential-community", build: buildLowPolyStandardResidentialCommunity }),
+  Object.freeze({ factoryId: "standard-residential-community-4-rows", build: (options) => buildLowPolyStandardResidentialCommunity({ ...options, rowsPerSide: 4 }) }),
+  Object.freeze({ factoryId: "standard-residential-community-5-rows", build: (options) => buildLowPolyStandardResidentialCommunity({ ...options, rowsPerSide: 5 }) }),
+  Object.freeze({ factoryId: "standard-residential-community-6-rows", build: (options) => buildLowPolyStandardResidentialCommunity({ ...options, rowsPerSide: 6 }) }),
+  Object.freeze({ factoryId: "luxury-villa-community", build: buildLowPolyLuxuryVillaCommunity }),
   Object.freeze({ factoryId: "residential-community", build: buildLowPolyResidentialCommunity }),
   Object.freeze({ factoryId: "fire-station", build: buildLowPolyFireStation }),
   Object.freeze({ factoryId: "city-park", build: buildLowPolyCityPark }),
@@ -182,7 +222,10 @@ export function createCatalogSourceRegistry(init: Readonly<{
   const assertLive = () => {
     if (retired) throw new Error("catalog source registry is retired");
   };
-  const bump = () => { generation += 1; };
+  const bump = () => {
+    generation += 1;
+    void retireResourceCacheGeneration();
+  };
 
   const captureSnapshot = (): CatalogSourceSnapshotLease => {
     assertLive();
@@ -199,20 +242,48 @@ export function createCatalogSourceRegistry(init: Readonly<{
     const getEntry = (id: string) => byId.get(id);
     const getDerived = (id: string) => derivedById.get(id);
     const getAdapter = (factoryId: string) => snapshotAdapters.get(factoryId);
-    const createOwnedSource = (source: CatalogSource): OwnedCatalogSource | undefined => {
+    const createOwnedSource = (
+      source: CatalogSource,
+      options?: CatalogSourceBuildOptions,
+    ): OwnedCatalogSource | undefined => {
       if (source.kind === "factory") {
         const adapter = snapshotAdapters.get(source.factoryId);
         if (!adapter) return undefined;
-        const group = adapter.build();
-        group.userData.mapLayer ??= "exterior";
-        return Object.freeze({ group, sourceIdentity: `factory:${source.factoryId}@${snapshotGeneration}` });
+        const resourceCacheLease = acquireResourceCacheLease();
+        let group: THREE.Group | undefined;
+        try {
+          group = adapter.build(options);
+          group.userData.mapLayer ??= "exterior";
+          applyReviewedCityMapLodTags(group, source.factoryId);
+          internScenePrimitiveGeometries(group, resourceCacheLease);
+          return Object.freeze({
+            group,
+            sourceIdentity: `factory:${source.factoryId}@${snapshotGeneration}`,
+            resourceCacheLease,
+          });
+        } catch (error) {
+          if (group) disposeSceneResources(group);
+          resourceCacheLease.release();
+          throw error;
+        }
       }
       const template = snapshotModelPack?.all.find((candidate) => candidate.id === source.modelId);
       if (!template) return undefined;
-      return Object.freeze({
-        group: makeStreetTreeSource(template),
-        sourceIdentity: `model-pack:${source.modelId}@${snapshotGeneration}`,
-      });
+      const resourceCacheLease = acquireResourceCacheLease();
+      let group: THREE.Group | undefined;
+      try {
+        group = makeStreetTreeSource(template);
+        internScenePrimitiveGeometries(group, resourceCacheLease);
+        return Object.freeze({
+          group,
+          sourceIdentity: `model-pack:${source.modelId}@${snapshotGeneration}`,
+          resourceCacheLease,
+        });
+      } catch (error) {
+        if (group) disposeSceneResources(group);
+        resourceCacheLease.release();
+        throw error;
+      }
     };
     const view = Object.freeze({
       generation: snapshotGeneration,

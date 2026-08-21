@@ -8,6 +8,8 @@ import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { buildLowPolySchoolCampus, type SchoolZone } from "../../lib/map/schoolCampus";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
+import { createCachedPrimitiveScene, disposeSceneResources, retireResourceCacheGeneration } from "../../lib/map/cityResourceCache";
 import styles from "./SchoolCampusDemo.module.css";
 
 type Focus = "overview" | SchoolZone;
@@ -80,6 +82,7 @@ export function SchoolCampusDemo() {
     controls.minDistance = 15;
     controls.maxDistance = 280;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
 
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(155, 64),
@@ -104,7 +107,8 @@ export function SchoolCampusDemo() {
     fill.position.set(70, 30, -60);
     scene.add(hemi, sun, fill);
 
-    const campus = buildLowPolySchoolCampus();
+    const cachedScene = createCachedPrimitiveScene(buildLowPolySchoolCampus);
+    const campus = cachedScene.root;
     const pair = createSceneShatterPair(campus, { seed: 402, spread: 5.5 });
     const shatterMorph = new ShatterMorphController(0);
     scene.add(pair.root);
@@ -187,14 +191,17 @@ export function SchoolCampusDemo() {
     const animate = () => {
       frame = requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.05);
-      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
+      const morphChanged = shatterMorph.update(delta);
+      if (morphChanged) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged, controlsChanged,
+      }));
     };
     animate();
     const resize = () => {
@@ -210,14 +217,12 @@ export function SchoolCampusDemo() {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      cachedScene.lease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };

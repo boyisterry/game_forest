@@ -1,11 +1,10 @@
 import {
   BUILTIN_SURFACE_PROFILES,
   BUILTIN_SURFACE_TRANSITIONS,
-  canonicalFloat64Bits,
   canonicalTupleKey,
 } from "./cityCollisionTypes.ts";
 import type { CompiledCollisionSource } from "./cityCollisionCompileCore.ts";
-import { deserializeCompiledCollision } from "./cityCollisionCompileCore.ts";
+import { deserializeCompiledCollision, hashCollisionCompileSource } from "./cityCollisionCompileCore.ts";
 import {
   CompiledCityCollisionRuntime,
   type CompiledCollisionRuntimeOwner,
@@ -21,7 +20,7 @@ import type {
 } from "./cityDocument.ts";
 import { buildLegacyMassingWalls } from "./cityDocumentCollision.ts";
 import { deriveCityEntranceRoadRuntime } from "./cityEntrances.ts";
-import { CitySurfaceIndex } from "./citySurfaceIndex.ts";
+import { packRoadCollisionChunks } from "./cityRoadCollisionSource.ts";
 import { deriveTrafficSignalPlacements } from "./citySignals.ts";
 import { getCatalogEntry } from "./cityCatalog.ts";
 import type {
@@ -34,7 +33,7 @@ import {
   TILE_SIZE_METERS,
 } from "./cityTiles.ts";
 
-type TemplatePlacementPlan = Readonly<{
+export type TemplatePlacementPlan = Readonly<{
   ownerId: string;
   source: VisualTemplateSourceRef;
   resolvedHeightScale: number;
@@ -52,7 +51,59 @@ export type CityCollisionBuildReport = Readonly<{
   catalogOwnerCount: number;
   trafficSignalOwnerCount: number;
   compiledTemplateCount: number;
+  templateSurfaceOwnerCount: number;
+  roadOwnerCount: number;
+  roadChunkCompileHits: number;
+  roadChunkCompileMisses: number;
+  ownerIndexFullRebuild: boolean;
+  ownerIndexReusedOwnerCount: number;
+  ownerIndexAddedOwnerCount: number;
+  ownerIndexUpdatedOwnerCount: number;
+  ownerIndexRemovedOwnerCount: number;
+  ownerIndexAffectedCellCount: number;
+  releasedCanonicalSourceTreeCount: number;
+  legacyOwnerCount: number;
 }>;
+
+export type CityRoadChunkCompileCacheStats = Readonly<{
+  entries: number;
+  hits: number;
+  misses: number;
+}>;
+
+/** Content-addressed road compilation survives document-generation changes. */
+export class CityRoadChunkCompileCache {
+  private readonly compiledByHash = new Map<string, Promise<CompiledCollisionSource>>();
+  private hits = 0;
+  private misses = 0;
+
+  async getOrCompile(
+    source: PackedCollisionCompileSource,
+    compile: (source: PackedCollisionCompileSource) => Promise<CompiledCollisionSource>,
+  ) {
+    const hash = await hashCollisionCompileSource(source);
+    const existing = this.compiledByHash.get(hash);
+    if (existing) {
+      this.hits += 1;
+      return Object.freeze({ compiled: await existing, cacheHit: true });
+    }
+    this.misses += 1;
+    const promise = compile(source);
+    this.compiledByHash.set(hash, promise);
+    void promise.catch(() => {
+      if (this.compiledByHash.get(hash) === promise) this.compiledByHash.delete(hash);
+    });
+    return Object.freeze({ compiled: await promise, cacheHit: false });
+  }
+
+  stats(): CityRoadChunkCompileCacheStats {
+    return Object.freeze({ entries: this.compiledByHash.size, hits: this.hits, misses: this.misses });
+  }
+
+  clear() {
+    this.compiledByHash.clear();
+  }
+}
 
 let nextDocumentCollisionWorldId = 10_000;
 
@@ -134,10 +185,10 @@ export function collectCityCollisionTemplatePlacements(
 }
 
 function createLegacyCompiledSource(
-  placements: readonly Readonly<LegacyMassingPlacement>[],
+  placement: Readonly<LegacyMassingPlacement>,
   documentGeneration: number,
 ): CompiledCollisionSource | null {
-  const sourceWalls = buildLegacyMassingWalls(placements, documentGeneration);
+  const sourceWalls = buildLegacyMassingWalls([placement], documentGeneration);
   if (sourceWalls.length === 0) return null;
   const featureCount = sourceWalls.length * 2;
   const segmentXZ = new Float32Array(featureCount * 4);
@@ -159,7 +210,7 @@ function createLegacyCompiledSource(
     write([0, wall.minY, length, wall.minY, length, wall.maxY]);
     write([0, wall.minY, length, wall.maxY, 0, wall.maxY]);
   });
-  const identity = canonicalTupleKey(["legacy-massing-world", documentGeneration]);
+  const identity = canonicalTupleKey(["legacy-massing-placement", placement.id, documentGeneration]);
   return Object.freeze({
     sourceId: identity,
     generation: documentGeneration,
@@ -173,13 +224,12 @@ function createLegacyCompiledSource(
   });
 }
 
-function variantKey(plan: TemplatePlacementPlan) {
+export function cityCollisionTemplateVariantKey(plan: TemplatePlacementPlan) {
   const id = plan.source.kind === "catalog" ? plan.source.catalogId : plan.source.templateId;
   return canonicalTupleKey([
     "template-variant",
     plan.source.kind,
     id,
-    canonicalFloat64Bits(plan.resolvedHeightScale),
   ]);
 }
 
@@ -193,6 +243,7 @@ export class CityDocumentCollisionPipeline {
   private readonly store: CityCollisionPayloadStore;
   private worker: CityCollisionWorkerClient | null = null;
   private readonly compiledByVariant = new Map<string, Promise<CompiledCollisionSource>>();
+  private readonly roadChunkCompileCache = new CityRoadChunkCompileCache();
   private disposed = false;
 
   constructor(cache: CityTemplateCache, databaseName?: string) {
@@ -204,6 +255,7 @@ export class CityDocumentCollisionPipeline {
     document: CityMapDocumentSnapshot,
     documentGeneration: number,
     signal?: AbortSignal,
+    previousRuntime?: CompiledCityCollisionRuntime | null,
   ): Promise<CityCollisionBuildReport> {
     this.assertActive(signal);
     if (!Number.isSafeInteger(documentGeneration) || documentGeneration < 0) {
@@ -211,60 +263,142 @@ export class CityDocumentCollisionPipeline {
     }
     const plans = collectCityCollisionTemplatePlacements(document);
     const variants = new Map<string, TemplatePlacementPlan>();
-    for (const plan of plans) variants.set(variantKey(plan), plan);
+    for (const plan of plans) variants.set(cityCollisionTemplateVariantKey(plan), plan);
     const compiledVariants = new Map<string, CompiledCollisionSource>();
+    const compiledSurfaceVariants = new Map<string, readonly CompiledCollisionSource[]>();
+    let releasedCanonicalSourceTreeCount = 0;
     await Promise.all([...variants].map(async ([key, plan]) => {
-      this.assertActive(signal);
-      const packed = await this.cache.createCollisionCompileSource(
-        plan.source,
-        plan.resolvedHeightScale,
-        signal,
-      );
-      this.assertActive(signal);
-      const compiled = await this.compilePacked(packed);
-      this.assertActive(signal);
-      compiledVariants.set(key, compiled);
+      const sourceLabel = plan.source.kind === "catalog"
+        ? plan.source.catalogId
+        : plan.source.templateId;
+      try {
+        this.assertActive(signal);
+        const [packed, packedSurfaceChunks] = await Promise.all([
+          this.cache.createCollisionCompileSource(
+            plan.source,
+            signal,
+          ),
+          this.cache.createSurfaceCollisionCompileSources(
+            plan.source,
+            signal,
+          ),
+        ]);
+        this.assertActive(signal);
+        const [compiled, compiledSurfaceChunks] = await Promise.all([
+          this.compilePacked(packed),
+          Promise.all(packedSurfaceChunks.map((chunk) => this.compilePacked(chunk))),
+        ]);
+        this.assertActive(signal);
+        compiledVariants.set(key, compiled);
+        compiledSurfaceVariants.set(key, Object.freeze(compiledSurfaceChunks));
+        if (this.cache.releaseCanonicalSourceTree(plan.source)) {
+          releasedCanonicalSourceTreeCount += 1;
+        }
+      } catch (error) {
+        if (signal?.aborted || this.disposed) throw error;
+        throw new Error(`failed to compile collision template ${sourceLabel}`, { cause: error });
+      }
     }));
     this.assertActive(signal);
 
     const worldId = nextDocumentCollisionWorldId;
     nextDocumentCollisionWorldId += 1;
     const roadSources = deriveCityEntranceRoadRuntime(document).collisionSources;
-    const surfaceBridge = new CitySurfaceIndex(roadSources, worldId, documentGeneration);
+    const packedRoadChunks = packRoadCollisionChunks(roadSources, documentGeneration);
+    const compiledRoadChunks = await Promise.all(packedRoadChunks.map(async (chunk) => {
+      const result = await this.roadChunkCompileCache.getOrCompile(
+        chunk.source,
+        (source) => this.compilePacked(source),
+      );
+      return Object.freeze({ chunk, ...result });
+    }));
+    this.assertActive(signal);
     const owners: CompiledCollisionRuntimeOwner[] = [];
     const legacy = document.placements.filter(
       (placement): placement is Readonly<LegacyMassingPlacement> => placement.poseKind === "legacy-massing",
     );
-    const legacySource = createLegacyCompiledSource(legacy, documentGeneration);
-    if (legacySource) {
+    for (const placement of legacy) {
+      const legacySource = createLegacyCompiledSource(placement, documentGeneration);
+      if (!legacySource) continue;
       owners.push(Object.freeze({
-        ownerId: canonicalTupleKey(["world-static", "legacy-massing"]),
+        ownerId: canonicalTupleKey(["legacy-massing", placement.id]),
         ownerGeneration: documentGeneration,
         source: legacySource,
+        transform: Object.freeze({ heightScale: 1 }),
       }));
     }
     for (const plan of plans) {
-      const source = compiledVariants.get(variantKey(plan));
+      const key = cityCollisionTemplateVariantKey(plan);
+      const source = compiledVariants.get(key);
       if (!source) throw new Error("compiled template variant disappeared during assembly");
       owners.push(Object.freeze({
         ownerId: plan.ownerId,
         ownerGeneration: documentGeneration,
         source,
-        transform: plan.transform,
+        transform: Object.freeze({ ...plan.transform, heightScale: plan.resolvedHeightScale }),
+      }));
+      for (const surfaceSource of compiledSurfaceVariants.get(key) ?? []) {
+        const chunk = surfaceSource.surfaceChunk;
+        if (!chunk) throw new Error("compiled template surface chunk lost its surface payload");
+        owners.push(Object.freeze({
+          ownerId: canonicalTupleKey([
+            "template-surface-chunk",
+            plan.ownerId,
+            chunk.chunkX,
+            chunk.chunkZ,
+          ]),
+          ownerGeneration: documentGeneration,
+          source: surfaceSource,
+          transform: Object.freeze({ ...plan.transform, heightScale: plan.resolvedHeightScale }),
+          surfaceHandleOwner: Object.freeze({
+            ownerId: plan.ownerId,
+            ownerGeneration: documentGeneration,
+          }),
+        }));
+      }
+    }
+    for (const { chunk, compiled } of compiledRoadChunks) {
+      const chunkX = chunk.source.chunkX;
+      const chunkZ = chunk.source.chunkZ;
+      if (chunkX === undefined || chunkZ === undefined) throw new Error("compiled road chunk lost its coordinates");
+      owners.push(Object.freeze({
+        ownerId: canonicalTupleKey(["road-chunk", chunkX, chunkZ]),
+        ownerGeneration: documentGeneration,
+        source: compiled,
+        transform: Object.freeze({ heightScale: 1 }),
+        roadSurfaceHandles: chunk.surfaceHandles,
+        roadBoundaryHandles: chunk.boundaryHandles,
       }));
     }
     const runtime = new CompiledCityCollisionRuntime(owners, {
       worldId,
       documentGeneration,
-      surfaceBridge,
+      reuseOwnerIndexFrom: previousRuntime,
     });
     this.assertActive(signal);
     const trafficSignalOwnerCount = plans.filter((plan) => plan.source.kind === "derived").length;
+    const templateSurfaceOwnerCount = plans.reduce(
+      (count, plan) => count + (compiledSurfaceVariants.get(cityCollisionTemplateVariantKey(plan))?.length ?? 0),
+      0,
+    );
+    const ownerIndex = runtime.getBuildStats();
     return Object.freeze({
       runtime,
       catalogOwnerCount: plans.length - trafficSignalOwnerCount,
       trafficSignalOwnerCount,
       compiledTemplateCount: compiledVariants.size,
+      templateSurfaceOwnerCount,
+      roadOwnerCount: compiledRoadChunks.length,
+      roadChunkCompileHits: compiledRoadChunks.filter((chunk) => chunk.cacheHit).length,
+      roadChunkCompileMisses: compiledRoadChunks.filter((chunk) => !chunk.cacheHit).length,
+      ownerIndexFullRebuild: ownerIndex.fullOwnerIndexRebuild,
+      ownerIndexReusedOwnerCount: ownerIndex.reusedOwnerCount,
+      ownerIndexAddedOwnerCount: ownerIndex.addedOwnerCount,
+      ownerIndexUpdatedOwnerCount: ownerIndex.updatedOwnerCount,
+      ownerIndexRemovedOwnerCount: ownerIndex.removedOwnerCount,
+      ownerIndexAffectedCellCount: ownerIndex.affectedSpatialCellCount,
+      releasedCanonicalSourceTreeCount,
+      legacyOwnerCount: legacy.length,
     });
   }
 
@@ -278,6 +412,7 @@ export class CityDocumentCollisionPipeline {
       void promise.then((compiled) => compiled.fallback?.geometry.dispose()).catch(() => undefined);
     }
     this.compiledByVariant.clear();
+    this.roadChunkCompileCache.clear();
   }
 
   private compilePacked(source: PackedCollisionCompileSource): Promise<CompiledCollisionSource> {

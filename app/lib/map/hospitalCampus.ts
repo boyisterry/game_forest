@@ -30,6 +30,11 @@ function hospitalMesh<T extends THREE.BufferGeometry>(geometry: T, material: THR
   object.castShadow = true;
   object.receiveShadow = true;
   if (zone) object.userData.zone = zone;
+  if (/hospital-(?:interior-|outpatient-(?:registration|waiting|consult|exam|pharmacy)|emergency-(?:triage|curtain|treatment|monitor|resus|imaging)|inpatient-(?:room|bed|bedside|elevator|stair))/.test(name)) {
+    object.userData.mapLayer = "interior";
+  } else if (/(?:marking|paint|stripe|line)$/.test(name)) {
+    object.userData.mapLayer = "micro-detail";
+  }
   return object;
 }
 
@@ -429,6 +434,7 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
   for (const x of [-0.72, 0.72]) {
     const cabin = new THREE.Group();
     cabin.name = "hospital-inpatient-elevator-cabin";
+    cabin.userData.mapLayer = "interior";
     cabin.position.set(x, inpatient.levels[0], 4.05);
     const cabinFloor = hospitalMesh(new THREE.BoxGeometry(1.12, 0.1, 1.42), medicalMetal, "hospital-inpatient-elevator-cabin-floor", "inpatient");
     const cabinRoof = hospitalMesh(new THREE.BoxGeometry(1.12, 0.1, 1.42), medicalMetal, "hospital-inpatient-elevator-cabin-roof", "inpatient");
@@ -447,6 +453,7 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
   }
   const inpatientStair = new THREE.Group();
   inpatientStair.name = "hospital-inpatient-emergency-stair";
+  inpatientStair.userData.mapLayer = "interior";
   for (let storey = 0; storey < 5; storey += 1) {
     const baseY = inpatient.levels[storey];
     const halfRise = 2.18 * 0.5;

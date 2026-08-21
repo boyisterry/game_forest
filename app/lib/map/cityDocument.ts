@@ -282,7 +282,7 @@ export function emptyCityDocument(): CityMapDocumentSnapshot {
     graph: { nodes: [], edges: [], intersectionOverrides: {} },
     placements: [],
     flags: {
-      needTrafficLights: false,
+      needTrafficLights: true,
       lampHeightScale: DEFAULT_LAMP_HEIGHT_SCALE,
       signalHeightScale: DEFAULT_SIGNAL_HEIGHT_SCALE,
     },

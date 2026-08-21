@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { markCityMutableMaterials } from "./sceneInstanceBatch.ts";
 
 export type TrafficPhase = "red" | "yellow" | "green";
 
@@ -137,6 +138,9 @@ function mesh<T extends THREE.BufferGeometry>(geometry: T, material: THREE.Mater
   object.name = name;
   object.castShadow = true;
   object.receiveShadow = true;
+  if (/high-rise-(?:floor-slab|apartment-door|elevator-|emergency-(?:stair|fire|exit))/.test(name)) {
+    object.userData.mapLayer = "interior";
+  }
   return object;
 }
 
@@ -168,6 +172,7 @@ export function buildLowPolyStreetLight(): StreetLightModel {
     roughness: 0.34,
     metalness: 0.02,
   });
+  markCityMutableMaterials([glass]);
 
   const base = mesh(new THREE.CylinderGeometry(0.44, 0.56, 0.34, 8), darkMetal, "street-light-base");
   base.position.y = 0.17;
@@ -230,6 +235,7 @@ export function buildLowPolyParkStreetLight(): StreetLightModel {
     emissiveIntensity: 0.44,
     roughness: 0.28,
   });
+  markCityMutableMaterials([glass]);
 
   const base = mesh(new THREE.CylinderGeometry(0.48, 0.62, 0.32, 10), darkMetal, "park-street-light-base");
   base.position.y = 0.16;
@@ -307,6 +313,7 @@ function buildSignalLens(
   });
   // Signal colors must stay saturated instead of being compressed by ACES.
   lensMaterial.toneMapped = false;
+  markCityMutableMaterials([lensMaterial]);
   lensMaterials.push(lensMaterial);
   const lens = mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.05, 16), lensMaterial, "traffic-light-lens");
   // Declarative semantics survive canonical map-LOD processing after the
@@ -353,6 +360,7 @@ export function buildLowPolyTrafficLight(armSide: 1 | -1 = 1): TrafficLightModel
     emissiveIntensity: 0.45,
     roughness: 0.34,
   });
+  markCityMutableMaterials([pedestrianLens]);
   const pedestrianFace = mesh(new THREE.BoxGeometry(0.4, 0.5, 0.07), pedestrianLens, "pedestrian-signal-face");
   pedestrianFace.userData.signalPhaseRole = "pedestrian";
   pedestrianFace.position.set(armSide * 0.42, 3.1, 0.21);
@@ -410,6 +418,7 @@ export function buildLowPolyFoodTruck(): FoodTruckModel {
     emissiveIntensity: 0.35,
     roughness: 0.38,
   });
+  markCityMutableMaterials([warmLightMaterial, redLightMaterial]);
 
   const chassis = mesh(new THREE.BoxGeometry(5.85, 0.34, 2.28), darkMaterial, "food-truck-chassis");
   chassis.position.y = 0.78;
@@ -572,6 +581,7 @@ export function buildLowPolyHotDogKiosk(): HotDogKioskModel {
     emissiveIntensity: 0.18,
     roughness: 0.32,
   });
+  markCityMutableMaterials([warmLight]);
 
   const base = mesh(new THREE.BoxGeometry(3.5, 0.28, 2.5), dark, "hot-dog-kiosk-base");
   base.position.y = 0.14;
@@ -673,6 +683,7 @@ export function buildLowPolyNewsstand(): NewsstandModel {
     emissiveIntensity: 0.16,
     roughness: 0.34,
   });
+  markCityMutableMaterials([warmLight]);
   const paperMaterials = [
     new THREE.MeshStandardMaterial({ color: 0xe9d6a8, roughness: 0.92 }),
     new THREE.MeshStandardMaterial({ color: 0xc75843, roughness: 0.88 }),
@@ -764,6 +775,7 @@ export function buildLowPolyPhoneBooth(): PhoneBoothModel {
   const dark = new THREE.MeshStandardMaterial({ color: 0x25292b, roughness: 0.72, metalness: 0.18 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x9ecbd0, roughness: 0.12, metalness: 0.08, transparent: true, opacity: 0.48 });
   const lightMaterial = new THREE.MeshStandardMaterial({ color: 0xf5e5bd, emissive: 0xffc76b, emissiveIntensity: 0.25, roughness: 0.4 });
+  markCityMutableMaterials([lightMaterial]);
 
   const base = mesh(new THREE.BoxGeometry(2.55, 0.28, 2.35), darkRed, "phone-booth-base");
   base.position.y = 0.14;
@@ -1342,6 +1354,7 @@ export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
   for (const [index, x] of [-0.72, 0.72].entries()) {
     const cabin = new THREE.Group();
     cabin.name = "high-rise-elevator-cabin";
+    cabin.userData.mapLayer = "animated-detail";
     cabin.userData.elevatorIndex = index;
     const leftCabinDoor = mesh(new THREE.BoxGeometry(0.49, 1.42, 0.06), cabinMaterial, "high-rise-elevator-cabin-inner-door");
     leftCabinDoor.position.set(-0.255, 0.72, -0.8);
@@ -1395,6 +1408,7 @@ export function buildLowPolyHighRiseResidential(): HighRiseResidentialModel {
   group.add(stairDivider);
   const emergencyStair = new THREE.Group();
   emergencyStair.name = "high-rise-emergency-stair";
+  emergencyStair.userData.mapLayer = "interior";
   const stepsPerFlight = 6;
   const flightRun = 2.7;
   const frontZ = 1.42;

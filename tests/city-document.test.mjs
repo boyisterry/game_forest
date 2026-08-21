@@ -9,6 +9,7 @@ import {
 import { CityDirtyLayer, CityEditorSession } from "../app/lib/map/cityEditor.ts";
 import {
   ROAD_PRESET_CROSS_SECTIONS,
+  SIDEWALK_WIDTH_METERS,
   corridorMeters,
   createRoadProfile,
   reverseRoadEdgeRepresentation,
@@ -21,6 +22,23 @@ test("road presets have the documented widths", () => {
   for (const [id, width] of Object.entries(expected)) {
     assert.equal(corridorMeters({ profile: createRoadProfile(id) }), width);
     assert.ok(Object.isFrozen(ROAD_PRESET_CROSS_SECTIONS[id]));
+  }
+});
+
+test("road profiles support narrow, medium, and wide sidewalk tiers", () => {
+  assert.deepEqual(SIDEWALK_WIDTH_METERS, { narrow: 4, medium: 8, wide: 12 });
+  const expected = {
+    narrow: { "one-way-1": 11, "two-way-1": 22, "two-way-2": 28, "two-way-3": 34 },
+    medium: { "one-way-1": 15, "two-way-1": 30, "two-way-2": 36, "two-way-3": 42 },
+    wide: { "one-way-1": 19, "two-way-1": 38, "two-way-2": 44, "two-way-3": 50 },
+  };
+  for (const [tier, widths] of Object.entries(expected)) {
+    for (const [presetId, width] of Object.entries(widths)) {
+      const profile = createRoadProfile(presetId, tier);
+      assert.equal(corridorMeters({ profile }), width);
+      assert.equal(profile.crossSection.right.sidewalkWidth, SIDEWALK_WIDTH_METERS[tier]);
+      assert.equal(profile.crossSection.left.sidewalkWidth, presetId === "one-way-1" ? 0 : SIDEWALK_WIDTH_METERS[tier]);
+    }
   }
 });
 
@@ -59,7 +77,7 @@ test("empty city document is a deeply frozen blank frame", () => {
   const document = emptyCityDocument();
   assert.equal(document.schemaVersion, 1);
   assert.equal(document.tileSizeMeters, 1);
-  assert.equal(document.flags.needTrafficLights, false);
+  assert.equal(document.flags.needTrafficLights, true);
   assert.deepEqual(document.graph.nodes, []);
   assert.ok(Object.isFrozen(document.graph.nodes));
   assert.throws(() => document.graph.nodes.push({ id: "x", x: 0, z: 0 }), TypeError);
@@ -139,6 +157,22 @@ test("editor session preserves old snapshots and closes dirty dependencies", () 
   session.redo();
   assert.equal(session.document.graph.nodes.length, 2);
   unsubscribe();
+});
+
+test("placement dirty closure rebuilds collision but leaves graph-only minimap data intact", () => {
+  const session = new CityEditorSession(emptyCityDocument());
+  session.apply({
+    name: "placement-only",
+    dirty: CityDirtyLayer.Placements,
+    apply: (document) => cloneCityDocument(document),
+    revert: (document) => cloneCityDocument(document),
+  });
+  const dirty = session.getSnapshot().lastDirty;
+  assert.ok((dirty & CityDirtyLayer.Collision) !== 0);
+  assert.ok((dirty & CityDirtyLayer.Surface) !== 0);
+  assert.equal(dirty & CityDirtyLayer.Minimap, 0);
+  assert.equal(dirty & CityDirtyLayer.Signals, 0);
+  assert.equal(dirty & CityDirtyLayer.Roads, 0);
 });
 
 test("editor replace is one undoable all-dirty revision", () => {

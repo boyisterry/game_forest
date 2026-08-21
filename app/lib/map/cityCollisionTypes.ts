@@ -134,6 +134,19 @@ export type RoadSurfaceHandleRecord = Readonly<{
   roadSurfaceId: string;
 }>;
 
+export type RoadBoundaryHandleRecord =
+  | Readonly<{
+      kind: "road";
+      localBoundaryGroupKey: number;
+      roadEdgeId: string;
+      side: "left" | "right";
+      curbRun: number;
+    }>
+  | Readonly<{
+      kind: "owner-local";
+      localBoundaryGroupKey: number;
+    }>;
+
 export type RoadEntrancePortSource = Readonly<{
   placementId: string;
   entranceId: string;

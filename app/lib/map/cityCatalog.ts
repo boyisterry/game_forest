@@ -183,6 +183,60 @@ function road(
 const factorySource = (factoryId: string): CatalogSource => ({ kind: "factory", factoryId });
 const rect = (x: number, z: number) => ({ x, z });
 
+export const STANDARD_COMMUNITY_ROW_OPTIONS = Object.freeze([3, 4, 5, 6] as const);
+export type StandardCommunityRowOption = typeof STANDARD_COMMUNITY_ROW_OPTIONS[number];
+
+export function standardCommunityCatalogId(rowsPerSide: StandardCommunityRowOption) {
+  return rowsPerSide === 3
+    ? "standard-residential-community"
+    : `standard-residential-community-${rowsPerSide}-rows`;
+}
+
+export function standardCommunityRowsFromCatalogId(catalogId: string): StandardCommunityRowOption | null {
+  if (catalogId === "standard-residential-community") return 3;
+  const match = /^standard-residential-community-([4-6])-rows$/.exec(catalogId);
+  return match ? Number(match[1]) as StandardCommunityRowOption : null;
+}
+
+function standardCommunityEntry(rowsPerSide: StandardCommunityRowOption): CatalogEntry {
+  const depth = 140 + (rowsPerSide - 3) * 36;
+  const id = standardCommunityCatalogId(rowsPerSide);
+  const halfDepth = depth * 0.5;
+  return {
+    id,
+    collection: 7,
+    category: "scene",
+    titleZh: `普通住宅小区 · 每侧${rowsPerSide}排`,
+    titleEn: `Standard community · ${rowsPerSide} rows/side`,
+    source: factorySource(id),
+    mapScale: 1,
+    footprintKind: "rect",
+    siteSizeMeters: rect(160, depth),
+    footprintOverride: { w: 160, d: depth },
+    collisionMeshes: OPEN_COLLISION,
+    collisionContainment: "closed-required",
+    containmentRequiredNames: ["residential-building-foundation"],
+    surfaceProfiles: SITE_SURFACE,
+    snap: "cell",
+    reservation: "site",
+    frontDirection: "+z",
+    mapLod: TAGGED_EXTERIOR,
+    maxRecommendedCount: 2,
+    defaultHeightScale: 1,
+    entrances: [{ id: "main-south", localX: 0, localZ: halfDepth, widthMeters: 20, outward: "+z", connectsInternalRoad: "main-arrival" }],
+    internalRoads: [road(
+      "main-arrival",
+      { kind: "mesh-group", exactName: "standard-community-main-arrival-road" },
+      { localX: 0, localZ: halfDepth - 13.5, width: 8, depth: 27 },
+      "+z",
+      0,
+      halfDepth - 6.75,
+      20,
+      13.5,
+    )],
+  };
+}
+
 const RAW_CITY_CATALOG: CatalogEntry[] = [
   {
     id: "street-light", collection: 1, category: "decoration", titleZh: "城市路灯", titleEn: "Street light",
@@ -206,25 +260,27 @@ const RAW_CITY_CATALOG: CatalogEntry[] = [
     id: "food-truck", collection: 1, category: "decoration", titleZh: "餐车", titleEn: "Food truck",
     source: factorySource("food-truck"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(5.85, 2.28), footprintOverride: { w: 6, d: 3 },
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["food-truck-chassis"], surfaceProfiles: SITE_SURFACE,
-    snap: "cell", reservation: "object", mapLod: INSTANCED_PARTS, maxRecommendedCount: 48, defaultHeightScale: 1,
+    snap: "road-verge", reservation: "object", mapLod: INSTANCED_PARTS, maxRecommendedCount: 48, defaultHeightScale: 1,
   },
   {
     id: "hot-dog-kiosk", collection: 1, category: "decoration", titleZh: "热狗亭", titleEn: "Hot-dog kiosk",
     source: factorySource("hot-dog-kiosk"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(3.5, 2.5), footprintOverride: { w: 4, d: 3 },
     collisionMeshes: OPEN_COLLISION, collisionContainment: "open-allowed", surfaceProfiles: SITE_SURFACE,
-    snap: "cell", reservation: "object", mapLod: INSTANCED_PARTS, maxRecommendedCount: 48, defaultHeightScale: 1,
+    snap: "road-verge", reservation: "object", mapLod: INSTANCED_PARTS, maxRecommendedCount: 48, defaultHeightScale: 1,
   },
   {
     id: "newsstand", collection: 1, category: "decoration", titleZh: "报刊亭", titleEn: "Newsstand",
     source: factorySource("newsstand"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(3.5, 2.5), footprintOverride: { w: 4, d: 3 },
     collisionMeshes: OPEN_COLLISION, collisionContainment: "open-allowed", surfaceProfiles: SITE_SURFACE,
-    snap: "cell", reservation: "object", mapLod: INSTANCED_PARTS, maxRecommendedCount: 48, defaultHeightScale: 1,
+    snap: "road-verge", reservation: "object", mapLod: INSTANCED_PARTS, maxRecommendedCount: 48, defaultHeightScale: 1,
   },
   {
     id: "phone-booth", collection: 1, category: "decoration", titleZh: "电话亭", titleEn: "Phone booth",
-    source: factorySource("phone-booth"), mapScale: 0.58, footprintKind: "rect", siteSizeMeters: rect(3.16, 3.16), footprintOverride: { w: 2, d: 2 },
+    // Keep the doorway and cabin above the 2.40 m rider envelope. The older
+    // 0.58 scale made the complete booth only 1.81 m tall in the map.
+    source: factorySource("phone-booth"), mapScale: 0.8, footprintKind: "rect", siteSizeMeters: rect(3.16, 3.16), footprintOverride: { w: 3, d: 3 },
     collisionMeshes: OPEN_COLLISION, collisionContainment: "open-allowed", surfaceProfiles: SITE_SURFACE,
-    snap: "cell", reservation: "object", mapLod: INSTANCED_PARTS, maxRecommendedCount: 64, defaultHeightScale: 1,
+    snap: "road-verge", reservation: "object", mapLod: INSTANCED_PARTS, maxRecommendedCount: 64, defaultHeightScale: 1,
   },
   {
     id: "street-tree", collection: 1, category: "decoration", titleZh: "行道树", titleEn: "Street tree",
@@ -236,28 +292,53 @@ const RAW_CITY_CATALOG: CatalogEntry[] = [
   },
   {
     id: "residential-building", collection: 2, category: "building", titleZh: "居民楼", titleEn: "Residential building",
-    source: factorySource("residential-building"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(7.4, 5.25), footprintOverride: { w: 8, d: 6 },
+    // Five storeys were authored at roughly 1.9 m per level. A uniform map
+    // scale restores a believable ~2.9 m floor module while preserving the
+    // facade and collision proportions.
+    source: factorySource("residential-building"), mapScale: 1.45, footprintKind: "rect", siteSizeMeters: rect(7.4, 5.25), footprintOverride: { w: 11, d: 9 },
     nonCollidingOverhangNames: ["residential-building-entrance-canopy", "residential-building-balcony-floor", "residential-building-balcony-rail", "residential-building-balcony-side-rail"],
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["residential-building-foundation"], surfaceProfiles: SITE_SURFACE,
     snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 80, defaultHeightScale: 1,
   },
   {
     id: "high-rise-residential", collection: 2, category: "building", titleZh: "高层住宅", titleEn: "High-rise residential",
-    source: factorySource("high-rise-residential"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(13, 9), footprintOverride: { w: 13, d: 9 },
+    // The eighteen-storey source used the same compressed floor module as the
+    // low-rise block. At 1.45 it reads as a real ~50 m residential tower.
+    source: factorySource("high-rise-residential"), mapScale: 1.45, footprintKind: "rect", siteSizeMeters: rect(13, 9), footprintOverride: { w: 19, d: 15 },
     nonCollidingOverhangNames: ["high-rise-balcony-floor", "high-rise-balcony-rail", "high-rise-balcony-side-rail", "high-rise-entrance-canopy"],
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["high-rise-foundation"], surfaceProfiles: SITE_SURFACE,
     snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 48, defaultHeightScale: 1,
   },
   {
     id: "small-villa", collection: 2, category: "building", titleZh: "坡顶别墅", titleEn: "Small villa",
-    source: factorySource("small-villa"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(8.3, 6.65), footprintOverride: { w: 9, d: 7 },
+    // The villa already has a sound two-storey module, so it receives only a
+    // modest increase to keep doors and rooms comfortable beside the rider.
+    source: factorySource("small-villa"), mapScale: 1.2, footprintKind: "rect", siteSizeMeters: rect(8.3, 6.65), footprintOverride: { w: 10, d: 11 },
     nonCollidingOverhangNames: ["small-villa-porch-roof", "small-villa-terrace-rail", "small-villa-flower-box", "small-villa-shrub"],
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["small-villa-foundation"], surfaceProfiles: SITE_SURFACE,
     snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 48, defaultHeightScale: 1,
   },
   {
+    id: "residential-gate-standard", collection: 2, category: "decoration", titleZh: "普通小区入口大门", titleEn: "Standard residential gate",
+    source: factorySource("residential-gate-standard"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(20, 6), footprintOverride: { w: 20, d: 6 },
+    collisionMeshes: OPEN_COLLISION, collisionContainment: "open-allowed", surfaceProfiles: SITE_SURFACE,
+    snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 32, defaultHeightScale: 1,
+  },
+  {
+    id: "residential-gate-premium", collection: 2, category: "decoration", titleZh: "高档小区入口大门", titleEn: "Premium residential gate",
+    source: factorySource("residential-gate-premium"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(24, 8), footprintOverride: { w: 24, d: 8 },
+    collisionMeshes: OPEN_COLLISION, collisionContainment: "open-allowed", surfaceProfiles: SITE_SURFACE,
+    snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 24, defaultHeightScale: 1,
+  },
+  {
+    id: "residential-gate-villa", collection: 2, category: "decoration", titleZh: "别墅小区入口大门", titleEn: "Villa residential gate",
+    source: factorySource("residential-gate-villa"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(18, 7), footprintOverride: { w: 18, d: 7 },
+    collisionMeshes: OPEN_COLLISION, collisionContainment: "open-allowed", surfaceProfiles: SITE_SURFACE,
+    snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 32, defaultHeightScale: 1,
+  },
+  {
     id: "office-campus", collection: 2, category: "building", titleZh: "办公园区", titleEn: "Office campus",
-    source: factorySource("office-campus"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(30, 17), footprintOverride: { w: 30, d: 17 },
+    source: factorySource("office-campus"), mapScale: 1.2, footprintKind: "rect", siteSizeMeters: rect(30, 17), footprintOverride: { w: 36, d: 21 },
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["office-campus-floor-slab"], surfaceProfiles: SITE_SURFACE,
     snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 24, defaultHeightScale: 1,
   },
@@ -300,6 +381,48 @@ const RAW_CITY_CATALOG: CatalogEntry[] = [
     snap: "cell", reservation: "site", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 2, defaultHeightScale: 1,
     entrances: [{ id: "south", localX: 0, localZ: 69, widthMeters: 62.1, outward: "+z", connectsInternalRoad: "south-perimeter" }],
     internalRoads: [road("south-perimeter", { kind: "mesh-group", exactName: "shopping-mall-perimeter-road" }, { localX: 0, localZ: 63.25, width: 172.5, depth: 8.05 }, "+z", 0, 64.11, 172.5, 9.78)],
+  },
+  ...STANDARD_COMMUNITY_ROW_OPTIONS.map(standardCommunityEntry),
+  {
+    id: "luxury-villa-community", collection: 7, category: "scene", titleZh: "豪华别墅小区", titleEn: "Luxury villa community",
+    source: factorySource("luxury-villa-community"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(260, 200), footprintOverride: { w: 260, d: 200 },
+    collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["small-villa-foundation"], surfaceProfiles: SITE_SURFACE,
+    snap: "cell", reservation: "site", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 2, defaultHeightScale: 1,
+    entrances: [{ id: "main-south", localX: 0, localZ: 100, widthMeters: 18, outward: "+z", connectsInternalRoad: "ceremonial-arrival" }],
+    internalRoads: [road(
+      "ceremonial-arrival",
+      { kind: "mesh-group", exactName: "luxury-villa-community-entrance-road" },
+      { localX: 0, localZ: 98.5, width: 10, depth: 5 },
+      "+z",
+      0,
+      99.5,
+      18,
+      5,
+    )],
+  },
+  {
+    id: "technology-park", collection: 8, category: "scene", titleZh: "超现代科技园区", titleEn: "Technology park",
+    source: factorySource("technology-park"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(260, 180), footprintOverride: { w: 260, d: 180 },
+    collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["modern-industrial-building-foundation"], surfaceProfiles: SITE_SURFACE,
+    snap: "cell", reservation: "site", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 2, defaultHeightScale: 1,
+    entrances: [{ id: "main-south", localX: 0, localZ: 90, widthMeters: 24, outward: "+z", connectsInternalRoad: "main-spine" }],
+    internalRoads: [road("main-spine", { kind: "mesh-group", exactName: "modern-industrial-main-road" }, { localX: 0, localZ: -1, width: 12, depth: 154 }, "+z", 0, 83, 24, 14)],
+  },
+  {
+    id: "food-processing-plant", collection: 8, category: "scene", titleZh: "现代食品加工厂", titleEn: "Food processing plant",
+    source: factorySource("food-processing-plant"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(280, 200), footprintOverride: { w: 280, d: 200 },
+    collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["modern-industrial-building-foundation"], surfaceProfiles: SITE_SURFACE,
+    snap: "cell", reservation: "site", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 2, defaultHeightScale: 1,
+    entrances: [{ id: "main-south", localX: 0, localZ: 100, widthMeters: 24, outward: "+z", connectsInternalRoad: "main-spine" }],
+    internalRoads: [road("main-spine", { kind: "mesh-group", exactName: "modern-industrial-main-road" }, { localX: 0, localZ: -1, width: 12, depth: 174 }, "+z", 0, 93, 24, 14)],
+  },
+  {
+    id: "mechanized-factory", collection: 8, category: "scene", titleZh: "超现代机械化工厂", titleEn: "Mechanized factory",
+    source: factorySource("mechanized-factory"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(300, 210), footprintOverride: { w: 300, d: 210 },
+    collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["modern-industrial-building-foundation"], surfaceProfiles: SITE_SURFACE,
+    snap: "cell", reservation: "site", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 2, defaultHeightScale: 1,
+    entrances: [{ id: "main-south", localX: 0, localZ: 105, widthMeters: 24, outward: "+z", connectsInternalRoad: "main-spine" }],
+    internalRoads: [road("main-spine", { kind: "mesh-group", exactName: "modern-industrial-main-road" }, { localX: 0, localZ: -1, width: 12, depth: 184 }, "+z", 0, 98, 24, 14)],
   },
   {
     id: "residential-community", collection: 7, category: "scene", titleZh: "完整住宅社区", titleEn: "Residential community",

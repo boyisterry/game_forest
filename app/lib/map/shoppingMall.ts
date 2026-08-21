@@ -1,5 +1,12 @@
 import * as THREE from "three";
 import { buildLowPolyRoadsidePlanter, buildLowPolyStreetLight } from "./cityFurniture.ts";
+import {
+  applySceneShadowPolicy,
+  createOptimizedStaticSceneBatch,
+  createScenePointLightPool,
+  markCityMutableMaterials,
+} from "./sceneInstanceBatch.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
 
 export const SHOPPING_MALL_SCALE = 1.15;
 
@@ -45,12 +52,19 @@ export type ShoppingMallModel = THREE.Group & {
     scaleStandard: "rabbit-rider";
     scaleMultiplier: number;
     siteSize: THREE.Vector3;
+    renderBatchCount: number;
+    mergedSourceMeshCount: number;
+    pooledNightLightCount: number;
+    suppressedNightLightCount: number;
+    shadowCastersRemoved: number;
     setPowered: (powered: boolean) => void;
     setInteriorCutaway: (cutaway: boolean) => void;
   };
 };
 
-export function buildLowPolyShoppingMall(): ShoppingMallModel {
+export function buildLowPolyShoppingMall(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): ShoppingMallModel {
   const mall = new THREE.Group() as ShoppingMallModel;
   mall.name = "city-shopping-mall-lowpoly";
   const cutawayShell: THREE.Object3D[] = [];
@@ -1967,6 +1981,34 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     mall.add(source);
     nightLightSources.push(source);
   });
+  applyReviewedCityMapLodTags(mall, "shopping-mall");
+  const shadowMetrics = applySceneShadowPolicy(mall);
+  const staticRenderBatch = createOptimizedStaticSceneBatch({
+    name: "shopping-mall-static-render-batch",
+    parent: mall,
+    excludedRoots: cutawayShell,
+    mutableMaterials: markCityMutableMaterials([
+      storefrontGlass,
+      warmWindow,
+      warmLamp,
+      water,
+      emergencyGreen,
+      ...Object.values(tenantMaterials),
+      nightWarm,
+      nightCool,
+      nightAmber,
+    ]),
+    cellSizeMeters: 64,
+    enabled: options.optimizeStatic !== false,
+  });
+  const pooledNightLights = createScenePointLightPool({
+    name: "shopping-mall-pooled-night-lights",
+    root: mall,
+    excludedLights: nightLightSources,
+    cellSizeMeters: 68,
+    intensityPerZone: 4.2,
+    maximumDistance: 58,
+  });
 
   const restaurantTenants: MallTenant[] = ["fast-food", "coffee", "burger", "milk-tea", "bakery", "restaurant"];
   const countTenant = (tenant: MallTenant) => {
@@ -2022,6 +2064,11 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
     scaleStandard: "rabbit-rider",
     scaleMultiplier: SHOPPING_MALL_SCALE,
     siteSize: new THREE.Vector3(160, 18, 120).multiplyScalar(SHOPPING_MALL_SCALE),
+    renderBatchCount: staticRenderBatch.userData.batchCount,
+    mergedSourceMeshCount: staticRenderBatch.userData.mergedSourceMeshCount,
+    pooledNightLightCount: pooledNightLights.pooledLightCount,
+    suppressedNightLightCount: pooledNightLights.sourceLightCount,
+    shadowCastersRemoved: shadowMetrics.shadowCastersRemoved,
     setPowered: (powered) => {
       mall.userData.powered = powered;
       storefrontGlass.emissiveIntensity = powered ? 0.12 : 0.025;
@@ -2044,6 +2091,7 @@ export function buildLowPolyShoppingMall(): ShoppingMallModel {
           if (object instanceof THREE.Light) object.visible = powered;
         });
       });
+      pooledNightLights.setPowered(powered);
     },
     setInteriorCutaway: (cutaway) => { cutawayShell.forEach((object) => { object.visible = !cutaway; }); },
   };

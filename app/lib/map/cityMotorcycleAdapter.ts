@@ -194,6 +194,11 @@ export class CityMotorcycleAdapter {
     return Object.freeze(copy);
   }
 
+  /** Writes the authoritative hot-path surface into caller-owned storage. */
+  writeSurfaceSample(out: SurfaceSampleOut): SurfaceSampleOut {
+    return copySurfaceSample(out, this.surface);
+  }
+
   beginFixedStep(
     startX: number,
     startZ: number,

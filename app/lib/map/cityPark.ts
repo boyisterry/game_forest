@@ -4,6 +4,13 @@ import {
   buildLowPolyParkStreetLight,
   buildLowPolyRoadsidePlanter,
 } from "./cityFurniture.ts";
+import {
+  applySceneShadowPolicy,
+  createOptimizedStaticSceneBatch,
+  createScenePointLightPool,
+  markCityMutableMaterials,
+} from "./sceneInstanceBatch.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
 
 export type CityParkZone = "entrance" | "lake" | "recreation" | "garden" | "amphitheatre" | "service";
 
@@ -36,6 +43,10 @@ export type CityParkModel = THREE.Group & {
     scaleStandard: "rabbit-rider";
     decorationSources: string[];
     siteSize: THREE.Vector3;
+    renderBatchCount: number;
+    mergedSourceMeshCount: number;
+    pooledNightLightCount: number;
+    shadowCastersRemoved: number;
     setPowered: (powered: boolean) => void;
     setWaterMotionEnabled: (enabled: boolean) => void;
     setServiceCutaway: (cutaway: boolean) => void;
@@ -77,7 +88,9 @@ function solidAnnularSectorGeometry(innerRadius: number, outerRadius: number, he
   return geometry;
 }
 
-export function buildLowPolyCityPark(): CityParkModel {
+export function buildLowPolyCityPark(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): CityParkModel {
   const park = new THREE.Group() as CityParkModel;
   park.name = "city-park-lowpoly";
   const reusedStreetLights: ReturnType<typeof buildLowPolyParkStreetLight>[] = [];
@@ -1076,6 +1089,24 @@ export function buildLowPolyCityPark(): CityParkModel {
     park.add(anchor);
   });
 
+  const performanceDynamicRoots = [...serviceCutawayShell, ...waterJets];
+  applyReviewedCityMapLodTags(park, "city-park");
+  const shadowMetrics = applySceneShadowPolicy(park, { dynamicRoots: performanceDynamicRoots });
+  const staticRenderBatch = createOptimizedStaticSceneBatch({
+    name: "city-park-static-render-batch",
+    parent: park,
+    excludedRoots: performanceDynamicRoots,
+    mutableMaterials: markCityMutableMaterials([glass, warmLight, water]),
+    cellSizeMeters: 72,
+    enabled: options.optimizeStatic !== false,
+  });
+  const pooledNightLights = createScenePointLightPool({
+    name: "city-park-night-light-pool",
+    root: park,
+    cellSizeMeters: 64,
+    maximumDistance: 46,
+  });
+
   park.userData = {
     mapLayer: "exterior",
     modelType: "city-park",
@@ -1110,12 +1141,17 @@ export function buildLowPolyCityPark(): CityParkModel {
       "city-food-truck-lowpoly",
     ],
     siteSize: new THREE.Vector3(185, 12, 140),
+    renderBatchCount: staticRenderBatch.userData.batchCount,
+    mergedSourceMeshCount: staticRenderBatch.userData.mergedSourceMeshCount,
+    pooledNightLightCount: pooledNightLights.pooledLightCount,
+    shadowCastersRemoved: shadowMetrics.shadowCastersRemoved,
     setPowered: (powered) => {
       glass.emissiveIntensity = powered ? 0.85 : 0.08;
       warmLight.emissiveIntensity = powered ? 2.3 : 0.14;
       water.emissiveIntensity = powered ? 0.48 : 0.14;
       reusedStreetLights.forEach((light) => light.userData.setPowered(powered));
       reusedFoodTrucks.forEach((truck) => truck.userData.setLights(powered));
+      pooledNightLights.setPowered(powered);
     },
     setWaterMotionEnabled: (enabled) => {
       waterMotionEnabled = enabled;

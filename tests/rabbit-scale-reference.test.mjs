@@ -67,7 +67,7 @@ test("uses the existing riding rabbit in the street, residential and hospital sh
 test("keeps buildings out of the street category and exposes them in residential", async () => {
   const city = await readFile(new URL("../app/demos/city-street-furniture/CityFurnitureDemo.tsx", import.meta.url), "utf8");
   assert.match(city, /STREET_MODELS = new Set<ModelFocus>\(\["tree", "lamp", "signal", "phone", "truck", "hotdog", "newsstand", "planter"\]\)/);
-  assert.match(city, /RESIDENTIAL_MODELS = new Set<ModelFocus>\(\["apartment", "villa", "highrise", "office"\]\)/);
+  assert.match(city, /RESIDENTIAL_MODELS = new Set<ModelFocus>\(\["apartment", "villa", "highrise", "office", "standardGate", "premiumGate", "villaGate"\]\)/);
   assert.match(city, /category === "residential" \? buildLowPolyResidentialBuilding\(\) : null/);
   assert.match(city, /category === "residential" \? buildLowPolySmallVilla\(\) : null/);
   assert.match(city, /category === "street" \? buildLowPolyStreetLight\(\) : null/);

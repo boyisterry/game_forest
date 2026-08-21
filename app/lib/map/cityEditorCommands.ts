@@ -5,7 +5,7 @@ import { CityDirtyLayer } from "./cityEditor.ts";
 import type { DocumentDelta } from "./cityEditor.ts";
 import { canonicalTupleKey } from "./cityCollisionTypes.ts";
 import { createRoadProfile } from "./cityRoadGraph.ts";
-import type { RoadPresetId } from "./cityRoadGraph.ts";
+import type { RoadPresetId, SidewalkWidthTier } from "./cityRoadGraph.ts";
 import { splitRoadGraphAtIntersections } from "./cityRoads.ts";
 import {
   assertGridPlacementsAllowed,
@@ -23,6 +23,15 @@ function nextId(kind: string) {
   const id = canonicalTupleKey([kind, Date.now(), localCommandId]);
   localCommandId += 1;
   return id;
+}
+
+function placementDirtyForCatalogs(catalogIds: Iterable<string>) {
+  for (const catalogId of catalogIds) {
+    if ((getCatalogEntry(catalogId)?.entrances?.length ?? 0) > 0) {
+      return CityDirtyLayer.Placements | CityDirtyLayer.Roads;
+    }
+  }
+  return CityDirtyLayer.Placements;
 }
 
 function replacePlacement(document: CityMapDocumentSnapshot, placement: Placement) {
@@ -57,7 +66,7 @@ export function createAddGridPlacementDelta(
   const placement: GridPlacement = { id, catalogId, poseKind: "grid", i, j, yaw };
   return Object.freeze({
     name: "add-placement",
-    dirty: CityDirtyLayer.Placements,
+    dirty: placementDirtyForCatalogs([catalogId]),
     apply(document) {
       if (document.placements.some((candidate) => candidate.id === id)) throw new Error(`duplicate placement id: ${id}`);
       assertGridPlacementsAllowed(document, [placement]);
@@ -81,7 +90,7 @@ export function createDeletePlacementsDelta(
   const removed = document.placements.filter((placement) => ids.has(placement.id)).map((placement) => structuredClone(placement));
   return Object.freeze({
     name: "delete-placements",
-    dirty: CityDirtyLayer.Placements,
+    dirty: placementDirtyForCatalogs(removed.map((placement) => placement.catalogId)),
     apply(current) {
       const next = cloneCityDocument(current);
       next.placements = next.placements.filter((placement) => !ids.has(placement.id));
@@ -112,7 +121,7 @@ export function createRotateGridPlacementDelta(
   };
   return Object.freeze({
     name: "rotate-placement",
-    dirty: CityDirtyLayer.Placements,
+    dirty: placementDirtyForCatalogs([before.catalogId]),
     apply(current) {
       assertGridPlacementsAllowed(current, [after], new Set([placementId]));
       return replacePlacement(current, after);
@@ -133,7 +142,37 @@ export function createMoveGridPlacementDelta(
   const after: GridPlacement = { ...before, i, j };
   return Object.freeze({
     name: "move-placement",
-    dirty: CityDirtyLayer.Placements,
+    dirty: placementDirtyForCatalogs([before.catalogId]),
+    apply(current) {
+      assertGridPlacementsAllowed(current, [after], new Set([placementId]));
+      return replacePlacement(current, after);
+    },
+    revert: (current) => replacePlacement(current, before as GridPlacement),
+  });
+}
+
+export function createReplaceGridPlacementCatalogDelta(
+  document: CityMapDocumentSnapshot,
+  placementId: string,
+  catalogId: string,
+): DocumentDelta {
+  const before = document.placements.find((placement): placement is Readonly<GridPlacement> =>
+    placement.id === placementId && placement.poseKind === "grid");
+  if (!before) throw new Error(`grid placement not found: ${placementId}`);
+  if (!getCatalogEntry(catalogId)) throw new Error(`unknown catalog entry: ${catalogId}`);
+  const beforeSize = gridFootprint(before);
+  const resized: GridPlacement = { ...before, catalogId };
+  const afterSize = gridFootprint(resized);
+  const after: GridPlacement = {
+    ...resized,
+    // Resizing from the inspector must not make the community jump across
+    // the one-metre map grid. Preserve the exact footprint centre.
+    i: before.i + (beforeSize.w - afterSize.w) * 0.5,
+    j: before.j + (beforeSize.d - afterSize.d) * 0.5,
+  };
+  return Object.freeze({
+    name: "replace-placement-catalog",
+    dirty: placementDirtyForCatalogs([before.catalogId, catalogId]),
     apply(current) {
       assertGridPlacementsAllowed(current, [after], new Set([placementId]));
       return replacePlacement(current, after);
@@ -149,8 +188,10 @@ export function createAddRoadDelta(
   endX: number,
   endZ: number,
   presetId: RoadPresetId,
-  id = nextId("road"),
+  options: string | Readonly<{ id?: string; sidewalkWidthTier?: SidewalkWidthTier }> = {},
 ): DocumentDelta {
+  const id = typeof options === "string" ? options : (options.id ?? nextId("road"));
+  const sidewalkWidthTier = typeof options === "string" ? "medium" : (options.sidewalkWidthTier ?? "medium");
   const start = worldToNearestTileCenter(startX, startZ);
   const rawEnd = worldToNearestTileCenter(endX, endZ);
   const horizontal = Math.abs(rawEnd.x - start.x) >= Math.abs(rawEnd.z - start.z);
@@ -161,7 +202,7 @@ export function createAddRoadDelta(
   const beforeGraph = cloneCityDocument(document).graph;
   const a = canonicalTupleKey(["road-node", id, "a"]);
   const b = canonicalTupleKey(["road-node", id, "b"]);
-  const proposedEdge = { id, a, b, profile: createRoadProfile(presetId) };
+  const proposedEdge = { id, a, b, profile: createRoadProfile(presetId, sidewalkWidthTier) };
   const withRoad = cloneCityDocument(document).graph;
   withRoad.nodes.push({ id: a, x: start.x, z: start.z }, { id: b, x: end.x, z: end.z });
   withRoad.edges.push(proposedEdge);
@@ -202,7 +243,7 @@ export function duplicateGridPlacements(
     }));
   return Object.freeze({
     name: "duplicate-placements",
-    dirty: CityDirtyLayer.Placements,
+    dirty: placementDirtyForCatalogs(copies.map((placement) => placement.catalogId)),
     apply(current) {
       assertGridPlacementsAllowed(current, copies);
       const next = cloneCityDocument(current);

@@ -19,6 +19,11 @@
 .street::after { left: 50%; bottom: 26px; width: 70%; height: 4px; background: repeating-linear-gradient(90deg, #f1cf68 0 24px, transparent 24px 48px); transform: translateX(-50%); }
 .street i { position: absolute; z-index: 2; left: 22%; bottom: 75px; width: 8px; height: 92px; background: #37484d; box-shadow: 166px 12px 0 #37484d; }
 .street i::after { content: ""; position: absolute; left: -18px; top: -7px; width: 44px; height: 16px; background: #45585d; box-shadow: 166px 12px 0 #45585d; }
+.transport { background: linear-gradient(#c4dce0 0 67%, #697577 67%); }
+.transport::before { left: 50%; bottom: 24px; width: 330px; height: 90px; border-radius: 8px 15px 5px 5px; background: #28776f; border-top: 13px solid #e9ece8; box-shadow: inset 0 -17px #26373c; transform: translateX(-50%); }
+.transport::after { left: 50%; bottom: 67px; width: 286px; height: 35px; background: repeating-linear-gradient(90deg, #315965 0 38px, #e9ece8 38px 43px); transform: translateX(-50%); }
+.transport i { position: absolute; z-index: 3; left: 50%; bottom: 12px; width: 42px; height: 42px; border: 8px solid #151a1b; border-radius: 50%; background: #8b999b; box-shadow: -118px 0 0 -8px #8b999b, -118px 0 0 0 #151a1b, 118px 0 0 -8px #8b999b, 118px 0 0 0 #151a1b; transform: translateX(-50%); }
+.transport i::before { content: ""; position: absolute; left: 30px; top: -60px; width: 65px; height: 30px; border: 4px solid #e1bd3e; background: rgba(49,89,101,.7); }
 .residential::before { left: 36px; bottom: 0; width: 125px; height: 150px; background: #d8c7aa; box-shadow: inset 0 14px #9a5f4b, 165px 42px 0 #e7ddc8; }
 .residential::after { left: 58px; bottom: 25px; width: 22px; height: 28px; background: #75a4ae; box-shadow: 42px 0 #75a4ae, 0 -46px #75a4ae, 42px -46px #75a4ae, 180px 30px #75a4ae, 220px 30px #75a4ae; }
 .hospital::before { left: 32px; right: 32px; bottom: 0; height: 125px; background: #e7e5dc; box-shadow: inset 0 13px #4d8d8b; }

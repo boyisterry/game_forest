@@ -280,7 +280,7 @@ export class Minimap {
 
     ctx.fillStyle = "rgba(24, 48, 33, 0.72)";
     ctx.font = "600 9px 'Avenir Next', 'PingFang SC', sans-serif";
-    ctx.fillText(this.mapType === "city" ? "RAIN HARBOR" : "WORLD MAP", 10, 14);
+    ctx.fillText(this.mapType === "city" ? "CEDAR CROSSING" : "WORLD MAP", 10, 14);
     ctx.fillStyle = "rgba(98, 112, 102, 0.85)";
     ctx.font = "8px 'SFMono-Regular', Consolas, monospace";
     ctx.fillText(this.mapType === "city" ? "CITY ROAD GRAPH" : `×20 · chunk ${chunkKey(focusChunk.cx, focusChunk.cz)}`, 10, h - 8);

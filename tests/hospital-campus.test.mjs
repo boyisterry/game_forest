@@ -203,7 +203,7 @@ test("exposes the hospital showroom and three-category model archive", async () 
   assert.match(archiveSource, /\/demos\/residential-buildings/);
   assert.match(archiveSource, /\/demos\/hospital-campus/);
   assert.match(studioSource, /模型展示区/);
-  assert.match(studioSource, /街道装饰 · 居民建筑 · 医院/);
+  assert.match(studioSource, /街道装饰 · 交通工具 · 居民建筑 · 医院/);
   assert.match(cityDemoSource, /category === "street"/);
   assert.match(cityDemoSource, /category === "residential"/);
   assert.match(cityDemoSource, /返回模型分类/);

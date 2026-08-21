@@ -29,7 +29,7 @@ export type RoadCorridorAabb = Readonly<{
 
 export type DerivedRoadSurface = Readonly<{
   edgeId: string;
-  side: "center" | "left" | "right";
+  side: "center" | "left" | "right" | "junction";
   surfaceProfileId: "asphalt" | "bike-lane" | "sidewalk" | "driveway";
   localSurfaceKey: number;
   roadSurfaceId: string;
@@ -67,10 +67,47 @@ export type DerivedCurbRamp = Readonly<{
   lengthMeters: 4.2;
 }>;
 
+export type DerivedRoadCrosswalk = Readonly<{
+  nodeId: string;
+  approachEdgeId: string;
+  centerX: number;
+  centerZ: number;
+  directionX: number;
+  directionZ: number;
+  widthMeters: number;
+  depthMeters: number;
+  stripeCount: number;
+}>;
+
+export type DerivedRoadMarking = Readonly<{
+  edgeId: string;
+  kind: "double-center" | "motor-lane-divider" | "bike-lane-boundary" | "road-edge";
+  color: "white" | "yellow";
+  widthMeters: number;
+  segmentXZ: readonly [ax: number, az: number, bx: number, bz: number];
+  dashLengthMeters?: number;
+  dashGapMeters?: number;
+}>;
+
+export type DerivedBikeLaneArrow = Readonly<{
+  edgeId: string;
+  side: "left" | "right";
+  x: number;
+  z: number;
+  directionX: number;
+  directionZ: number;
+}>;
+
 export type DerivedRoadCollisionSources = Readonly<{
   surfaces: readonly DerivedRoadSurface[];
   boundaries: readonly DerivedRoadBoundary[];
   ramps: readonly DerivedCurbRamp[];
+  /** Visual-only zebra crossings. They never contribute collision geometry. */
+  crosswalks: readonly DerivedRoadCrosswalk[];
+  /** Visual-only longitudinal lane paint, already trimmed around junctions. */
+  markings: readonly DerivedRoadMarking[];
+  /** Visual-only directional symbols centred in the bicycle lane. */
+  bikeLaneArrows: readonly DerivedBikeLaneArrow[];
   surfaceHandles: readonly RoadSurfaceHandleRecord[];
   packedBoundaries: PackedExplicitBoundarySource;
 }>;
@@ -83,7 +120,22 @@ type DirectionFrame = Readonly<{
   length: number;
 }>;
 
+type CardinalDirection = "north" | "east" | "south" | "west";
+type JunctionSidewalkPlan = Readonly<{
+  nodeId: string;
+  identity: string;
+  variant: string;
+  firstEdgeId: string;
+  firstDirection: CardinalDirection;
+  firstSide: CardinalDirection;
+  secondEdgeId: string;
+  secondDirection: CardinalDirection;
+  secondSide: CardinalDirection;
+}>;
+
 const ROAD_CURB_TRANSITION_INDEX = BUILTIN_SURFACE_TRANSITIONS.findIndex((profile) => profile.id === "road-curb");
+export const ROAD_CROSSWALK_DEPTH_METERS = 4.2;
+export const ROAD_CROSSWALK_INNER_GAP_METERS = 0.8;
 
 function nodeMap(graph: Readonly<CityRoadGraph>) {
   return new Map(graph.nodes.map((node) => [node.id, node]));
@@ -127,6 +179,137 @@ function edgeEndpoints(edge: Readonly<RoadEdge>, nodes: ReadonlyMap<string, Read
   const b = nodes.get(edge.b);
   if (!a || !b) throw new TypeError(`edge ${edge.id} references a missing node`);
   return { a, b };
+}
+
+function outwardCardinalDirection(
+  edge: Readonly<RoadEdge>,
+  nodeId: string,
+  nodes: ReadonlyMap<string, Readonly<RoadNode>>,
+): CardinalDirection | null {
+  const node = nodes.get(nodeId);
+  const other = nodes.get(edge.a === nodeId ? edge.b : edge.a);
+  if (!node || !other) return null;
+  const dx = other.x - node.x;
+  const dz = other.z - node.z;
+  if (Math.abs(dx) > ROAD_AXIS_EPSILON_METERS && Math.abs(dz) <= ROAD_AXIS_EPSILON_METERS) {
+    return dx > 0 ? "east" : "west";
+  }
+  if (Math.abs(dz) > ROAD_AXIS_EPSILON_METERS && Math.abs(dx) <= ROAD_AXIS_EPSILON_METERS) {
+    return dz > 0 ? "south" : "north";
+  }
+  return null;
+}
+
+function deriveJunctionSidewalkPlans(
+  incident: ReadonlyMap<string, readonly Readonly<RoadEdge>[]>,
+  nodes: ReadonlyMap<string, Readonly<RoadNode>>,
+): readonly JunctionSidewalkPlan[] {
+  const plans: JunctionSidewalkPlan[] = [];
+  const corners = [
+    ["north-east", "north", "east", "east", "north"],
+    ["south-east", "south", "east", "east", "south"],
+    ["south-west", "south", "west", "west", "south"],
+    ["north-west", "north", "west", "west", "north"],
+  ] as const satisfies readonly (readonly [
+    string,
+    CardinalDirection,
+    CardinalDirection,
+    CardinalDirection,
+    CardinalDirection,
+  ])[];
+  const oppositeBridges = {
+    north: ["north-bridge", "west", "east", "north", "north"],
+    east: ["east-bridge", "north", "south", "east", "east"],
+    south: ["south-bridge", "west", "east", "south", "south"],
+    west: ["west-bridge", "north", "south", "west", "west"],
+  } as const satisfies Readonly<Record<CardinalDirection, readonly [
+    string,
+    CardinalDirection,
+    CardinalDirection,
+    CardinalDirection,
+    CardinalDirection,
+  ]>>;
+
+  for (const [nodeId, rawEdges] of [...incident].sort(([left], [right]) => left.localeCompare(right))) {
+    const byDirection = new Map<CardinalDirection, Readonly<RoadEdge>>();
+    for (const edge of [...rawEdges].sort((left, right) => left.id.localeCompare(right.id))) {
+      const direction = outwardCardinalDirection(edge, nodeId, nodes);
+      if (direction && !byDirection.has(direction)) byDirection.set(direction, edge);
+    }
+    if (byDirection.size < 3) continue;
+
+    const append = (
+      variant: string,
+      firstDirection: CardinalDirection,
+      secondDirection: CardinalDirection,
+      firstSide: CardinalDirection,
+      secondSide: CardinalDirection,
+    ) => {
+      const first = byDirection.get(firstDirection);
+      const second = byDirection.get(secondDirection);
+      if (!first || !second) return;
+      plans.push(Object.freeze({
+        nodeId,
+        identity: canonicalTupleKey(["road-surface", "junction-sidewalk", nodeId, variant]),
+        variant,
+        firstEdgeId: first.id,
+        firstDirection,
+        firstSide,
+        secondEdgeId: second.id,
+        secondDirection,
+        secondSide,
+      }));
+    };
+
+    for (const [variant, firstDirection, secondDirection, firstSide, secondSide] of corners) {
+      append(variant, firstDirection, secondDirection, firstSide, secondSide);
+    }
+    if (byDirection.size === 3) {
+      const missing = (["north", "east", "south", "west"] as const)
+        .find((direction) => !byDirection.has(direction));
+      if (missing) append(...oppositeBridges[missing]);
+    }
+  }
+  return Object.freeze(plans);
+}
+
+function endpointSegmentAtNode(
+  surface: Readonly<DerivedRoadSurface>,
+  edge: Readonly<RoadEdge>,
+  nodeId: string,
+) {
+  const offset = edge.a === nodeId ? 0 : 4;
+  return Object.freeze([
+    surface.quadXZ[offset],
+    surface.quadXZ[offset + 1],
+    surface.quadXZ[offset + 2],
+    surface.quadXZ[offset + 3],
+  ] as const);
+}
+
+function endpointWorldSide(
+  segment: readonly [number, number, number, number],
+  node: Readonly<RoadNode>,
+  direction: CardinalDirection,
+): CardinalDirection {
+  const midpointX = (segment[0] + segment[2]) * 0.5;
+  const midpointZ = (segment[1] + segment[3]) * 0.5;
+  if (direction === "north" || direction === "south") return midpointX < node.x ? "west" : "east";
+  return midpointZ < node.z ? "north" : "south";
+}
+
+function junctionQuadFromSegments(
+  first: readonly [number, number, number, number],
+  second: readonly [number, number, number, number],
+): DerivedRoadSurface["quadXZ"] | null {
+  const xs = [first[0], first[2], second[0], second[2]];
+  const zs = [first[1], first[3], second[1], second[3]];
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minZ = Math.min(...zs);
+  const maxZ = Math.max(...zs);
+  if (maxX - minX <= ROAD_AXIS_EPSILON_METERS || maxZ - minZ <= ROAD_AXIS_EPSILON_METERS) return null;
+  return Object.freeze([minX, minZ, maxX, minZ, maxX, maxZ, minX, maxZ] as const);
 }
 
 export function corridorWorldAabb(
@@ -266,9 +449,71 @@ function quad(
   ]);
 }
 
+function insetEndpoint(
+  node: Readonly<RoadNode>,
+  roadFrame: DirectionFrame,
+  distance: number,
+  fromStart: boolean,
+): RoadNode {
+  const sign = fromStart ? 1 : -1;
+  return {
+    id: node.id,
+    x: node.x + roadFrame.dx * distance * sign,
+    z: node.z + roadFrame.dz * distance * sign,
+  };
+}
+
+function segmentAtOffset(
+  a: Readonly<RoadNode>,
+  b: Readonly<RoadNode>,
+  roadFrame: DirectionFrame,
+  offset: number,
+): DerivedRoadMarking["segmentXZ"] {
+  return Object.freeze([
+    a.x + roadFrame.leftX * offset,
+    a.z + roadFrame.leftZ * offset,
+    b.x + roadFrame.leftX * offset,
+    b.z + roadFrame.leftZ * offset,
+  ] as const);
+}
+
+function junctionRoadExtent(
+  edge: Readonly<RoadEdge>,
+  nodeId: string,
+  nodes: ReadonlyMap<string, Readonly<RoadNode>>,
+  incident: ReadonlyMap<string, readonly Readonly<RoadEdge>[]>,
+) {
+  const edges = incident.get(nodeId) ?? [];
+  if (edges.length < 3) return 0;
+  const endpoints = edgeEndpoints(edge, nodes);
+  const current = frame(endpoints.a, endpoints.b);
+  let extent = 0;
+  for (const other of edges) {
+    if (other.id === edge.id) continue;
+    const otherEndpoints = edgeEndpoints(other, nodes);
+    const otherFrame = frame(otherEndpoints.a, otherEndpoints.b);
+    const sinAngle = Math.abs(current.dx * otherFrame.dz - current.dz * otherFrame.dx);
+    if (sinAngle <= ROAD_AXIS_EPSILON_METERS) continue;
+    // Project the intersecting corridor's half-width onto this approach. The
+    // divisor also keeps angled future roads from leaving a sidewalk wedge in
+    // the middle of the junction.
+    extent = Math.max(extent, corridorMeters(other) * 0.5 / sinAngle);
+  }
+  return extent;
+}
+
 export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>): DerivedRoadCollisionSources {
   const graph = splitRoadGraphAtIntersections(graphInput);
   const nodes = nodeMap(graph);
+  const incident = new Map<string, RoadEdge[]>();
+  for (const edge of graph.edges) {
+    for (const nodeId of [edge.a, edge.b]) {
+      const list = incident.get(nodeId) ?? [];
+      list.push(edge);
+      incident.set(nodeId, list);
+    }
+  }
+  const junctionSidewalkPlans = deriveJunctionSidewalkPlans(incident, nodes);
   const surfaceIdentityKeys: string[] = [];
   for (const edge of graph.edges) {
     surfaceIdentityKeys.push(
@@ -279,6 +524,7 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
       canonicalTupleKey(["road-surface", edge.id, "right-sidewalk"]),
     );
   }
+  surfaceIdentityKeys.push(...junctionSidewalkPlans.map((plan) => plan.identity));
   const surfaceKeyByIdentity = stableUint32Ids(surfaceIdentityKeys);
   const boundaryIdentityKeys = graph.edges.flatMap((edge) => [
     canonicalTupleKey(["road-boundary", edge.id, "left", 0]),
@@ -289,6 +535,8 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
   const boundaryKeyByIdentity = stableUint32Ids(boundaryIdentityKeys);
   const surfaces: DerivedRoadSurface[] = [];
   const boundaries: DerivedRoadBoundary[] = [];
+  const markings: DerivedRoadMarking[] = [];
+  const bikeLaneArrows: DerivedBikeLaneArrow[] = [];
 
   const addSurface = (
     edge: Readonly<RoadEdge>,
@@ -313,22 +561,102 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
   for (const edge of graph.edges) {
     const { a, b } = edgeEndpoints(edge, nodes);
     const roadFrame = frame(a, b);
+    const junctionExtentA = junctionRoadExtent(edge, edge.a, nodes, incident);
+    const junctionExtentB = junctionRoadExtent(edge, edge.b, nodes, incident);
+    const requestedInsetA = junctionExtentA > 0
+      ? junctionExtentA + ROAD_CROSSWALK_INNER_GAP_METERS + ROAD_CROSSWALK_DEPTH_METERS
+      : 0;
+    const requestedInsetB = junctionExtentB > 0
+      ? junctionExtentB + ROAD_CROSSWALK_INNER_GAP_METERS + ROAD_CROSSWALK_DEPTH_METERS
+      : 0;
+    const insetScale = requestedInsetA + requestedInsetB > roadFrame.length * 0.9
+      ? roadFrame.length * 0.9 / (requestedInsetA + requestedInsetB)
+      : 1;
+    const insetA = requestedInsetA * insetScale;
+    const insetB = requestedInsetB * insetScale;
+    const facilityA = insetEndpoint(a, roadFrame, insetA, true);
+    const facilityB = insetEndpoint(b, roadFrame, insetB, false);
     const crossSection = edge.profile.crossSection;
     const centerHalf = ((crossSection.lanesAToB + crossSection.lanesBToA) * crossSection.laneWidth
       + crossSection.medianWidth) * 0.5;
     addSurface(edge, "center", "center", "asphalt", 0, quad(a, b, roadFrame, centerHalf, -centerHalf));
 
-    const surfacesForSide = new Map<"left" | "right", { bike: DerivedRoadSurface; sidewalk: DerivedRoadSurface }>();
+    const addMarking = (
+      kind: DerivedRoadMarking["kind"],
+      color: DerivedRoadMarking["color"],
+      offset: number,
+      widthMeters: number,
+      dashed = false,
+    ) => markings.push(Object.freeze({
+      edgeId: edge.id,
+      kind,
+      color,
+      widthMeters,
+      segmentXZ: segmentAtOffset(facilityA, facilityB, roadFrame, offset),
+      ...(dashed ? { dashLengthMeters: 3.2, dashGapMeters: 5.8 } : {}),
+    }));
+
+    if (crossSection.lanesAToB > 0 && crossSection.lanesBToA > 0) {
+      const centerLineOffset = Math.max(crossSection.medianWidth * 0.5, 0.16);
+      addMarking("double-center", "yellow", -centerLineOffset, 0.12);
+      addMarking("double-center", "yellow", centerLineOffset, 0.12);
+    }
+    for (let lane = 1; lane < crossSection.lanesBToA; lane += 1) {
+      addMarking(
+        "motor-lane-divider",
+        "white",
+        crossSection.medianWidth * 0.5 + crossSection.laneWidth * lane,
+        0.14,
+        true,
+      );
+    }
+    for (let lane = 1; lane < crossSection.lanesAToB; lane += 1) {
+      addMarking(
+        "motor-lane-divider",
+        "white",
+        -(crossSection.medianWidth * 0.5 + crossSection.laneWidth * lane),
+        0.14,
+        true,
+      );
+    }
+
     for (const side of ["left", "right"] as const) {
       const sign = side === "left" ? 1 : -1;
       const offsets = sideComponentOffsets(crossSection, side);
       addSurface(edge, side, `${side}-bike`, "bike-lane", 0,
-        quad(a, b, roadFrame, sign * offsets.outerBike, sign * offsets.innerBike));
+        quad(facilityA, facilityB, roadFrame, sign * offsets.outerBike, sign * offsets.innerBike));
       const bike = surfaces[surfaces.length - 1];
       addSurface(edge, side, `${side}-sidewalk`, "sidewalk", CURB_HEIGHT_METERS,
-        quad(a, b, roadFrame, sign * offsets.outerSidewalk, sign * offsets.innerSidewalk));
+        quad(facilityA, facilityB, roadFrame, sign * offsets.outerSidewalk, sign * offsets.innerSidewalk));
       const sidewalk = surfaces[surfaces.length - 1];
-      surfacesForSide.set(side, { bike, sidewalk });
+
+      if (offsets.profile.bikeLaneWidth > 0) {
+        addMarking("bike-lane-boundary", "white", sign * offsets.innerBike, 0.18);
+        addMarking(
+          "road-edge",
+          "white",
+          sign * (offsets.innerBike + offsets.profile.bikeLaneWidth + offsets.profile.bikeBufferWidth),
+          0.11,
+        );
+        const hasTrafficDirection = side === "right"
+          ? crossSection.lanesAToB > 0
+          : crossSection.lanesBToA > 0;
+        if (hasTrafficDirection) {
+          const arrowCount = Math.max(1, Math.floor(Math.max(0, roadFrame.length - insetA - insetB) / 85));
+          const bikeOffset = sign * (offsets.innerBike + offsets.profile.bikeLaneWidth * 0.5);
+          for (let arrow = 0; arrow < arrowCount; arrow += 1) {
+            const t = (arrow + 0.5) / arrowCount;
+            bikeLaneArrows.push(Object.freeze({
+              edgeId: edge.id,
+              side,
+              x: facilityA.x + (facilityB.x - facilityA.x) * t + roadFrame.leftX * bikeOffset,
+              z: facilityA.z + (facilityB.z - facilityA.z) * t + roadFrame.leftZ * bikeOffset,
+              directionX: side === "right" ? roadFrame.dx : -roadFrame.dx,
+              directionZ: side === "right" ? roadFrame.dz : -roadFrame.dz,
+            }));
+          }
+        }
+      }
 
       if (offsets.profile.sidewalkWidth <= 0) continue;
       const boundaryOffsets = [offsets.innerSidewalk, offsets.outerSidewalk];
@@ -336,10 +664,10 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
         const offset = sign * boundaryOffsets[curbRun];
         const identity = canonicalTupleKey(["road-boundary", edge.id, side, curbRun]);
         const segment = Object.freeze([
-          a.x + roadFrame.leftX * offset,
-          a.z + roadFrame.leftZ * offset,
-          b.x + roadFrame.leftX * offset,
-          b.z + roadFrame.leftZ * offset,
+          facilityA.x + roadFrame.leftX * offset,
+          facilityA.z + roadFrame.leftZ * offset,
+          facilityB.x + roadFrame.leftX * offset,
+          facilityB.z + roadFrame.leftZ * offset,
         ] as const);
         // The segment follows a→b. For the left curb the centre is on the
         // segment's right; for the right curb it is on the left.
@@ -364,18 +692,84 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
     }
   }
 
-  const incident = new Map<string, RoadEdge[]>();
+  const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
+  const sidewalkByEdge = new Map<string, readonly DerivedRoadSurface[]>();
   for (const edge of graph.edges) {
-    for (const nodeId of [edge.a, edge.b]) {
-      const list = incident.get(nodeId) ?? [];
-      list.push(edge);
-      incident.set(nodeId, list);
-    }
+    sidewalkByEdge.set(edge.id, Object.freeze(surfaces.filter((surface) =>
+      surface.edgeId === edge.id && surface.surfaceProfileId === "sidewalk")));
   }
+  const findEndpoint = (
+    nodeId: string,
+    edgeId: string,
+    direction: CardinalDirection,
+    side: CardinalDirection,
+  ) => {
+    const edge = edgeById.get(edgeId);
+    const node = nodes.get(nodeId);
+    if (!edge || !node) return null;
+    for (const surface of sidewalkByEdge.get(edgeId) ?? []) {
+      const segment = endpointSegmentAtNode(surface, edge, nodeId);
+      if (Math.hypot(segment[2] - segment[0], segment[3] - segment[1])
+        <= ROAD_AXIS_EPSILON_METERS) continue;
+      if (endpointWorldSide(segment, node, direction) === side) return segment;
+    }
+    return null;
+  };
+  for (const plan of junctionSidewalkPlans) {
+    const first = findEndpoint(
+      plan.nodeId,
+      plan.firstEdgeId,
+      plan.firstDirection,
+      plan.firstSide,
+    );
+    const second = findEndpoint(
+      plan.nodeId,
+      plan.secondEdgeId,
+      plan.secondDirection,
+      plan.secondSide,
+    );
+    if (!first || !second) continue;
+    const surfaceQuad = junctionQuadFromSegments(first, second);
+    if (!surfaceQuad) continue;
+    surfaces.push(Object.freeze({
+      edgeId: canonicalTupleKey(["road-junction", plan.nodeId]),
+      side: "junction",
+      surfaceProfileId: "sidewalk",
+      localSurfaceKey: surfaceKeyByIdentity.get(plan.identity)!,
+      roadSurfaceId: plan.identity,
+      y: CURB_HEIGHT_METERS,
+      quadXZ: surfaceQuad,
+    }));
+  }
+
   const ramps: DerivedCurbRamp[] = [];
+  const crosswalks: DerivedRoadCrosswalk[] = [];
   for (const [nodeId, edges] of incident) {
     if (edges.length < 3) continue;
     for (const edge of [...edges].sort((left, right) => left.id.localeCompare(right.id))) {
+      const node = nodes.get(nodeId)!;
+      const otherId = edge.a === nodeId ? edge.b : edge.a;
+      const other = nodes.get(otherId)!;
+      const outward = frame(node, other);
+      const junctionExtent = junctionRoadExtent(edge, nodeId, nodes, incident);
+      const crossSection = edge.profile.crossSection;
+      const crossingWidth = corridorMeters(edge)
+        - crossSection.left.sidewalkWidth - crossSection.left.vergeWidth
+        - crossSection.right.sidewalkWidth - crossSection.right.vergeWidth;
+      const crossingOffset = junctionExtent
+        + ROAD_CROSSWALK_INNER_GAP_METERS
+        + ROAD_CROSSWALK_DEPTH_METERS * 0.5;
+      crosswalks.push(Object.freeze({
+        nodeId,
+        approachEdgeId: edge.id,
+        centerX: node.x + outward.dx * crossingOffset,
+        centerZ: node.z + outward.dz * crossingOffset,
+        directionX: outward.dx,
+        directionZ: outward.dz,
+        widthMeters: crossingWidth,
+        depthMeters: ROAD_CROSSWALK_DEPTH_METERS,
+        stripeCount: Math.max(5, Math.round(crossingWidth / 1.2)),
+      }));
       for (const side of ["left", "right"] as const) {
         ramps.push(Object.freeze({
           nodeId,
@@ -405,6 +799,9 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
     surfaces: Object.freeze(surfaces),
     boundaries: Object.freeze(boundaries),
     ramps: Object.freeze(ramps),
+    crosswalks: Object.freeze(crosswalks),
+    markings: Object.freeze(markings),
+    bikeLaneArrows: Object.freeze(bikeLaneArrows),
     surfaceHandles: Object.freeze(surfaceHandles),
     packedBoundaries: Object.freeze({
       boundaryXZ,

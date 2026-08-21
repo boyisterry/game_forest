@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { emptyCityDocument } from "../app/lib/map/cityDocument.ts";
+import { CURB_HEIGHT_METERS } from "../app/lib/map/cityCollisionTypes.ts";
 import {
   createRoadProfile,
   reverseRoadEdgeRepresentation,
 } from "../app/lib/map/cityRoadGraph.ts";
+import { deriveRoadCollisionSources } from "../app/lib/map/cityRoads.ts";
 import {
   deriveTrafficSignalPlacements,
-  resolveIntersectionTrafficLights,
 } from "../app/lib/map/citySignals.ts";
 
 function documentWithGraph(graph, flags = {}) {
@@ -43,18 +44,13 @@ function fourWayGraph(profileFactory = () => createRoadProfile("two-way-1")) {
   };
 }
 
-test("traffic-light tri-state uses node override before the document default", () => {
-  assert.equal(resolveIntersectionTrafficLights(false, undefined), false);
-  assert.equal(resolveIntersectionTrafficLights(true, undefined), true);
-  assert.equal(resolveIntersectionTrafficLights(false, true), true);
-  assert.equal(resolveIntersectionTrafficLights(true, false), false);
-
+test("every real junction automatically receives signals despite legacy flags", () => {
   const graph = fourWayGraph();
-  assert.equal(deriveTrafficSignalPlacements(documentWithGraph(graph, { needTrafficLights: false })).placements.length, 0);
+  assert.equal(deriveTrafficSignalPlacements(documentWithGraph(graph, { needTrafficLights: false })).placements.length, 4);
   graph.intersectionOverrides.center = { needTrafficLights: true };
   assert.equal(deriveTrafficSignalPlacements(documentWithGraph(graph, { needTrafficLights: false })).placements.length, 4);
   graph.intersectionOverrides.center = { needTrafficLights: false };
-  assert.equal(deriveTrafficSignalPlacements(documentWithGraph(graph)).placements.length, 0);
+  assert.equal(deriveTrafficSignalPlacements(documentWithGraph(graph)).placements.length, 4);
 });
 
 test("four-way signals are generated from inbound approach vectors", () => {
@@ -77,6 +73,29 @@ test("four-way signals are generated from inbound approach vectors", () => {
     new Set(result.placements.filter((signal) => signal.signalPhase === "green").map((signal) => signal.approachCardinal)),
     new Set(["+z", "-z"]),
   );
+});
+
+test("signal bases sit on the real sidewalk beyond the zebra crossing", () => {
+  const document = documentWithGraph(fourWayGraph());
+  const signals = deriveTrafficSignalPlacements(document).placements;
+  const roads = deriveRoadCollisionSources(document.graph);
+  const center = document.graph.nodes.find((node) => node.id === "center");
+  assert.ok(center);
+  for (const signal of signals) {
+    assert.equal(signal.y, CURB_HEIGHT_METERS);
+    const sidewalk = roads.surfaces.find((surface) =>
+      surface.edgeId === signal.approachEdgeId
+      && surface.side === signal.sourceRoadSide
+      && surface.surfaceProfileId === "sidewalk");
+    assert.ok(sidewalk, `missing sidewalk for ${signal.approachEdgeId}`);
+    const xs = [sidewalk.quadXZ[0], sidewalk.quadXZ[2], sidewalk.quadXZ[4], sidewalk.quadXZ[6]];
+    const zs = [sidewalk.quadXZ[1], sidewalk.quadXZ[3], sidewalk.quadXZ[5], sidewalk.quadXZ[7]];
+    assert.ok(signal.x >= Math.min(...xs) && signal.x <= Math.max(...xs));
+    assert.ok(signal.z >= Math.min(...zs) && signal.z <= Math.max(...zs));
+    const setback = -(signal.x - center.x) * signal.approachDirectionXZ[0]
+      - (signal.z - center.z) * signal.approachDirectionXZ[1];
+    assert.equal(setback, 20.75, "two-way-1 signal must clear the full junction and crossing");
+  }
 });
 
 test("a T junction emits three signals and gives the through road one phase", () => {

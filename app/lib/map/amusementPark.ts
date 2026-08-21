@@ -1,5 +1,12 @@
 import * as THREE from "three";
 import { buildLowPolyFoodTruck, buildLowPolyRoadsidePlanter, buildLowPolyStreetLight } from "./cityFurniture.ts";
+import {
+  applySceneShadowPolicy,
+  createOptimizedStaticSceneBatch,
+  createScenePointLightPool,
+  markCityMutableMaterials,
+} from "./sceneInstanceBatch.ts";
+import { applyReviewedCityMapLodTags } from "./cityMapLodTags.ts";
 
 export type AmusementFacility =
   | "overview"
@@ -38,6 +45,11 @@ export type AmusementParkModel = THREE.Group & {
     ferrisCabinCapacity: number;
     rideScaleStandard: "rabbit-rider";
     siteSize: THREE.Vector3;
+    renderBatchCount: number;
+    mergedSourceMeshCount: number;
+    pooledNightLightCount: number;
+    suppressedNightLightCount: number;
+    shadowCastersRemoved: number;
     setPowered: (powered: boolean) => void;
     setMotionEnabled: (enabled: boolean) => void;
     update: (delta: number, elapsed: number) => void;
@@ -113,7 +125,9 @@ function buildFlatRibbonGeometry(curve: THREE.Curve<THREE.Vector3>, segments: nu
   return geometry;
 }
 
-export function buildLowPolyAmusementPark(): AmusementParkModel {
+export function buildLowPolyAmusementPark(
+  options: Readonly<{ optimizeStatic?: boolean }> = {},
+): AmusementParkModel {
   const park = new THREE.Group() as AmusementParkModel;
   park.name = "city-amusement-park-lowpoly";
 
@@ -2356,6 +2370,41 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
   addRideSafetyFence("drop-tower", 69, -8, 13, 17);
   addRideSafetyFence("coaster", -78, -49, 14, 16, 4.2, "right");
 
+  const performanceDynamicRoots: THREE.Object3D[] = [
+    carouselTurntable,
+    piratePivot,
+    ferrisWheel,
+    dropCarriage,
+    cups,
+    ...targets,
+    ...bumperCars,
+    ...coasterCars,
+    ...karts,
+    interlockLeaf,
+    accessibleTransferGateLeaf,
+    ...platformFlowGateLeaves,
+    boardingBridge,
+    connectorInterlockGateLeaf,
+    connectorMovableGuard,
+  ];
+  applyReviewedCityMapLodTags(park, "amusement-park");
+  const shadowMetrics = applySceneShadowPolicy(park, { dynamicRoots: performanceDynamicRoots });
+  const staticRenderBatch = createOptimizedStaticSceneBatch({
+    name: "amusement-park-static-render-batch",
+    parent: park,
+    excludedRoots: performanceDynamicRoots,
+    mutableMaterials: markCityMutableMaterials([...animatedBulbs, ferrisCabinGlass]),
+    cellSizeMeters: 72,
+    enabled: options.optimizeStatic !== false,
+  });
+  const nightLightPool = createScenePointLightPool({
+    name: "amusement-park-night-light-pool",
+    root: park,
+    cellSizeMeters: 64,
+    intensityPerZone: 3.8,
+    maximumDistance: 46,
+  });
+
   let motionEnabled = true;
   let rideTime = 0;
   const tempPoint = new THREE.Vector3();
@@ -2440,6 +2489,11 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
     ferrisCabinCapacity: 6,
     rideScaleStandard: "rabbit-rider",
     siteSize: new THREE.Vector3(180, 39.5, 130),
+    renderBatchCount: staticRenderBatch.userData.batchCount,
+    mergedSourceMeshCount: staticRenderBatch.userData.mergedSourceMeshCount,
+    pooledNightLightCount: nightLightPool.pooledLightCount,
+    suppressedNightLightCount: nightLightPool.sourceLightCount,
+    shadowCastersRemoved: shadowMetrics.shadowCastersRemoved,
     setPowered(powered: boolean) {
       animatedBulbs.forEach((material, index) => {
         material.emissiveIntensity = powered ? 2.2 + (index % 3) * 0.35 : (material === windowMaterial ? 0.08 : 0.12);
@@ -2449,6 +2503,7 @@ export function buildLowPolyAmusementPark(): AmusementParkModel {
       ferrisCabinGlass.emissiveIntensity = powered ? 0.48 : 0.08;
       reusedStreetLights.forEach((streetLight) => streetLight.userData.setPowered(powered));
       reusedFoodTrucks.forEach((truck) => truck.userData.setLights(powered));
+      nightLightPool.setPowered(powered);
     },
     setMotionEnabled(enabled: boolean) {
       motionEnabled = enabled;

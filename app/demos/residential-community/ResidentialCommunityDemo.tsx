@@ -8,6 +8,17 @@ import { createSceneShatterPair, measureModelGeometry, type ModelGeometryMetrics
 import { prepareRabbitRiderReference, RABBIT_RIDER_URL } from "../../lib/map/rabbitRiderReference";
 import { buildLowPolyResidentialCommunity, type ResidentialCommunityZone } from "../../lib/map/residentialCommunity";
 import { ShatterMorphController } from "../../lib/map/shatterMorph";
+import {
+  applySceneShadowPolicy,
+  createInstancedPrototypeBatch,
+  createScenePointLightPool,
+} from "../../lib/map/sceneInstanceBatch";
+import { createShowcaseRenderBudget, hasContinuousShowcaseActivity } from "../../lib/map/showcaseRenderBudget";
+import {
+  createCachedPrimitiveScene,
+  disposeSceneResources,
+  retireResourceCacheGeneration,
+} from "../../lib/map/cityResourceCache";
 import styles from "./ResidentialCommunityDemo.module.css";
 
 type Focus = "overview" | ResidentialCommunityZone;
@@ -76,6 +87,7 @@ export function ResidentialCommunityDemo() {
     controls.minDistance = 14;
     controls.maxDistance = 320;
     controls.maxPolarAngle = Math.PI * 0.49;
+    const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
 
     const ground = new THREE.Mesh(new THREE.CircleGeometry(172, 64), new THREE.MeshStandardMaterial({ color: 0xa9b9a8, roughness: 0.98 }));
     ground.rotation.x = -Math.PI * 0.5;
@@ -96,7 +108,13 @@ export function ResidentialCommunityDemo() {
     fill.position.set(74, 32, -66);
     scene.add(hemi, sun, fill);
 
-    const community = buildLowPolyResidentialCommunity();
+    const cachedScene = createCachedPrimitiveScene(buildLowPolyResidentialCommunity);
+    const community = cachedScene.root;
+    const pointLightPool = createScenePointLightPool({
+      name: "residential-community-showcase-light-pool",
+      root: community,
+    });
+    applySceneShadowPolicy(community);
     const pair = createSceneShatterPair(community, { seed: 404, spread: 5.5 });
     const shatterMorph = new ShatterMorphController(0);
     scene.add(pair.root);
@@ -125,9 +143,21 @@ export function ResidentialCommunityDemo() {
       bounds = new THREE.Box3().setFromObject(template);
       const center = bounds.getCenter(new THREE.Vector3());
       template.position.set(-center.x, -bounds.min.y, -center.z);
+      const treePrototype = new THREE.Group();
+      treePrototype.name = "residential-community-small-tree-prototype";
+      treePrototype.add(template);
+      const treeAnchors: THREE.Object3D[] = [];
       community.traverse((object) => {
-        if (object instanceof THREE.Group && object.name === "residential-community-reused-tree-anchor") object.add(template.clone(true));
+        if (object instanceof THREE.Group && object.name === "residential-community-reused-tree-anchor") treeAnchors.push(object);
       });
+      const treeBatch = createInstancedPrototypeBatch({
+        name: "residential-community-tree-render-batch",
+        parent: community,
+        prototype: treePrototype,
+        placements: treeAnchors,
+        hidePlacementMeshes: false,
+      });
+      community.userData.treeRenderBatchCount = treeBatch.userData.batchCount;
       setMetrics(measureModelGeometry(community));
     }).catch(() => undefined);
     loader.loadAsync(RABBIT_RIDER_URL).then((gltf) => {
@@ -152,6 +182,7 @@ export function ResidentialCommunityDemo() {
       fill.intensity = on ? 0.22 : 0.72;
       renderer.toneMappingExposure = on ? 0.88 : 1.03;
       community.userData.setPowered(on);
+      pointLightPool.setPowered(on);
     };
     apiRef.current = {
       focus: (next) => {
@@ -175,14 +206,17 @@ export function ResidentialCommunityDemo() {
       frame = requestAnimationFrame(animate);
       const delta = Math.min(clock.getDelta(), 0.05);
       community.userData.update(delta);
-      if (shatterMorph.update(delta)) pair.setAmount(shatterMorph.getAmount());
+      const morphChanged = shatterMorph.update(delta);
+      if (morphChanged) pair.setAmount(shatterMorph.getAmount());
       if (!interacting && focusBlend > 0.001) {
         controls.target.lerp(desiredTarget, 0.085);
         if (!rotating) camera.position.lerp(desiredCamera, 0.065);
         focusBlend *= 0.91;
       }
-      controls.update();
-      renderer.render(scene, camera);
+      const controlsChanged = controls.update();
+      renderBudget.render(scene, camera, hasContinuousShowcaseActivity({
+        autoRotate: rotating, focusBlend, morphChanged, internalAnimation: true, controlsChanged,
+      }));
     };
     animate();
     const resize = () => {
@@ -198,14 +232,12 @@ export function ResidentialCommunityDemo() {
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
+      renderBudget.dispose();
       controls.dispose();
       apiRef.current = null;
-      scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        object.geometry.dispose();
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        materials.forEach((material) => material.dispose());
-      });
+      disposeSceneResources(scene);
+      cachedScene.lease.release();
+      void retireResourceCacheGeneration();
       renderer.dispose();
       renderer.domElement.remove();
     };
