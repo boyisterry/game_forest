@@ -78,7 +78,7 @@ const categories = [
     description: "由18栋统一社区居民楼组成的模块化普通小区，三排住宅均配置路边地面停车，并提供30%绿化与室外健身花园。",
     href: "/demos/standard-residential-community",
     visual: "community",
-    tags: ["18 栋住宅 / 360 户", "3 排停车 / 66 个车位", "30% 绿化 / 室外健身", "正常 / 破碎"],
+    tags: ["12 栋真实尺度住宅 / 120 户", "3 排停车 / 60 个车位", "30% 绿化 / 室外健身", "正常 / 破碎"],
   },
   {
     number: "COLLECTION 07B",
@@ -118,7 +118,7 @@ const categories = [
     description: "将住宅组团、开放式社区商业街和独立幼儿园整合为拥有门禁、消防环路与公共服务的完整街区。",
     href: "/demos/residential-community",
     visual: "community",
-    tags: ["8 栋住宅 / 368 户", "14 个社区商铺", "160 人幼儿园", "正常 / 破碎"],
+    tags: ["8 栋住宅 / 328 户", "14 个社区商铺", "160 人幼儿园", "正常 / 破碎"],
   },
   {
     number: "COLLECTION 08",

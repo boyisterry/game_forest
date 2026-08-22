@@ -242,7 +242,7 @@ export type CityPoseOccupancyRecovery = Readonly<{
 
 /**
  * Conservative edit/import recovery over the authoritative occupancy grid.
- * A 3x3 free tile window keeps the 0.55m rider circle clear of reservation and
+ * A 3x3 free tile window keeps the rider circle clear of reservation and
  * solid cells. Roads and sidewalks remain valid destinations.
  */
 export function findNearestUnoccupiedCityPoint(

@@ -1035,6 +1035,11 @@ function deserializeFallback(
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(positions, 3));
+  // MeshBVH.deserialize restores the tree and index but does not recreate the
+  // BufferGeometry bounding box. The runtime owner spatial index is built from
+  // this bound; leaving it null collapses every fallback-only building owner to
+  // its placement origin and removes the building from nearby sweep queries.
+  geometry.computeBoundingBox();
   const bvh = MeshBVH.deserialize({
     version: manifest.bvh.version,
     roots,

@@ -20,6 +20,19 @@ const PITCH_SENS = 0.0035;
 const PITCH_MIN = -0.55;
 const PITCH_MAX = 0.72;
 const RECENTER = 5.5; // spring rate back to chase when not dragging
+const COLLISION_RADIUS = 0.28;
+
+export type ChaseCameraCollisionQuery = Readonly<{
+  startX: number;
+  startY: number;
+  startZ: number;
+  endX: number;
+  endY: number;
+  endZ: number;
+  radius: number;
+}>;
+
+export type ChaseCameraCollisionResolver = (query: ChaseCameraCollisionQuery) => number;
 
 export class ChaseCamera {
   private pos = new THREE.Vector3();
@@ -32,9 +45,11 @@ export class ChaseCamera {
   private lastX = 0;
   private lastY = 0;
   private pointerId: number | null = null;
+  private collisionFraction = 1;
   private el: HTMLElement | null = null;
   private readonly idealPos = new THREE.Vector3();
   private readonly idealLook = new THREE.Vector3();
+  private readonly resolvedPos = new THREE.Vector3();
 
   reset() {
     this.init = false;
@@ -42,6 +57,11 @@ export class ChaseCamera {
     this.lookPitch = 0;
     this.dragging = false;
     this.pointerId = null;
+    this.collisionFraction = 1;
+  }
+
+  getCollisionFraction() {
+    return this.collisionFraction;
   }
 
   attach(el: HTMLElement) {
@@ -99,7 +119,13 @@ export class ChaseCamera {
     this.pointerId = null;
   };
 
-  update(dt: number, camera: THREE.PerspectiveCamera, pose: MotoPose, boost: boolean) {
+  update(
+    dt: number,
+    camera: THREE.PerspectiveCamera,
+    pose: MotoPose,
+    boost: boolean,
+    resolveCollision?: ChaseCameraCollisionResolver,
+  ) {
     if (!this.dragging) {
       const k = 1 - Math.exp(-RECENTER * dt);
       this.lookYaw += (0 - this.lookYaw) * k;
@@ -150,7 +176,33 @@ export class ChaseCamera {
       this.look.lerp(this.idealLook, l);
     }
 
-    camera.position.copy(this.pos);
+    this.resolvedPos.copy(this.pos);
+    if (resolveCollision) {
+      const startX = pose.x;
+      const startY = pose.y + LOOK_HEIGHT;
+      const startZ = pose.z;
+      const fraction = THREE.MathUtils.clamp(resolveCollision({
+        startX,
+        startY,
+        startZ,
+        endX: this.pos.x,
+        endY: this.pos.y,
+        endZ: this.pos.z,
+        radius: COLLISION_RADIUS,
+      }), 0, 1);
+      this.collisionFraction = fraction;
+      if (fraction < 1) {
+        this.resolvedPos.set(
+          THREE.MathUtils.lerp(startX, this.pos.x, fraction),
+          THREE.MathUtils.lerp(startY, this.pos.y, fraction),
+          THREE.MathUtils.lerp(startZ, this.pos.z, fraction),
+        );
+      }
+    } else {
+      this.collisionFraction = 1;
+    }
+
+    camera.position.copy(this.resolvedPos);
     camera.lookAt(this.look);
 
     const targetFov = boost && Math.abs(pose.speed) > 4 ? FOV_BOOST : FOV_BASE;

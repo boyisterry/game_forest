@@ -39,6 +39,24 @@ function junctionSources() {
   });
 }
 
+function tJunctionSources() {
+  const profile = createRoadProfile("two-way-1");
+  return deriveRoadCollisionSources({
+    nodes: [
+      { id: "center", x: 0, z: 0 },
+      { id: "west", x: -80, z: 0 },
+      { id: "east", x: 80, z: 0 },
+      { id: "north", x: 0, z: -80 },
+    ],
+    edges: [
+      { id: "west-arm", a: "west", b: "center", profile },
+      { id: "east-arm", a: "center", b: "east", profile },
+      { id: "north-arm", a: "north", b: "center", profile },
+    ],
+    intersectionOverrides: {},
+  });
+}
+
 async function runtimeFor(chunks, generation = 4) {
   const compiled = await Promise.all(chunks.map(async (chunk) => ({
     chunk,
@@ -134,4 +152,86 @@ test("junction sidewalk connectors survive chunk packing and compiled surface qu
   assert.equal(corner.profileId, "sidewalk");
   assert.ok(Math.abs(corner.height - 0.24) < 1e-6);
   assert.equal(corner.handle.kind, "road");
+});
+
+test("compiled four-way corners report both inner and outer curb crossings without blocking approach seams", async (t) => {
+  const chunks = packRoadCollisionChunks(junctionSources(), 4);
+  const { runtime, compiled } = await runtimeFor(chunks);
+  t.after(() => {
+    runtime.dispose();
+    for (const item of compiled) item.source.fallback?.geometry.dispose();
+  });
+
+  const asphalt = sampleBuffer();
+  runtime.sampleCitySurface(5, -10, {
+    currentY: 0,
+    previousHandle: null,
+    maxStepUpMeters: 0.01,
+  }, asphalt);
+  assert.equal(asphalt.profileId, "implicit-ground");
+  const inner = runtime.findEarliestSurfaceBoundaryCrossing(5, -10, 5, 0, asphalt);
+  assert.ok(inner);
+  assert.equal(inner.kind, "road-curb");
+  assert.equal(inner.handle.kind, "road");
+  assert.equal(inner.handle.side, "junction");
+  assert.equal(inner.toProfileId, "sidewalk");
+  assert.ok(inner.bumpStrength > 0);
+
+  const sidewalk = sampleBuffer();
+  runtime.sampleCitySurface(18, -18, {
+    currentY: 0.24,
+    previousHandle: null,
+    maxStepUpMeters: 0.01,
+  }, sidewalk);
+  assert.equal(sidewalk.profileId, "sidewalk");
+  const outer = runtime.findEarliestSurfaceBoundaryCrossing(18, -18, 5, 0, sidewalk);
+  assert.ok(outer);
+  assert.equal(outer.handle.kind, "road");
+  assert.equal(outer.handle.side, "junction");
+  assert.equal(outer.toProfileId, "implicit-ground");
+  assert.ok(outer.bumpStrength > 0);
+
+  const connectorToApproach = sampleBuffer();
+  runtime.sampleCitySurface(10, -18, {
+    currentY: 0.24,
+    previousHandle: null,
+    maxStepUpMeters: 0.01,
+  }, connectorToApproach);
+  assert.equal(runtime.findEarliestSurfaceBoundaryCrossing(
+    10, -18, 0, -5, connectorToApproach,
+  ), null, "the sidewalk-to-sidewalk approach seam must stay open");
+});
+
+test("compiled T-junction bridge detects the curb on both road halves and its ground edge", async (t) => {
+  const chunks = packRoadCollisionChunks(tJunctionSources(), 4);
+  const { runtime, compiled } = await runtimeFor(chunks);
+  t.after(() => {
+    runtime.dispose();
+    for (const item of compiled) item.source.fallback?.geometry.dispose();
+  });
+
+  for (const x of [-10, 10]) {
+    const asphalt = sampleBuffer();
+    runtime.sampleCitySurface(x, 5, {
+      currentY: 0,
+      previousHandle: null,
+      maxStepUpMeters: 0.01,
+    }, asphalt);
+    assert.equal(asphalt.profileId, "implicit-ground");
+    const crossing = runtime.findEarliestSurfaceBoundaryCrossing(x, 5, 0, 5, asphalt);
+    assert.ok(crossing, `bridge curb must be detected at x=${x}`);
+    assert.equal(crossing.handle.kind, "road");
+    assert.equal(crossing.handle.side, "junction");
+    assert.equal(crossing.toProfileId, "sidewalk");
+  }
+
+  const sidewalk = sampleBuffer();
+  runtime.sampleCitySurface(10, 10, {
+    currentY: 0.24,
+    previousHandle: null,
+    maxStepUpMeters: 0.01,
+  }, sidewalk);
+  const outer = runtime.findEarliestSurfaceBoundaryCrossing(10, 10, 0, 10, sidewalk);
+  assert.ok(outer);
+  assert.equal(outer.toProfileId, "implicit-ground");
 });

@@ -100,7 +100,7 @@ test("junction approaches stop raised facilities before the road and derive zebr
     .filter((surface) => surface.surfaceProfileId === "asphalt")
     .some((surface) => surface.quadXZ.some((coordinate) => coordinate === 0)),
   "motor asphalt must continue through the junction beneath the crossing");
-  assert.ok(sources.boundaries.every((boundary) =>
+  assert.ok(sources.boundaries.filter((boundary) => boundary.side !== "junction").every((boundary) =>
     Math.hypot(boundary.segmentXZ[0], boundary.segmentXZ[1]) >= 18
     && Math.hypot(boundary.segmentXZ[2], boundary.segmentXZ[3]) >= 18));
   assert.equal(sources.markings.length, 24);
@@ -146,6 +146,31 @@ test("four-way junction sidewalks connect every adjacent approach around the zeb
   }
 });
 
+test("every four-way sidewalk corner derives continuous inner and outer curb collision runs", () => {
+  for (const tier of ["narrow", "medium", "wide"]) {
+    const graph = crossGraph();
+    const sources = deriveRoadCollisionSources({
+      ...graph,
+      edges: graph.edges.map((edge) => ({ ...edge, profile: createRoadProfile("two-way-1", tier) })),
+    });
+    const junctionBoundaries = sources.boundaries.filter((boundary) => boundary.side === "junction");
+    const byEdgeAndRun = Map.groupBy(junctionBoundaries,
+      (boundary) => `${boundary.edgeId}:${boundary.curbRun}`);
+    assert.equal(junctionBoundaries.length, 16, `${tier} corners must expose four curb pieces each`);
+    assert.equal(byEdgeAndRun.size, 8, `${tier} corners must expose one inner and one outer curb run`);
+    for (const [identity, pieces] of byEdgeAndRun) {
+      assert.equal(pieces.length, 2, `${identity} must turn the corner without a gap`);
+      assert.equal(new Set(pieces.map((piece) => piece.groupKey)).size, 1);
+      const endpoints = pieces.flatMap((piece) => [
+        `${piece.segmentXZ[0]},${piece.segmentXZ[1]}`,
+        `${piece.segmentXZ[2]},${piece.segmentXZ[3]}`,
+      ]);
+      assert.ok(endpoints.some((point, index) => endpoints.indexOf(point) !== index),
+        `${identity} pieces must meet at their corner`);
+    }
+  }
+});
+
 test("T junction sidewalks add two corners and preserve the continuous far-side pavement", () => {
   const profile = createRoadProfile("two-way-1");
   const sources = deriveRoadCollisionSources({
@@ -171,6 +196,14 @@ test("T junction sidewalks add two corners and preserve the continuous far-side 
   assert.equal(farSide.quadXZ[4], 20);
   assert.equal(farSide.quadXZ[1], 7);
   assert.equal(farSide.quadXZ[5], 15);
+  const junctionBoundaries = sources.boundaries.filter((boundary) => boundary.side === "junction");
+  assert.equal(junctionBoundaries.length, 11);
+  const bridgeEdgeId = junctionBoundaries.find((boundary) => boundary.edgeId.includes("-bridge"))?.edgeId;
+  assert.ok(bridgeEdgeId);
+  const bridgeBoundaries = junctionBoundaries.filter((boundary) => boundary.edgeId === bridgeEdgeId);
+  assert.equal(bridgeBoundaries.filter((boundary) => boundary.curbRun === 0).length, 2,
+    "the asphalt-facing bridge curb must use each adjoining road surface on its own half");
+  assert.equal(bridgeBoundaries.filter((boundary) => boundary.curbRun === 1).length, 1);
 });
 
 test("ordinary two-way road nodes do not synthesize junction sidewalk platforms", () => {

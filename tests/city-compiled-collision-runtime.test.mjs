@@ -6,6 +6,7 @@ import {
   queryCompiledCollisionSweep,
 } from "../app/lib/map/cityCompiledCollisionRuntime.ts";
 import {
+  BIKE_COLLISION_RADIUS_METERS,
   IMPLICIT_GROUND_SURFACE_KEY,
   NO_SURFACE_KEY,
   PackedCollisionRoleCode,
@@ -14,6 +15,7 @@ import {
 } from "../app/lib/map/cityCollisionTypes.ts";
 import { createImplicitGroundSurfaceSample } from "../app/lib/map/cityCollision.ts";
 import { createCityMoveResultBuffer } from "../app/lib/map/cityCollision.ts";
+import { resolveCityCameraCollisionFraction } from "../app/lib/map/cityCameraCollision.ts";
 
 function close(actual, expected, epsilon = 1e-6) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected} ± ${epsilon}`);
@@ -96,6 +98,25 @@ test("ground truth: an infinitely thin compiled wall stops at radius, not at an 
   close(result.hit.normalX, -1);
   close(result.hit.normalZ, 0);
   assert.equal(result.hit.primitiveKind, "wall");
+});
+
+test("city chase-camera boom stops in front of the compiled facade", async () => {
+  const compiled = await compileCollisionSource(verticalRectangleSource("camera-wall"));
+  const runtime = new CompiledCityCollisionRuntime([{
+    ownerId: "camera-wall-owner",
+    ownerGeneration: 1,
+    source: compiled,
+  }]);
+  const fraction = resolveCityCameraCollisionFraction(runtime, {
+    startX: -2,
+    startY: 1.4,
+    startZ: 0,
+    endX: 2,
+    endY: 4.4,
+    endZ: 0,
+    radius: 0.28,
+  });
+  close(fraction, (2 - 0.28 - 0.08) / 4);
 });
 
 test("staged runtime reuses unchanged owners and patches only affected spatial cells", async () => {
@@ -280,6 +301,64 @@ test("fallback uses MeshBVH candidates then exact Y-clipped 2D triangle TOI", as
   assert.equal(above.hit, null);
 });
 
+test("fallback shapecast preserves source triangle identity after indirect BVH traversal", async () => {
+  const positions = [];
+  const indices = [];
+  const sourceTriangleIds = [];
+  // Deliberately scramble spatial order. Each wall rectangle shares a vertex
+  // with a horizontal cap, forcing the complete component onto the same
+  // fallback path used by closed building and decoration meshes.
+  const xOrder = [240, 0, 220, 20, 200, 40, 180, 60, 160, 80, 140, 100, 120];
+  for (const [component, x] of xOrder.entries()) {
+    const z = (component % 3) * 8;
+    const vertex = positions.length / 3;
+    positions.push(
+      x, 0, z - 2,
+      x, 3, z - 2,
+      x, 3, z + 2,
+      x, 0, z + 2,
+      x + 1, 0, z - 2,
+      x + 1, 0, z - 1,
+    );
+    indices.push(
+      vertex, vertex + 1, vertex + 2,
+      vertex, vertex + 2, vertex + 3,
+      vertex, vertex + 4, vertex + 5,
+    );
+    sourceTriangleIds.push(component * 10, component * 10 + 1, component * 10 + 2);
+  }
+  const compiled = await compileCollisionSource(packedSource({
+    sourceId: "indirect-fallback-city-faces",
+    positions,
+    indices,
+    sourceTriangleIds,
+  }));
+  assert.ok(compiled.fallback);
+  assert.equal(compiled.walls.sourceTriangleIds.length, 0);
+  assert.ok(
+    sourceTriangleIds.some((_, index) => compiled.fallback.bvh.resolveTriangleIndex(index) !== index),
+    "fixture must exercise a genuinely reordered indirect BVH",
+  );
+
+  const result = queryCompiledCollisionSweep([{
+    ownerId: "complex-building",
+    ownerGeneration: 1,
+    source: compiled,
+  }], {
+    startX: -2,
+    startZ: 8,
+    deltaX: 4,
+    deltaZ: 0,
+    minY: 0,
+    maxY: 2.4,
+    radius: 0.55,
+  });
+  assert.ok(result.fallbackTriangleCandidateCount >= 1);
+  assert.ok(result.hit, "the reordered building facade must remain solid");
+  close(result.hit.toi, (2 - 0.55) / 4);
+  assert.ok(result.hit.sourceTriangleId === 10 || result.hit.sourceTriangleId === 11);
+});
+
 test("fallback floors and roofs remain containment data without horizontal XZ response", async () => {
   const compiled = await compileCollisionSource(packedSource({
     sourceId: "horizontal-containment-face",
@@ -419,11 +498,11 @@ test("compiled runtime exposes the live resolveCityMove contract", async () => {
     drifting: false,
     startSurface: surface,
   }, out);
-  close(out.x, -0.552, 1e-6);
+  close(out.x, -BIKE_COLLISION_RADIUS_METERS - 0.002, 1e-6);
   close(out.z, 0);
   assert.equal(out.impactCount, 1);
   assert.equal(out.impactEvents[0].contact.primitiveKind, "wall");
-  assert.ok(out.x < -0.55, "collision skin remains outside the source triangle");
+  assert.ok(out.x < -BIKE_COLLISION_RADIUS_METERS, "collision skin remains outside the source triangle");
 });
 
 test("packed surface chunks sample real planes and expose curb boundaries", async () => {

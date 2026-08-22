@@ -18,6 +18,8 @@ export type HospitalCampusModel = THREE.Group & {
     pedestrianWalkwayCount: number;
     coveredWalkwayCount: number;
     raisedCrossingCount: number;
+    floorPitchMeters: number;
+    buildingSizesMeters: Record<HospitalZone, THREE.Vector3>;
     siteSize: THREE.Vector3;
     setInteriorCutaway: (cutaway: boolean) => void;
     setPowered: (powered: boolean) => void;
@@ -177,16 +179,17 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
     floors: number;
     accent: THREE.Material;
   }) => {
-    const buildingScale = 1.55;
     const building = new THREE.Group();
     building.name = name;
     building.userData.zone = zone;
-    building.position.set(position[0], 0.28 - 0.28 * buildingScale, position[1]);
-    building.scale.setScalar(buildingScale);
-    building.userData.architecturalScale = buildingScale;
+    building.position.set(position[0], 0, position[1]);
+    building.userData.architecturalScale = 1;
     campus.add(building);
 
-    const pitch = 2.18;
+    // Hospital floors need extra service space for ducts, equipment and clear
+    // circulation. Build them in world metres instead of uniformly scaling a
+    // miniature shell (which previously made doors, beds and lifts 1.55x too large).
+    const pitch = 4.2;
     const levels = Array.from({ length: floors }, (_, index) => 0.48 + index * pitch);
     const height = floors * pitch + 0.28;
     const centerY = 0.4 + height * 0.5;
@@ -209,36 +212,39 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
 
       // The sill + head + piers form a continuous front facade. Windows sit on
       // top of that facade instead of floating over a completely open elevation.
-      const sill = hospitalMesh(new THREE.BoxGeometry(width, 0.4, 0.24), accent, "hospital-zone-front-sill", zone);
-      sill.position.set(0, level + 0.75, depth * 0.5);
-      const head = hospitalMesh(new THREE.BoxGeometry(width, 0.74, 0.24), white, "hospital-zone-front-head", zone);
-      head.position.set(0, level + 2.22, depth * 0.5);
+      const sill = hospitalMesh(new THREE.BoxGeometry(width, 0.5, 0.24), accent, "hospital-zone-front-sill", zone);
+      sill.position.set(0, level + 0.8, depth * 0.5);
+      const head = hospitalMesh(new THREE.BoxGeometry(width, 1.93, 0.24), white, "hospital-zone-front-head", zone);
+      head.position.set(0, level + 3.715, depth * 0.5);
       building.add(sill, head);
       cutawayShell.push(sill, head);
 
       for (let bay = 0; bay < bayCount; bay += 1) {
         const x = -width * 0.5 + 0.4 + bayWidth * (bay + 0.5);
-        const pane = hospitalMesh(new THREE.BoxGeometry(bayWidth - 0.26, 0.9, 0.1), windowGlass, "hospital-zone-window", zone);
-        pane.position.set(x, level + 1.4, depth * 0.5 + 0.13);
+        const pane = hospitalMesh(new THREE.BoxGeometry(bayWidth - 0.26, 1.7, 0.1), windowGlass, "hospital-zone-window", zone);
+        pane.position.set(x, level + 1.9, depth * 0.5 + 0.13);
         building.add(pane);
         cutawayShell.push(pane);
       }
       for (let pier = 0; pier <= bayCount; pier += 1) {
         const x = -width * 0.5 + 0.4 + pier * bayWidth;
-        const frame = hospitalMesh(new THREE.BoxGeometry(0.26, 0.9, 0.25), white, "hospital-zone-window-frame", zone);
-        frame.position.set(x, level + 1.4, depth * 0.5 + 0.01);
+        const frame = hospitalMesh(new THREE.BoxGeometry(0.26, 1.7, 0.25), white, "hospital-zone-window-frame", zone);
+        frame.position.set(x, level + 1.9, depth * 0.5 + 0.01);
         building.add(frame);
         cutawayShell.push(frame);
       }
       for (const x of [-width * 0.3, 0, width * 0.3]) {
         const ceilingLight = hospitalMesh(new THREE.BoxGeometry(1.2, 0.04, 0.32), warmLight, "hospital-interior-ceiling-light", zone);
-        ceilingLight.position.set(x, level + 1.98, 0);
+        ceilingLight.position.set(x, level + 3.65, 0);
         building.add(ceilingLight);
       }
     });
     const roof = hospitalMesh(new THREE.BoxGeometry(width + 0.2, 0.22, depth + 0.2), dark, "hospital-zone-flat-roof", zone);
     roof.position.y = 0.54 + floors * pitch;
     building.add(roof);
+    building.userData.floorPitchMeters = pitch;
+    building.userData.floorCount = floors;
+    building.userData.buildingSizeMeters = new THREE.Vector3(width, height, depth);
     return { building, levels, roofY: roof.position.y, width, depth };
   };
 
@@ -246,8 +252,8 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
     zone: "outpatient",
     name: "hospital-outpatient-building",
     position: [-22, 5],
-    width: 15,
-    depth: 11,
+    width: 23.25,
+    depth: 17.05,
     floors: 3,
     accent: outpatientAccent,
   });
@@ -255,8 +261,8 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
     zone: "emergency",
     name: "hospital-emergency-building",
     position: [22, 6],
-    width: 13,
-    depth: 10,
+    width: 20.15,
+    depth: 15.5,
     floors: 2,
     accent: emergencyAccent,
   });
@@ -264,47 +270,47 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
     zone: "inpatient",
     name: "hospital-inpatient-building",
     position: [0, -17],
-    width: 16,
-    depth: 12,
+    width: 24.8,
+    depth: 18.6,
     floors: 6,
     accent: inpatientAccent,
   });
 
   const mainCanopy = hospitalMesh(new THREE.BoxGeometry(8.6, 0.22, 2.5), outpatientAccent, "hospital-main-entrance-canopy", "outpatient");
-  mainCanopy.position.set(0, 3.05, 6.2);
+  mainCanopy.position.set(0, 3.05, 9.55);
   const mainDoorLeft = hospitalMesh(new THREE.BoxGeometry(1.65, 2.15, 0.12), windowGlass, "hospital-main-entrance-door", "outpatient");
-  mainDoorLeft.position.set(-0.9, 1.58, 5.58);
+  mainDoorLeft.position.set(-0.9, 1.58, 8.59);
   const mainDoorRight = hospitalMesh(new THREE.BoxGeometry(1.65, 2.15, 0.12), windowGlass, "hospital-main-entrance-door", "outpatient");
-  mainDoorRight.position.set(0.9, 1.58, 5.58);
+  mainDoorRight.position.set(0.9, 1.58, 8.59);
   outpatient.building.add(mainCanopy, mainDoorLeft, mainDoorRight);
   cutawayShell.push(mainDoorLeft, mainDoorRight);
   for (const x of [-3.7, 3.7]) {
     const post = hospitalMesh(new THREE.BoxGeometry(0.18, 2.58, 0.18), dark, "hospital-main-canopy-post", "outpatient");
-    post.position.set(x, 1.72, 7.1);
+    post.position.set(x, 1.72, 10.3);
     outpatient.building.add(post);
   }
 
   const emergencyCanopy = hospitalMesh(new THREE.BoxGeometry(9.2, 0.24, 3), emergencyAccent, "hospital-emergency-entrance-canopy", "emergency");
-  emergencyCanopy.position.set(0, 3, 6.1);
+  emergencyCanopy.position.set(0, 3, 9.0);
   const emergencyDoor = hospitalMesh(new THREE.BoxGeometry(3.4, 2.22, 0.12), windowGlass, "hospital-emergency-entrance-door", "emergency");
-  emergencyDoor.position.set(0, 1.62, 5.08);
+  emergencyDoor.position.set(0, 1.62, 7.81);
   emergency.building.add(emergencyCanopy, emergencyDoor);
   cutawayShell.push(emergencyDoor);
   for (const x of [-4, 4]) {
     const post = hospitalMesh(new THREE.BoxGeometry(0.2, 2.52, 0.2), emergencyAccent, "hospital-emergency-canopy-post", "emergency");
-    post.position.set(x, 1.7, 7.05);
+    post.position.set(x, 1.7, 9.7);
     emergency.building.add(post);
   }
   const crossVertical = hospitalMesh(new THREE.BoxGeometry(0.52, 2.1, 0.14), emergencyAccent, "hospital-emergency-cross-sign", "emergency");
-  crossVertical.position.set(5.3, 4.52, 5.12);
+  crossVertical.position.set(5.3, 4.52, 7.85);
   const crossHorizontal = hospitalMesh(new THREE.BoxGeometry(1.65, 0.52, 0.14), emergencyAccent, "hospital-emergency-cross-sign", "emergency");
   crossHorizontal.position.copy(crossVertical.position);
   emergency.building.add(crossVertical, crossHorizontal);
 
   const inpatientCanopy = hospitalMesh(new THREE.BoxGeometry(6.8, 0.2, 2.1), inpatientAccent, "hospital-inpatient-entrance-canopy", "inpatient");
-  inpatientCanopy.position.set(0, 2.75, 7.0);
+  inpatientCanopy.position.set(0, 2.75, 10.15);
   const inpatientDoor = hospitalMesh(new THREE.BoxGeometry(3, 2.1, 0.12), windowGlass, "hospital-inpatient-entrance-door", "inpatient");
-  inpatientDoor.position.set(0, 1.52, 6.08);
+  inpatientDoor.position.set(0, 1.52, 9.36);
   inpatient.building.add(inpatientCanopy, inpatientDoor);
   cutawayShell.push(inpatientDoor);
 
@@ -323,8 +329,8 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
     const roomIndex = room % 3;
     const level = outpatient.levels[floorIndex];
     const x = -4.5 + roomIndex * 4.5;
-    const partition = hospitalMesh(new THREE.BoxGeometry(3.8, 1.62, 0.06), interiorGlass, "hospital-outpatient-consult-room", "outpatient");
-    partition.position.set(x, level + 0.88, -1.85);
+    const partition = hospitalMesh(new THREE.BoxGeometry(3.8, 2.5, 0.06), interiorGlass, "hospital-outpatient-consult-room", "outpatient");
+    partition.position.set(x, level + 1.3, -1.85);
     const desk = hospitalMesh(new THREE.BoxGeometry(1.25, 0.1, 0.58), timber, "hospital-outpatient-consult-desk", "outpatient");
     desk.position.set(x - 0.65, level + 0.77, -3.0);
     const couch = hospitalMesh(new THREE.BoxGeometry(1.78, 0.58, 0.7), porcelain, "hospital-outpatient-exam-couch", "outpatient");
@@ -413,8 +419,8 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
       const roomX = side * 4.5;
       const roomFloor = hospitalMesh(new THREE.BoxGeometry(5, 0.04, 4.1), fabricGreen, "hospital-inpatient-room-floor", "inpatient");
       roomFloor.position.set(roomX, level + 0.1, -1.7);
-      const roomWall = hospitalMesh(new THREE.BoxGeometry(0.06, 1.78, 4.1), interiorGlass, "hospital-inpatient-room-partition", "inpatient");
-      roomWall.position.set(side * 1.8, level + 0.98, -1.7);
+      const roomWall = hospitalMesh(new THREE.BoxGeometry(0.06, 2.8, 4.1), interiorGlass, "hospital-inpatient-room-partition", "inpatient");
+      roomWall.position.set(side * 1.8, level + 1.5, -1.7);
       const bed = hospitalMesh(new THREE.BoxGeometry(2.05, 0.62, 0.88), porcelain, "hospital-inpatient-bed", "inpatient");
       bed.position.set(roomX, level + 0.78, -1.9);
       const headboard = hospitalMesh(new THREE.BoxGeometry(0.18, 0.85, 1.05), inpatientAccent, "hospital-inpatient-bed-headboard", "inpatient");
@@ -424,10 +430,10 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
       inpatient.building.add(roomFloor, roomWall, bed, headboard, bedside);
     }
     for (const x of [-0.72, 0.72]) {
-      const door = hospitalMesh(new THREE.BoxGeometry(1.05, 1.45, 0.06), medicalMetal, "hospital-inpatient-elevator-door", "inpatient");
-      door.position.set(x, level + 0.78, 4.85);
+      const door = hospitalMesh(new THREE.BoxGeometry(1.05, 2.2, 0.06), medicalMetal, "hospital-inpatient-elevator-door", "inpatient");
+      door.position.set(x, level + 1.15, 4.85);
       const indicator = hospitalMesh(new THREE.BoxGeometry(0.22, 0.16, 0.04), warmLight, "hospital-inpatient-elevator-indicator", "inpatient");
-      indicator.position.set(x, level + 1.62, 4.89);
+      indicator.position.set(x, level + 2.48, 4.89);
       inpatient.building.add(door, indicator);
     }
   }
@@ -438,15 +444,15 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
     cabin.position.set(x, inpatient.levels[0], 4.05);
     const cabinFloor = hospitalMesh(new THREE.BoxGeometry(1.12, 0.1, 1.42), medicalMetal, "hospital-inpatient-elevator-cabin-floor", "inpatient");
     const cabinRoof = hospitalMesh(new THREE.BoxGeometry(1.12, 0.1, 1.42), medicalMetal, "hospital-inpatient-elevator-cabin-roof", "inpatient");
-    cabinRoof.position.y = 1.55;
-    const cabinBack = hospitalMesh(new THREE.BoxGeometry(1.12, 1.5, 0.08), inpatientAccent, "hospital-inpatient-elevator-cabin-wall", "inpatient");
-    cabinBack.position.set(0, 0.78, -0.67);
-    const cabinDoor = hospitalMesh(new THREE.BoxGeometry(1.02, 1.45, 0.06), interiorGlass, "hospital-inpatient-elevator-cabin-door", "inpatient");
-    cabinDoor.position.set(0, 0.76, 0.72);
+    cabinRoof.position.y = 2.3;
+    const cabinBack = hospitalMesh(new THREE.BoxGeometry(1.12, 2.25, 0.08), inpatientAccent, "hospital-inpatient-elevator-cabin-wall", "inpatient");
+    cabinBack.position.set(0, 1.15, -0.67);
+    const cabinDoor = hospitalMesh(new THREE.BoxGeometry(1.02, 2.2, 0.06), interiorGlass, "hospital-inpatient-elevator-cabin-door", "inpatient");
+    cabinDoor.position.set(0, 1.14, 0.72);
     cabin.add(cabinFloor, cabinRoof, cabinBack, cabinDoor);
     for (const side of [-1, 1]) {
-      const wall = hospitalMesh(new THREE.BoxGeometry(0.08, 1.5, 1.34), inpatientAccent, "hospital-inpatient-elevator-cabin-wall", "inpatient");
-      wall.position.set(side * 0.52, 0.78, 0);
+      const wall = hospitalMesh(new THREE.BoxGeometry(0.08, 2.25, 1.34), inpatientAccent, "hospital-inpatient-elevator-cabin-wall", "inpatient");
+      wall.position.set(side * 0.52, 1.15, 0);
       cabin.add(wall);
     }
     inpatient.building.add(cabin);
@@ -456,7 +462,7 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
   inpatientStair.userData.mapLayer = "interior";
   for (let storey = 0; storey < 5; storey += 1) {
     const baseY = inpatient.levels[storey];
-    const halfRise = 2.18 * 0.5;
+    const halfRise = 4.2 * 0.5;
     const frontZ = 3.4;
     const rearZ = 0.28;
     for (let step = 0; step < 7; step += 1) {
@@ -472,12 +478,12 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
     inpatientStair.add(landing);
     inpatientStair.add(
       beamBetween(new THREE.Vector3(5.22, baseY + 0.72, frontZ), new THREE.Vector3(5.22, baseY + halfRise + 0.72, rearZ), 0.035, medicalMetal, "hospital-inpatient-stair-handrail", "inpatient"),
-      beamBetween(new THREE.Vector3(7.18, baseY + halfRise + 0.72, rearZ), new THREE.Vector3(7.18, baseY + 2.18 + 0.72, frontZ), 0.035, medicalMetal, "hospital-inpatient-stair-handrail", "inpatient"),
+      beamBetween(new THREE.Vector3(7.18, baseY + halfRise + 0.72, rearZ), new THREE.Vector3(7.18, baseY + 4.2 + 0.72, frontZ), 0.035, medicalMetal, "hospital-inpatient-stair-handrail", "inpatient"),
     );
   }
   inpatient.building.add(inpatientStair);
 
-  const helipadDisc = hospitalMesh(new THREE.CylinderGeometry(4.6, 4.6, 0.18, 28), helipad, "hospital-roof-helipad", "inpatient");
+  const helipadDisc = hospitalMesh(new THREE.CylinderGeometry(7.3, 7.3, 0.18, 28), helipad, "hospital-roof-helipad", "inpatient");
   helipadDisc.position.set(0, inpatient.roofY + 0.18, 0);
   const helipadH1 = hospitalMesh(new THREE.BoxGeometry(0.5, 0.08, 2.5), pale, "hospital-roof-helipad-marking", "inpatient");
   helipadH1.position.set(-0.9, inpatient.roofY + 0.31, 0);
@@ -486,13 +492,13 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
   const helipadH3 = hospitalMesh(new THREE.BoxGeometry(2.3, 0.08, 0.5), pale, "hospital-roof-helipad-marking", "inpatient");
   helipadH3.position.set(0, inpatient.roofY + 0.31, 0);
   inpatient.building.add(helipadDisc, helipadH1, helipadH2, helipadH3);
-  const helipadSafetyNet = hospitalMesh(new THREE.TorusGeometry(5.15, 0.28, 6, 36), medicalMetal, "hospital-roof-helipad-safety-net", "inpatient");
+  const helipadSafetyNet = hospitalMesh(new THREE.TorusGeometry(7.9, 0.28, 6, 36), medicalMetal, "hospital-roof-helipad-safety-net", "inpatient");
   helipadSafetyNet.rotation.x = Math.PI * 0.5;
   helipadSafetyNet.position.set(0, inpatient.roofY + 0.12, 0);
   const helipadAccess = hospitalMesh(new THREE.BoxGeometry(2.1, 2.1, 2.4), pale, "hospital-roof-helipad-access", "inpatient");
-  helipadAccess.position.set(-6.7, inpatient.roofY + 1.16, 2.6);
+  helipadAccess.position.set(-9.7, inpatient.roofY + 1.16, 2.6);
   const helipadAccessDoor = hospitalMesh(new THREE.BoxGeometry(1.15, 1.72, 0.08), medicalMetal, "hospital-roof-helipad-access-door", "inpatient");
-  helipadAccessDoor.position.set(-6.7, inpatient.roofY + 1.02, 1.37);
+  helipadAccessDoor.position.set(-9.7, inpatient.roofY + 1.02, 1.37);
   inpatient.building.add(helipadSafetyNet, helipadAccess, helipadAccessDoor);
 
   const outpatientPlant = hospitalMesh(new THREE.BoxGeometry(3.2, 1.05, 2.8), dark, "hospital-outpatient-roof-plant", "outpatient");
@@ -563,7 +569,13 @@ export function buildLowPolyHospitalCampus(): HospitalCampusModel {
     pedestrianWalkwayCount: walkways.length,
     coveredWalkwayCount: 3,
     raisedCrossingCount: 1,
-    siteSize: new THREE.Vector3(80, 24.5, 62),
+    floorPitchMeters: 4.2,
+    buildingSizesMeters: {
+      outpatient: new THREE.Vector3(outpatient.width, 3 * 4.2 + 0.28, outpatient.depth),
+      emergency: new THREE.Vector3(emergency.width, 2 * 4.2 + 0.28, emergency.depth),
+      inpatient: new THREE.Vector3(inpatient.width, 6 * 4.2 + 0.28, inpatient.depth),
+    },
+    siteSize: new THREE.Vector3(80, 29, 62),
     setInteriorCutaway(cutaway: boolean) {
       cutawayShell.forEach((object) => { object.visible = !cutaway; });
     },

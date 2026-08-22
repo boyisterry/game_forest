@@ -116,6 +116,8 @@ function addModernBuilding(
   building.userData = {
     facilityRole: spec.role,
     modernIndustrialBuilding: true,
+    heightMeters: spec.height,
+    buildingSizeMeters: new THREE.Vector3(spec.width, spec.height, spec.depth),
     clearInteriorHeightMeters: Math.max(spec.height - 2, 4),
     frontDirection: "+z",
   };
@@ -360,7 +362,8 @@ function addGateFenceAndRoads(root: THREE.Group, config: IndustrialConfig, mater
 
   const gate = new THREE.Group();
   gate.name = "modern-industrial-smart-entry-gate";
-  gate.position.set(0, 0, config.depth * 0.5 - 1.5);
+  // Keep the complete gate canopy inside the declared factory-site envelope.
+  gate.position.set(0, 0, config.depth * 0.5 - 2.75);
   gate.userData = { smartAccessControl: true, licencePlateRecognition: true, separatedPedestrianGate: true };
   addBox(gate, [24, 0.6, 5.2], [0, 0.3, 0], materials.foundation, "modern-industrial-gate-foundation");
   for (const x of [-10, 10]) addBox(gate, [1.1, 6.8, 1.1], [x, 4, 0], materials.darkSteel, "modern-industrial-gate-column");
@@ -376,8 +379,8 @@ function addGateFenceAndRoads(root: THREE.Group, config: IndustrialConfig, mater
     [0, -config.depth * 0.5 + 0.5, config.width - 1, true],
     [-config.width * 0.5 + 0.5, 0, config.depth - 1, false],
     [config.width * 0.5 - 0.5, 0, config.depth - 1, false],
-    [-config.width * 0.25 - 7, config.depth * 0.5 - 0.5, config.width * 0.5 - 14, true],
-    [config.width * 0.25 + 7, config.depth * 0.5 - 0.5, config.width * 0.5 - 14, true],
+    [-config.width * 0.25 - 7, config.depth * 0.5 - 0.5, config.width * 0.5 - 14.12, true],
+    [config.width * 0.25 + 7, config.depth * 0.5 - 0.5, config.width * 0.5 - 14.12, true],
   ];
   segments.forEach(([x, z, length, horizontal]) => {
     addBox(fence, horizontal ? [length, 0.35, 0.3] : [0.3, 0.35, length], [x, 0.68, z], materials.foundation, "modern-industrial-fence-base");

@@ -235,12 +235,13 @@ test("simultaneous corner contacts are stable under wall input permutation and s
 
 test("collide-and-slide discards residual motion after the fourth blocking hit", () => {
   // Four bevels form a deterministic zig-zag contact chain within one long move.
+  const fixtureScale = BIKE_COLLISION_RADIUS_METERS / 0.55;
   const endpoints = [
     [-6.30, -5.38, 15.02, 3.47],
     [10.11, -6.19, 7.80, 10.79],
     [9.58, -0.98, 4.97, -0.23],
     [18.38, -10.53, 7.29, -2.50],
-  ];
+  ].map((line) => line.map((coordinate) => coordinate * fixtureScale));
   const walls = endpoints.map(([ax, az, bx, bz], index) => {
     const dx = bx - ax;
     const dz = bz - az;
@@ -260,10 +261,10 @@ test("collide-and-slide discards residual motion after the fourth blocking hit",
   });
   const world = new AnalyticCityCollisionWorld(walls);
   const result = move(world, {
-    startX: -5,
-    startZ: -5,
-    velocityX: 14,
-    velocityZ: 11,
+    startX: -5 * fixtureScale,
+    startZ: -5 * fixtureScale,
+    velocityX: 14 * fixtureScale,
+    velocityZ: 11 * fixtureScale,
     microDtSeconds: 1.5,
     bodyHeading: Math.atan2(14, 11),
   });

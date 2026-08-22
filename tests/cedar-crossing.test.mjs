@@ -214,13 +214,9 @@ test("all authored scene entrances connect to rideable roads and traffic lights 
   assert.equal(signals.placements.length, runtime.collisionSources.crosswalks.length);
   for (const signal of signals.placements) {
     const sidewalk = runtime.collisionSources.surfaces.find((surface) =>
-      surface.edgeId === signal.approachEdgeId
-      && surface.side === signal.sourceRoadSide
-      && surface.surfaceProfileId === "sidewalk");
-    assert.ok(sidewalk, `missing signal sidewalk for ${signal.approachEdgeId}`);
-    const xs = [sidewalk.quadXZ[0], sidewalk.quadXZ[2], sidewalk.quadXZ[4], sidewalk.quadXZ[6]];
-    const zs = [sidewalk.quadXZ[1], sidewalk.quadXZ[3], sidewalk.quadXZ[5], sidewalk.quadXZ[7]];
-    assert.ok(signal.x >= Math.min(...xs) && signal.x <= Math.max(...xs));
-    assert.ok(signal.z >= Math.min(...zs) && signal.z <= Math.max(...zs));
+      surface.side === "junction"
+      && surface.surfaceProfileId === "sidewalk"
+      && pointInQuad(surface.quadXZ, signal.x, signal.z));
+    assert.ok(sidewalk, `missing signal junction sidewalk for ${signal.approachEdgeId}`);
   }
 });

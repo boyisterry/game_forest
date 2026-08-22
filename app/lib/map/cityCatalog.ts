@@ -107,6 +107,7 @@ export type CatalogEntry = {
 
 export type TemplateBuildDescriptor = {
   templateId: string;
+  catalogCategory?: CatalogCategory;
   source: CatalogSource;
   mapScale: number;
   siteSizeMeters?: { x: number; z: number };
@@ -292,27 +293,26 @@ const RAW_CITY_CATALOG: CatalogEntry[] = [
   },
   {
     id: "residential-building", collection: 2, category: "building", titleZh: "居民楼", titleEn: "Residential building",
-    // Five storeys were authored at roughly 1.9 m per level. A uniform map
-    // scale restores a believable ~2.9 m floor module while preserving the
-    // facade and collision proportions.
-    source: factorySource("residential-building"), mapScale: 1.45, footprintKind: "rect", siteSizeMeters: rect(7.4, 5.25), footprintOverride: { w: 11, d: 9 },
+    // Authored directly in metres: 30 m frontage, 15.5 m body depth and a
+    // 4 m floor pitch. Keep map scale at 1 so human-scale details stay intact.
+    source: factorySource("residential-building"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(30, 15.5), footprintOverride: { w: 34, d: 19 },
     nonCollidingOverhangNames: ["residential-building-entrance-canopy", "residential-building-balcony-floor", "residential-building-balcony-rail", "residential-building-balcony-side-rail"],
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["residential-building-foundation"], surfaceProfiles: SITE_SURFACE,
     snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 80, defaultHeightScale: 1,
   },
   {
     id: "high-rise-residential", collection: 2, category: "building", titleZh: "高层住宅", titleEn: "High-rise residential",
-    // The eighteen-storey source used the same compressed floor module as the
-    // low-rise block. At 1.45 it reads as a real ~50 m residential tower.
-    source: factorySource("high-rise-residential"), mapScale: 1.45, footprintKind: "rect", siteSizeMeters: rect(13, 9), footprintOverride: { w: 19, d: 15 },
+    // Authored directly in metres with a 4 m floor pitch and 32×22 m base.
+    // Keep map scale at 1 so the tower and rider share one scale reference.
+    source: factorySource("high-rise-residential"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(32, 22), footprintOverride: { w: 36, d: 26 },
     nonCollidingOverhangNames: ["high-rise-balcony-floor", "high-rise-balcony-rail", "high-rise-balcony-side-rail", "high-rise-entrance-canopy"],
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["high-rise-foundation"], surfaceProfiles: SITE_SURFACE,
     snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 48, defaultHeightScale: 1,
   },
   {
     id: "small-villa", collection: 2, category: "building", titleZh: "坡顶别墅", titleEn: "Small villa",
-    // The villa already has a sound two-storey module, so it receives only a
-    // modest increase to keep doors and rooms comfortable beside the rider.
+    // The compact one-family villa uses a 2.77 m source floor pitch. Its 1.2
+    // map scale yields a 3.32 m residential pitch and a roughly 10 m frontage.
     source: factorySource("small-villa"), mapScale: 1.2, footprintKind: "rect", siteSizeMeters: rect(8.3, 6.65), footprintOverride: { w: 10, d: 11 },
     nonCollidingOverhangNames: ["small-villa-porch-roof", "small-villa-terrace-rail", "small-villa-flower-box", "small-villa-shrub"],
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["small-villa-foundation"], surfaceProfiles: SITE_SURFACE,
@@ -338,7 +338,7 @@ const RAW_CITY_CATALOG: CatalogEntry[] = [
   },
   {
     id: "office-campus", collection: 2, category: "building", titleZh: "办公园区", titleEn: "Office campus",
-    source: factorySource("office-campus"), mapScale: 1.2, footprintKind: "rect", siteSizeMeters: rect(30, 17), footprintOverride: { w: 36, d: 21 },
+    source: factorySource("office-campus"), mapScale: 1, footprintKind: "rect", siteSizeMeters: rect(30, 17), footprintOverride: { w: 30, d: 17 },
     collisionMeshes: OPEN_COLLISION, collisionContainment: "closed-required", containmentRequiredNames: ["office-campus-floor-slab"], surfaceProfiles: SITE_SURFACE,
     snap: "cell", reservation: "object", frontDirection: "+z", mapLod: TAGGED_EXTERIOR, maxRecommendedCount: 24, defaultHeightScale: 1,
   },
@@ -531,6 +531,7 @@ export function toTemplateBuildDescriptor(entry: CatalogEntrySnapshot): Template
   };
   return deepFreeze({
     templateId: entry.id,
+    catalogCategory: entry.category,
     source: entry.source,
     mapScale: entry.mapScale,
     siteSizeMeters: entry.siteSizeMeters,

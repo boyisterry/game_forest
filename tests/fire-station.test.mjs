@@ -20,7 +20,12 @@ test("builds a complete four-zone urban fire station campus", () => {
   assert.equal(station.userData.buildingCount, 5);
   assert.ok(station.getObjectByName("fire-station-apparatus-hall"));
   assert.ok(station.getObjectByName("fire-station-command-centre"));
-  assert.ok(station.getObjectByName("fire-station-living-quarters"));
+  const livingQuarters = station.getObjectByName("fire-station-living-quarters");
+  assert.ok(livingQuarters);
+  assert.equal(livingQuarters.userData.floorPitchMeters, 3.45);
+  assert.equal(livingQuarters.userData.buildingSizeMeters.x, 48);
+  assert.ok(Math.abs(livingQuarters.userData.buildingSizeMeters.y - 10.35) < 1e-9);
+  assert.equal(livingQuarters.userData.buildingSizeMeters.z, 20);
   assert.ok(station.getObjectByName("fire-station-equipment-warehouse"));
   assert.ok(station.getObjectByName("fire-station-training-tower"));
 });

@@ -108,12 +108,41 @@ test("cache acquires all 33 catalog sources plus the hidden derived source as op
     assert.ok(baseline.mapVisibleMeshCount <= baseline.showcaseMeshCount, entry.id);
     assert.ok(Object.isFrozen(baseline));
     const definition = cache.getBatchTemplateDefinition(acquire.value);
-    assert.ok(definition, `${entry.id} must expose a production far-LOD batch definition`);
-    assert.equal(definition.slots.filter((slot) => slot.farStrategy === "proxy").length, 1, entry.id);
-    assert.ok(definition.slots.every((slot) => slot.farStrategy === "proxy" || slot.farStrategy === "hidden"), entry.id);
-    const proxy = definition.slots.find((slot) => slot.farStrategy === "proxy").farGeometry;
-    assert.ok(proxy, entry.id);
-    assert.equal((proxy.getIndex()?.count ?? proxy.getAttribute("position").count) / 3, 12, entry.id);
+    assert.ok(definition, `${entry.id} must expose a production LOD batch definition`);
+    if (entry.category === "decoration") {
+      assert.equal(definition.slots.some((slot) => slot.farStrategy === "far-only"), false, entry.id);
+      assert.ok(definition.slots.every((slot) => slot.farStrategy === "keep-near"),
+        `${entry.id} must preserve its authored silhouette instead of becoming a massing box`);
+    } else {
+      assert.equal(definition.slots.filter((slot) => slot.farStrategy === "far-only").length, 1, entry.id);
+      assert.ok(definition.slots.every((slot) => slot.farStrategy === "far-only" || slot.farStrategy === "hidden"), entry.id);
+      const farSlot = definition.slots.find((slot) => slot.farStrategy === "far-only");
+      const proxy = farSlot.nearGeometry;
+      assert.ok(proxy, entry.id);
+      assert.equal((proxy.getIndex()?.count ?? proxy.getAttribute("position").count) / 3, 12, entry.id);
+      assert.ok(farSlot.material instanceof THREE.MeshStandardMaterial, entry.id);
+      assert.ok(farSlot.material.map instanceof THREE.DataTexture, entry.id);
+      assert.ok(farSlot.material.normalMap instanceof THREE.DataTexture, entry.id);
+      assert.equal(farSlot.material.userData.cityFarFacadeProxy, true, entry.id);
+      assert.equal(farSlot.material.userData.cityFarFacadeColorBands, true, entry.id);
+      assert.equal(farSlot.material.map.colorSpace, THREE.SRGBColorSpace, entry.id);
+      assert.deepEqual(farSlot.material.map.repeat.toArray(), [2, 5], entry.id);
+      const facadePixels = farSlot.material.map.image.data;
+      const facadeChannels = [];
+      for (let offset = 0; offset < facadePixels.length; offset += 4) {
+        facadeChannels.push(facadePixels[offset], facadePixels[offset + 1], facadePixels[offset + 2]);
+      }
+      assert.ok(Math.max(...facadeChannels) - Math.min(...facadeChannels) >= 120,
+        `${entry.id} far proxy needs visible wall/window contrast after normal detail is minified`);
+      assert.ok(farSlot.material.emissiveIntensity <= 0.1,
+        `${entry.id} far proxy must not wash its color map out with a uniform emissive floor`);
+      const hsl = { h: 0, s: 0, l: 0 };
+      farSlot.baseTint.getHSL(hsl);
+      assert.ok(hsl.l >= 0.52, `${entry.id} far proxy must not inherit a black trim tint`);
+      assert.ok(hsl.l <= 0.66, `${entry.id} far proxy must not become a white block in city fog`);
+      assert.equal(farSlot.castShadow, false, entry.id);
+      assert.equal(farSlot.receiveShadow, false, entry.id);
+    }
     metrics.set(entry.id, baseline);
     acquire.release();
   }
@@ -549,7 +578,7 @@ test("renderer routes opaque static slots through CityBatchWorld while preservin
   visibilityCamera.lookAt(0, 1, 20);
   assert.deepEqual(renderer.updateBatchVisibility(visibilityCamera), {
     placements: 1,
-    instances: 1,
+    instances: initial.catalogBatchInstanceCount,
     nearPlacements: 0,
     farPlacements: 1,
   });

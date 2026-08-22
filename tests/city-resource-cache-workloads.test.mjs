@@ -16,12 +16,12 @@ test("primitive cache stays effective for Cedar, spatial 20x, and the heaviest d
   assert.equal(report.cedar.placementCount, 126);
   assert.equal(report.distributed20x.placementCount, 2_520);
   assert.equal(report.cedar.catalogTemplateCount, 26);
-  assert.equal(report.cedar.geometryObjectsBefore, 38_251);
-  assert.equal(report.cedar.geometryObjectsAfter, 3_593);
+  assert.equal(report.cedar.geometryObjectsBefore, 35_585);
+  assert.equal(report.cedar.geometryObjectsAfter, 3_590);
   assert.equal(report.distributed20x.geometryObjectsAfter, report.cedar.geometryObjectsAfter,
     "spatial replication must not mint another canonical source working set");
-  assert.equal(report.heavyDemo.geometryObjectsBefore, 10_337);
-  assert.equal(report.heavyDemo.geometryObjectsAfter, 256);
+  assert.equal(report.heavyDemo.geometryObjectsBefore, 8_381);
+  assert.equal(report.heavyDemo.geometryObjectsAfter, 255);
   for (const workload of Object.values(report)) {
     assert.ok(workload.geometryObjectsAfter < workload.geometryObjectsBefore * 0.15);
     assert.ok(workload.attributeBytesAfter < workload.attributeBytesBefore * 0.55);

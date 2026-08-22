@@ -1,3 +1,5 @@
+import { RABBIT_RIDER_COLLISION_RADIUS_METERS } from "./riderDimensions.ts";
+
 export type DeepReadonly<T> =
   T extends (...args: never[]) => unknown ? T
     : T extends readonly (infer U)[] ? readonly DeepReadonly<U>[]
@@ -139,7 +141,7 @@ export type RoadBoundaryHandleRecord =
       kind: "road";
       localBoundaryGroupKey: number;
       roadEdgeId: string;
-      side: "left" | "right";
+      side: "left" | "right" | "junction";
       curbRun: number;
     }>
   | Readonly<{
@@ -200,7 +202,7 @@ export type RuntimeBoundaryHandle =
       worldId: number;
       documentGeneration: number;
       roadEdgeId: string;
-      side: "left" | "right";
+      side: "left" | "right" | "junction";
       curbRun: number;
     }>
   | Readonly<{
@@ -303,7 +305,7 @@ export type CityPoseRecoveryResult = {
   resetMotion: boolean;
 };
 
-export const BIKE_COLLISION_RADIUS_METERS = 0.55;
+export const BIKE_COLLISION_RADIUS_METERS = RABBIT_RIDER_COLLISION_RADIUS_METERS;
 export const BIKE_COLLISION_HEIGHT_METERS = 2.40;
 export const CITY_PHYSICS_FIXED_DT_SECONDS = 1 / 120;
 export const CITY_PHYSICS_MAX_CATCH_UP_STEPS = 6;

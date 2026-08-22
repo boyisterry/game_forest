@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 export type CityBatchLodTier = "near" | "far";
-export type CityBatchFarStrategy = "proxy" | "hidden" | "keep-near";
+export type CityBatchFarStrategy = "proxy" | "hidden" | "keep-near" | "far-only";
 
 export type CityBatchLodPolicy = Readonly<{
   /**
@@ -127,6 +127,10 @@ type BatchPool = {
 };
 
 const INITIAL_INSTANCE_CAPACITY = 16;
+
+function slotVisibleAtLod(strategy: CityBatchFarStrategy, tier: CityBatchLodTier) {
+  return tier === "near" ? strategy !== "far-only" : strategy !== "hidden";
+}
 
 function geometrySize(geometry: THREE.BufferGeometry) {
   const positions = geometry.getAttribute("position");
@@ -302,6 +306,7 @@ export function createCityBatchedMeshWorld(): CityBatchWorld {
       const instanceId = slot.pool.mesh.addInstance(slot.nearGeometryId);
       slot.pool.mesh.setMatrixAt(instanceId, worldFromLocal);
       if (slot.baseTint.getHex() !== 0xffffff) slot.pool.mesh.setColorAt(instanceId, slot.baseTint);
+      slot.pool.mesh.setVisibleAt(instanceId, slotVisibleAtLod(slot.farStrategy, "near"));
       slot.pool.activeInstances += 1;
       slot.pool.placementByInstanceId.set(instanceId, placementId);
       return Object.freeze({ slot, instanceId });
@@ -358,7 +363,7 @@ export function createCityBatchedMeshWorld(): CityBatchWorld {
     for (const instance of placement.instances) {
       instance.slot.pool.mesh.setVisibleAt(
         instance.instanceId,
-        visible && !(placement.lod === "far" && instance.slot.farStrategy === "hidden"),
+        visible && slotVisibleAtLod(instance.slot.farStrategy, placement.lod),
       );
     }
   };
@@ -376,7 +381,7 @@ export function createCityBatchedMeshWorld(): CityBatchWorld {
       );
       instance.slot.pool.mesh.setVisibleAt(
         instance.instanceId,
-        placement.renderVisible && !(tier === "far" && instance.slot.farStrategy === "hidden"),
+        placement.renderVisible && slotVisibleAtLod(instance.slot.farStrategy, tier),
       );
     }
   };
@@ -444,14 +449,14 @@ export function createCityBatchedMeshWorld(): CityBatchWorld {
         for (const instance of placement.instances) {
           instance.slot.pool.mesh.setVisibleAt(
             instance.instanceId,
-            visible && !(placement.lod === "far" && instance.slot.farStrategy === "hidden"),
+            visible && slotVisibleAtLod(instance.slot.farStrategy, placement.lod),
           );
         }
       }
       if (visible) {
         visiblePlacements += 1;
         visibleInstances += placement.instances.reduce(
-          (sum, instance) => sum + Number(!(placement.lod === "far" && instance.slot.farStrategy === "hidden")),
+          (sum, instance) => sum + Number(slotVisibleAtLod(instance.slot.farStrategy, placement.lod)),
           0,
         );
       }
@@ -480,6 +485,9 @@ export function createCityBatchedMeshWorld(): CityBatchWorld {
       if (!placement.visible || !raycaster.ray.intersectsBox(placement.worldBounds)) continue;
       raycastStats.candidatePlacements += 1;
       for (const instance of placement.instances) {
+        // Far-only massing is a visual fallback. Picking stays exact by using
+        // the canonical near geometry slots even while the proxy is visible.
+        if (instance.slot.farStrategy === "far-only") continue;
         raycastStats.testedSlots += 1;
         raycastMesh.geometry = instance.slot.nearGeometry;
         raycastMesh.material = instance.slot.material;
@@ -515,7 +523,7 @@ export function createCityBatchedMeshWorld(): CityBatchWorld {
       visibleInstances: [...placements.values()].reduce(
         (sum, placement) => sum + (placement.renderVisible ? placement.instances.reduce(
           (instanceSum, instance) => instanceSum
-            + Number(!(placement.lod === "far" && instance.slot.farStrategy === "hidden")),
+            + Number(slotVisibleAtLod(instance.slot.farStrategy, placement.lod)),
           0,
         ) : 0), 0,
       ),

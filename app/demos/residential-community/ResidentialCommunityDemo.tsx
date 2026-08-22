@@ -33,7 +33,7 @@ const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3; rider
 
 const ZONES: Array<{ id: Focus; number: string; title: string; summary: string; detail: string }> = [
   { id: "overview", number: "COMMUNITY 00", title: "林庭社区总览", summary: "190 × 145 m · 住宅 / 商业 / 幼儿园", detail: "消防环路保持完整净空，住宅主门经 13 m 开放门廊、连续车道和双侧步道直达城市道路，住宅与幼儿园仍分别受控管理。" },
-  { id: "residential", number: "HOME 01", title: "完整住宅组团", summary: "8 栋住宅 · 368 户 · 全龄花园", detail: "楼间步道重新避开建筑主体；中央水景配置有支撑的花园座椅，并细化复合儿童游具、攀爬架、秋千、摇摇马、适老健身设施和双车库入口。" },
+  { id: "residential", number: "HOME 01", title: "完整住宅组团", summary: "8 栋住宅 · 328 户 · 全龄花园", detail: "楼间步道重新避开建筑主体；中央水景配置有支撑的花园座椅，并细化复合儿童游具、攀爬架、秋千、摇摇马、适老健身设施和双车库入口。" },
   { id: "commercial", number: "STREET 02", title: "社区商业街", summary: "14 个可进入店铺 · 18 个停车位", detail: "14 家店铺补齐独立玻璃门、柜台与室内陈设；两段连续停车港湾和专用灯岛避开社区门廊及幼儿园双向出入口。" },
   { id: "kindergarten", number: "KIDS 03", title: "独立幼儿园", summary: "3 栋建筑 · 8 间教室 · 160 人", detail: "教学、多功能与后勤空间补齐内部设施；复合游具避开跑步环道，受保护等候广场与机动车接送车道分离，并由入口、出口两条单向道路形成环流。" },
 ];

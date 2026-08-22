@@ -38,7 +38,12 @@ test("generates a complete three-zone hospital campus with independent entrances
     hospital.getObjectByName("hospital-inpatient-building"),
   ];
   assert.ok(buildings.every(Boolean));
-  assert.ok(buildings.every((building) => building.userData.architecturalScale === 1.55));
+  assert.ok(buildings.every((building) => building.userData.architecturalScale === 1));
+  assert.ok(buildings.every((building) => building.userData.floorPitchMeters === 4.2));
+  assert.equal(hospital.userData.floorPitchMeters, 4.2);
+  assert.deepEqual(hospital.userData.buildingSizesMeters.outpatient.toArray(), [23.25, 12.88, 17.05]);
+  assert.deepEqual(hospital.userData.buildingSizesMeters.emergency.toArray(), [20.15, 8.68, 15.5]);
+  assert.deepEqual(hospital.userData.buildingSizesMeters.inpatient.toArray(), [24.8, 25.480000000000004, 18.6]);
   const bounds = buildings.map((building) => new THREE.Box3().setFromObject(building));
   assert.equal(bounds[0].intersectsBox(bounds[1]), false);
   assert.equal(bounds[0].intersectsBox(bounds[2]), false);
@@ -167,7 +172,11 @@ test("reports hospital geometry and creates a separate shattered model", () => {
   assert.ok(metrics.size.z >= 62);
   assert.ok(metrics.faceCount > 5_000);
   assert.equal(hospital.userData.siteSize.x, 80);
+  assert.equal(hospital.userData.siteSize.y, 29);
   assert.equal(hospital.userData.siteSize.z, 62);
+  assert.equal(hospital.getObjectByName("hospital-main-entrance-door").geometry.parameters.height, 2.15);
+  assert.equal(hospital.getObjectByName("hospital-emergency-entrance-door").geometry.parameters.height, 2.22);
+  assert.equal(hospital.getObjectByName("hospital-inpatient-entrance-door").geometry.parameters.height, 2.1);
 
   const pair = createFurnitureShatterPair(hospital, { seed: 503, trianglesPerShard: 10, spread: 1.5 });
   assert.equal(pair.normal.userData.modelState, "normal");

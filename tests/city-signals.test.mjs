@@ -44,6 +44,19 @@ function fourWayGraph(profileFactory = () => createRoadProfile("two-way-1")) {
   };
 }
 
+function pointInQuad(quad, x, z) {
+  let positive = false;
+  let negative = false;
+  for (let index = 0; index < 4; index += 1) {
+    const next = (index + 1) % 4;
+    const cross = (quad[next * 2] - quad[index * 2]) * (z - quad[index * 2 + 1])
+      - (quad[next * 2 + 1] - quad[index * 2 + 1]) * (x - quad[index * 2]);
+    if (cross > 1e-7) positive = true;
+    if (cross < -1e-7) negative = true;
+  }
+  return !(positive && negative);
+}
+
 test("every real junction automatically receives signals despite legacy flags", () => {
   const graph = fourWayGraph();
   assert.equal(deriveTrafficSignalPlacements(documentWithGraph(graph, { needTrafficLights: false })).placements.length, 4);
@@ -65,6 +78,22 @@ test("four-way signals are generated from inbound approach vectors", () => {
       "-z": -Math.PI * 0.5,
     },
   );
+  for (const signal of result.placements) {
+    const faceX = Math.sin(signal.yawRadians);
+    const faceZ = Math.cos(signal.yawRadians);
+    // The canonical derived template uses armSide=-1 (local -X).
+    const armX = -Math.cos(signal.yawRadians);
+    const armZ = Math.sin(signal.yawRadians);
+    const [approachX, approachZ] = signal.approachDirectionXZ;
+    assert.ok(
+      armX * approachX + armZ * approachZ > 0.999,
+      `${signal.approachCardinal} mast arm must reach into the junction from the inner corner`,
+    );
+    assert.ok(
+      faceX * approachZ - faceZ * approachX > 0.999,
+      `${signal.approachCardinal} signal face must look across the crossing from the right-side pole`,
+    );
+  }
   assert.ok(result.placements.every((signal) => signal.templateId === "traffic-light"));
   assert.ok(result.placements.every((signal) => signal.resolvedHeightScale === 1.25));
   assert.ok(result.placements.every((signal) => signal.ownerId === signal.placementId));
@@ -75,7 +104,7 @@ test("four-way signals are generated from inbound approach vectors", () => {
   );
 });
 
-test("signal bases sit on the real sidewalk beyond the zebra crossing", () => {
+test("signal bases sit on the closest junction-side sidewalk corners", () => {
   const document = documentWithGraph(fourWayGraph());
   const signals = deriveTrafficSignalPlacements(document).placements;
   const roads = deriveRoadCollisionSources(document.graph);
@@ -84,17 +113,16 @@ test("signal bases sit on the real sidewalk beyond the zebra crossing", () => {
   for (const signal of signals) {
     assert.equal(signal.y, CURB_HEIGHT_METERS);
     const sidewalk = roads.surfaces.find((surface) =>
-      surface.edgeId === signal.approachEdgeId
-      && surface.side === signal.sourceRoadSide
-      && surface.surfaceProfileId === "sidewalk");
-    assert.ok(sidewalk, `missing sidewalk for ${signal.approachEdgeId}`);
-    const xs = [sidewalk.quadXZ[0], sidewalk.quadXZ[2], sidewalk.quadXZ[4], sidewalk.quadXZ[6]];
-    const zs = [sidewalk.quadXZ[1], sidewalk.quadXZ[3], sidewalk.quadXZ[5], sidewalk.quadXZ[7]];
-    assert.ok(signal.x >= Math.min(...xs) && signal.x <= Math.max(...xs));
-    assert.ok(signal.z >= Math.min(...zs) && signal.z <= Math.max(...zs));
+      surface.side === "junction"
+      && surface.surfaceProfileId === "sidewalk"
+      && pointInQuad(surface.quadXZ, signal.x, signal.z));
+    assert.ok(sidewalk, `missing junction-corner sidewalk for ${signal.approachEdgeId}`);
     const setback = -(signal.x - center.x) * signal.approachDirectionXZ[0]
       - (signal.z - center.z) * signal.approachDirectionXZ[1];
-    assert.equal(setback, 20.75, "two-way-1 signal must clear the full junction and crossing");
+    const lateral = (signal.x - center.x) * -signal.approachDirectionXZ[1]
+      + (signal.z - center.z) * signal.approachDirectionXZ[0];
+    assert.equal(setback, 7.75, "two-way-1 signal must sit on the inner curb corner");
+    assert.equal(Math.abs(lateral), 7.75, "two-way-1 signal must hug the approach curb");
   }
 });
 

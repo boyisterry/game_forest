@@ -238,6 +238,15 @@ test("serialized fallback round-trips all versions and the mandatory indirectBuf
   const roundTrip = deserializeCompiledCollision(payload);
   assert.ok(roundTrip.fallback);
   assert.equal(roundTrip.fallback.bvh.indirect, true);
+  assert.ok(roundTrip.fallback.geometry.boundingBox, "round-trip fallback must retain spatial bounds");
+  assert.deepEqual(
+    roundTrip.fallback.geometry.boundingBox.min.toArray(),
+    compiled.fallback.geometry.boundingBox.min.toArray(),
+  );
+  assert.deepEqual(
+    roundTrip.fallback.geometry.boundingBox.max.toArray(),
+    compiled.fallback.geometry.boundingBox.max.toArray(),
+  );
   const ids = [0, 1].map((index) => resolveFallbackSourceTriangleId(roundTrip.fallback, index)).sort();
   assert.deepEqual(ids, [101, 102]);
   assert.equal(roundTrip.sourceHash, compiled.sourceHash);

@@ -162,7 +162,7 @@ export function buildLowPolyStandardResidentialCommunity(
     { length: rowsPerSide },
     (_, rowIndex) => frontBuildingZ - rowIndex * STANDARD_COMMUNITY_ROW_PITCH_METERS,
   );
-  const roadRows = buildingRows.map((buildingZ) => buildingZ + 12);
+  const roadRows = buildingRows.map((buildingZ) => buildingZ + 14);
   const roadMarkings: THREE.Object3D[] = [];
   roadRows.forEach((z, rowIndex) => {
     for (const side of [-1, 1] as const) {
@@ -252,14 +252,16 @@ export function buildLowPolyStandardResidentialCommunity(
       child.material = Array.isArray(child.material) ? shared : shared[0];
     });
   };
-  const buildingXs = [-48, -32, -16, 16, 32, 48];
+  // Full-size 30 m apartment blocks: two buildings per side retain a clear
+  // central divider and four-metre gaps, instead of six miniature blocks.
+  const buildingXs = [-59, -25, 25, 59];
   buildingRows.forEach((z, rowIndex) => {
     buildingXs.forEach((x, columnIndex) => {
       const building = buildLowPolyResidentialBuilding();
       shareModelMaterials(building);
       building.name = `standard-community-residential-building-${rowIndex + 1}-${columnIndex + 1}`;
       building.position.set(x, 0.5, z);
-      building.scale.setScalar(1.45);
+      building.scale.setScalar(1);
       building.rotation.y = 0;
       Object.assign(building.userData, {
         communityType: "standard",
@@ -267,7 +269,7 @@ export function buildLowPolyStandardResidentialCommunity(
         columnIndex,
         communitySide: x < 0 ? "left" : "right",
         sideColumnIndex: columnIndex % 3,
-        householdCount: 20,
+        householdCount: building.userData.apartmentCount,
         frontDirection: "+z",
         sourceModel: "city-residential-building-lowpoly",
       });
@@ -276,7 +278,7 @@ export function buildLowPolyStandardResidentialCommunity(
 
       const pathDepth = 8;
       const path = communityMesh(new THREE.BoxGeometry(2.4, 0.12, pathDepth), paving, "standard-community-building-entry-path", "rideable-surface");
-      path.position.set(x, 0.64, z + 8);
+      path.position.set(x, 0.64, z + 9.8);
       path.userData = { ...path.userData, rowIndex, columnIndex, barrierFree: true, clearWidthMeters: 2.4 };
       community.add(path);
     });
@@ -348,7 +350,7 @@ export function buildLowPolyStandardResidentialCommunity(
 
   const fitness = new THREE.Group();
   fitness.name = "standard-community-outdoor-fitness-zone";
-  const fitnessZ = buildingRows[Math.floor(rowsPerSide * 0.5)] - 9;
+  const fitnessZ = buildingRows[Math.floor(rowsPerSide * 0.5)] - 18;
   fitness.position.set(-32, 0, fitnessZ);
   fitness.userData = {
     accessible: true,
@@ -568,7 +570,7 @@ export function buildLowPolyStandardResidentialCommunity(
     siteSize: new THREE.Vector3(STANDARD_COMMUNITY_SITE_WIDTH_METERS, 55, siteDepth),
     residentialBuildingCount: residentialBuildings.length,
     residentialBuildingTypeCount: 1,
-    householdCount: residentialBuildings.length * 20,
+    householdCount: residentialBuildings.reduce((sum, building) => sum + building.userData.apartmentCount, 0),
     residentialRowCount: rowsPerSide,
     rowsPerSide,
     leftRowCount: rowsPerSide,

@@ -50,7 +50,7 @@ export type DerivedRoadSurface = Readonly<{
 
 export type DerivedRoadBoundary = Readonly<{
   edgeId: string;
-  side: "left" | "right";
+  side: "left" | "right" | "junction";
   curbRun: number;
   groupKey: number;
   transitionProfileId: "road-curb";
@@ -312,6 +312,42 @@ function junctionQuadFromSegments(
   return Object.freeze([minX, minZ, maxX, minZ, maxX, maxZ, minX, maxZ] as const);
 }
 
+type JunctionPoint = Readonly<{ x: number; z: number }>;
+
+function endpointInnerOuter(
+  segment: readonly [number, number, number, number],
+  node: Readonly<RoadNode>,
+) {
+  const first = Object.freeze({ x: segment[0], z: segment[1] });
+  const second = Object.freeze({ x: segment[2], z: segment[3] });
+  const firstDistance = Math.hypot(first.x - node.x, first.z - node.z);
+  const secondDistance = Math.hypot(second.x - node.x, second.z - node.z);
+  return firstDistance <= secondDistance
+    ? Object.freeze({ inner: first, outer: second })
+    : Object.freeze({ inner: second, outer: first });
+}
+
+function orthogonalCorner(
+  first: JunctionPoint,
+  second: JunctionPoint,
+  node: Readonly<RoadNode>,
+  preferNear: boolean,
+) {
+  const candidates = [
+    Object.freeze({ x: first.x, z: second.z }),
+    Object.freeze({ x: second.x, z: first.z }),
+  ];
+  return [...candidates].sort((left, right) => {
+    const leftDistance = Math.hypot(left.x - node.x, left.z - node.z);
+    const rightDistance = Math.hypot(right.x - node.x, right.z - node.z);
+    return preferNear ? leftDistance - rightDistance : rightDistance - leftDistance;
+  })[0];
+}
+
+function junctionBoundaryIdentity(plan: Readonly<JunctionSidewalkPlan>, curbRun: number) {
+  return canonicalTupleKey(["road-boundary", "junction", plan.nodeId, plan.variant, curbRun]);
+}
+
 export function corridorWorldAabb(
   edge: Readonly<RoadEdge>,
   nodes: ReadonlyMap<string, Readonly<RoadNode>>,
@@ -532,6 +568,10 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
     canonicalTupleKey(["road-boundary", edge.id, "right", 0]),
     canonicalTupleKey(["road-boundary", edge.id, "right", 1]),
   ]);
+  boundaryIdentityKeys.push(...junctionSidewalkPlans.flatMap((plan) => [
+    junctionBoundaryIdentity(plan, 0),
+    junctionBoundaryIdentity(plan, 1),
+  ]));
   const boundaryKeyByIdentity = stableUint32Ids(boundaryIdentityKeys);
   const surfaces: DerivedRoadSurface[] = [];
   const boundaries: DerivedRoadBoundary[] = [];
@@ -711,7 +751,9 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
       const segment = endpointSegmentAtNode(surface, edge, nodeId);
       if (Math.hypot(segment[2] - segment[0], segment[3] - segment[1])
         <= ROAD_AXIS_EPSILON_METERS) continue;
-      if (endpointWorldSide(segment, node, direction) === side) return segment;
+      if (endpointWorldSide(segment, node, direction) === side) {
+        return Object.freeze({ segment, surface });
+      }
     }
     return null;
   };
@@ -729,9 +771,9 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
       plan.secondSide,
     );
     if (!first || !second) continue;
-    const surfaceQuad = junctionQuadFromSegments(first, second);
+    const surfaceQuad = junctionQuadFromSegments(first.segment, second.segment);
     if (!surfaceQuad) continue;
-    surfaces.push(Object.freeze({
+    const junctionSurface = Object.freeze({
       edgeId: canonicalTupleKey(["road-junction", plan.nodeId]),
       side: "junction",
       surfaceProfileId: "sidewalk",
@@ -739,7 +781,64 @@ export function deriveRoadCollisionSources(graphInput: Readonly<CityRoadGraph>):
       roadSurfaceId: plan.identity,
       y: CURB_HEIGHT_METERS,
       quadXZ: surfaceQuad,
-    }));
+    } satisfies DerivedRoadSurface);
+    surfaces.push(junctionSurface);
+
+    const node = nodes.get(plan.nodeId)!;
+    const firstPoints = endpointInnerOuter(first.segment, node);
+    const secondPoints = endpointInnerOuter(second.segment, node);
+    const innerNeighborKey = (edgeId: string, sidewalk: Readonly<DerivedRoadSurface>) => {
+      const edge = edgeById.get(edgeId)!;
+      if (sidewalk.side !== "left" && sidewalk.side !== "right") return 0xfffffffe;
+      const offsets = sideComponentOffsets(edge.profile.crossSection, sidewalk.side);
+      return offsets.innerSidewalk - offsets.innerBike <= ROAD_AXIS_EPSILON_METERS
+        ? surfaceKeyByIdentity.get(canonicalTupleKey(["road-surface", edgeId, "center"]))!
+        : 0xfffffffe;
+    };
+    const firstNeighborKey = innerNeighborKey(plan.firstEdgeId, first.surface);
+    const secondNeighborKey = innerNeighborKey(plan.secondEdgeId, second.surface);
+    const boundaryEdgeId = canonicalTupleKey(["road-junction", plan.nodeId, plan.variant]);
+
+    const appendBoundary = (
+      curbRun: number,
+      start: JunctionPoint,
+      end: JunctionPoint,
+      neighborSurfaceKey: number,
+    ) => {
+      if (Math.hypot(end.x - start.x, end.z - start.z) <= ROAD_AXIS_EPSILON_METERS) return;
+      const centerX = (surfaceQuad[0] + surfaceQuad[2] + surfaceQuad[4] + surfaceQuad[6]) * 0.25;
+      const centerZ = (surfaceQuad[1] + surfaceQuad[3] + surfaceQuad[5] + surfaceQuad[7]) * 0.25;
+      const cross = (end.x - start.x) * (centerZ - start.z)
+        - (end.z - start.z) * (centerX - start.x);
+      const connectorOnLeft = cross >= 0;
+      boundaries.push(Object.freeze({
+        edgeId: boundaryEdgeId,
+        side: "junction",
+        curbRun,
+        groupKey: boundaryKeyByIdentity.get(junctionBoundaryIdentity(plan, curbRun))!,
+        transitionProfileId: "road-curb",
+        segmentXZ: Object.freeze([start.x, start.z, end.x, end.z] as const),
+        leftSurfaceKey: connectorOnLeft ? junctionSurface.localSurfaceKey : neighborSurfaceKey,
+        rightSurfaceKey: connectorOnLeft ? neighborSurfaceKey : junctionSurface.localSurfaceKey,
+      }));
+    };
+
+    if (plan.variant.endsWith("-bridge")) {
+      const innerMidpoint = Math.abs(firstPoints.inner.x - secondPoints.inner.x)
+          >= Math.abs(firstPoints.inner.z - secondPoints.inner.z)
+        ? Object.freeze({ x: node.x, z: firstPoints.inner.z })
+        : Object.freeze({ x: firstPoints.inner.x, z: node.z });
+      appendBoundary(0, firstPoints.inner, innerMidpoint, firstNeighborKey);
+      appendBoundary(0, innerMidpoint, secondPoints.inner, secondNeighborKey);
+      appendBoundary(1, firstPoints.outer, secondPoints.outer, 0xfffffffe);
+    } else {
+      const innerCorner = orthogonalCorner(firstPoints.inner, secondPoints.inner, node, true);
+      const outerCorner = orthogonalCorner(firstPoints.outer, secondPoints.outer, node, false);
+      appendBoundary(0, firstPoints.inner, innerCorner, firstNeighborKey);
+      appendBoundary(0, innerCorner, secondPoints.inner, secondNeighborKey);
+      appendBoundary(1, firstPoints.outer, outerCorner, 0xfffffffe);
+      appendBoundary(1, outerCorner, secondPoints.outer, 0xfffffffe);
+    }
   }
 
   const ramps: DerivedCurbRamp[] = [];

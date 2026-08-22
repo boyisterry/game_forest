@@ -5,18 +5,13 @@ import {
 } from "./cityCollisionTypes.ts";
 import type { CityMapDocumentSnapshot } from "./cityDocument.ts";
 import {
-  corridorMeters,
   type CityRoadGraph,
   type RoadCrossSection,
   type RoadEdge,
   type RoadNode,
   type RoadSideProfile,
 } from "./cityRoadGraph.ts";
-import {
-  ROAD_CROSSWALK_DEPTH_METERS,
-  ROAD_CROSSWALK_INNER_GAP_METERS,
-  splitRoadGraphAtIntersections,
-} from "./cityRoads.ts";
+import { splitRoadGraphAtIntersections } from "./cityRoads.ts";
 
 export type SignalPhase = "red" | "green";
 export type ApproachCardinal = "+x" | "-x" | "+z" | "-z";
@@ -62,7 +57,6 @@ type Approach = Readonly<{
 }>;
 
 const AXIS_EPSILON = 1e-7;
-const SIGNAL_SIDEWALK_FRACTION = 0.34;
 const SIGNAL_BASE_CLEARANCE_METERS = 0.75;
 
 function directionCardinal(x: number, z: number): ApproachCardinal {
@@ -120,7 +114,7 @@ function incomingApproach(
   return null;
 }
 
-function signalOffsetForSide(
+function curbOffsetFromCenterline(
   section: Readonly<RoadCrossSection>,
   side: "left" | "right",
 ) {
@@ -133,11 +127,34 @@ function signalOffsetForSide(
     + laneCount * section.laneWidth
     + profile.bikeLaneWidth
     + profile.bikeBufferWidth
-    + profile.parkingWidth
-    + profile.sidewalkWidth * SIGNAL_SIDEWALK_FRACTION;
+    + profile.parkingWidth;
 }
 
-function crossingSetback(
+function signalOffsetForSide(
+  section: Readonly<RoadCrossSection>,
+  side: "left" | "right",
+) {
+  return curbOffsetFromCenterline(section, side) + SIGNAL_BASE_CLEARANCE_METERS;
+}
+
+function crossingCurbSetback(
+  approach: Approach,
+  edge: Readonly<RoadEdge>,
+  nodes: ReadonlyMap<string, Readonly<RoadNode>>,
+) {
+  const frame = edgeFrame(edge, nodes);
+  const sinAngle = Math.abs(frame.dx * approach.tz - frame.dz * approach.tx);
+  if (sinAngle <= AXIS_EPSILON) return 0;
+  const section = edge.profile.crossSection;
+  const rightX = -frame.dz;
+  const rightZ = frame.dx;
+  const along = rightX * approach.tx + rightZ * approach.tz;
+  const rightCurb = curbOffsetFromCenterline(section, "right");
+  const leftCurb = curbOffsetFromCenterline(section, "left");
+  return Math.max(-along * rightCurb, along * leftCurb, 0);
+}
+
+function junctionCornerSetback(
   approach: Approach,
   incident: readonly Readonly<RoadEdge>[],
   nodes: ReadonlyMap<string, Readonly<RoadNode>>,
@@ -145,25 +162,28 @@ function crossingSetback(
   let result = 0;
   for (const edge of incident) {
     if (edge.id === approach.edge.id) continue;
-    const frame = edgeFrame(edge, nodes);
-    const sinAngle = Math.abs(frame.dx * approach.tz - frame.dz * approach.tx);
-    if (sinAngle <= AXIS_EPSILON) continue;
-    result = Math.max(result, corridorMeters(edge) * 0.5 / sinAngle);
+    result = Math.max(result, crossingCurbSetback(approach, edge, nodes));
   }
   if (result <= 0) return Math.max(2, approach.edge.profile.crossSection.laneWidth);
-  // Raised facilities stop before the crossing. Keep the complete pole base
-  // beyond that cut instead of retaining the old position over junction
-  // asphalt while still applying the sidewalk's 24 cm elevation.
-  return result
-    + ROAD_CROSSWALK_INNER_GAP_METERS
-    + ROAD_CROSSWALK_DEPTH_METERS
-    + SIGNAL_BASE_CLEARANCE_METERS;
+  // Sit on the sidewalk just outside the live curb of the crossing street so
+  // the pole occupies the inner pavement corner rather than the outer lot
+  // line beyond the zebra crossing.
+  return result + SIGNAL_BASE_CLEARANCE_METERS;
+}
+
+function wrapYaw(value: number) {
+  let yaw = value;
+  if (yaw > Math.PI) yaw -= Math.PI * 2;
+  if (yaw <= -Math.PI) yaw += Math.PI * 2;
+  if (Math.abs(Math.abs(yaw) - Math.PI) < AXIS_EPSILON) return Math.PI;
+  return Math.abs(yaw) < Number.EPSILON ? 0 : yaw;
 }
 
 function normalizedYaw(tx: number, tz: number) {
-  const value = Math.atan2(tz, -tx);
-  if (Math.abs(Math.abs(value) - Math.PI) < AXIS_EPSILON) return Math.PI;
-  return Math.abs(value) < Number.EPSILON ? 0 : value;
+  // Local +Z holds the lenses and local -X is the mast (armSide=-1). Yaw the
+  // pole so that mast reaches from the inner sidewalk corner into the junction
+  // along the inbound approach.
+  return wrapYaw(Math.atan2(tz, -tx));
 }
 
 function qualifyIntersection(
@@ -236,7 +256,7 @@ export function deriveTrafficSignalPlacements(
         approach.edge.profile.crossSection,
         approach.sourceRoadSide,
       );
-      const setback = crossingSetback(approach, incident, nodes);
+      const setback = junctionCornerSetback(approach, incident, nodes);
       const horizontal = Math.abs(approach.tx) > Math.abs(approach.tz);
       const placementId = canonicalTupleKey([
         "derived",

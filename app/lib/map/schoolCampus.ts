@@ -228,6 +228,11 @@ export function buildLowPolySchoolCampus(
     campus.add(group);
     const pitch = 3.35;
     const height = floors * pitch + 0.6;
+    Object.assign(group.userData, {
+      floorCount: floors,
+      floorPitchMeters: pitch,
+      buildingSizeMeters: new THREE.Vector3(width, height, depth),
+    });
     const levels = Array.from({ length: floors }, (_, index) => 0.65 + index * pitch);
     const foundation = campusMesh(new THREE.BoxGeometry(width + 0.8, 0.4, depth + 0.8), dark, "school-building-foundation", zone);
     foundation.position.y = 0.62;

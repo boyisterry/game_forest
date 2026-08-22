@@ -99,7 +99,7 @@ test("provides a complete mixed residential compound and everyday services", () 
   assert.equal(community.userData.residentialBuildingCount, 8);
   assert.equal(community.userData.highRiseCount, 4);
   assert.equal(community.userData.midRiseCount, 4);
-  assert.equal(community.userData.householdCount, 368);
+  assert.equal(community.userData.householdCount, 328);
   assert.equal(namedObjects(community, "residential-community-high-rise-1").length, 1);
   assert.equal(namedObjects(community, "residential-community-mid-rise-4").length, 1);
   assert.ok(community.getObjectByName("residential-community-central-garden"));
@@ -110,8 +110,10 @@ test("provides a complete mixed residential compound and everyday services", () 
   assert.ok(community.getObjectByName("residential-community-waste-sorting-station"));
   assert.equal(namedObjects(community, "residential-community-underground-garage-ramp").length, 2);
   assert.equal(community.userData.garageEntranceCount, 2);
-  assert.equal(community.getObjectByName("residential-community-high-rise-1").scale.y, 1.7);
-  assert.equal(community.getObjectByName("residential-community-mid-rise-1").scale.y, 1.85);
+  assert.equal(community.getObjectByName("residential-community-high-rise-1").scale.y, 1);
+  assert.equal(community.getObjectByName("residential-community-mid-rise-1").scale.y, 1);
+  assert.equal(community.getObjectByName("residential-community-high-rise-1").userData.floorPitchMeters, 4);
+  assert.equal(community.getObjectByName("residential-community-mid-rise-1").userData.floorPitchMeters, 4);
 });
 
 test("routes residential paths between buildings and keeps service pockets out of the fire lane", () => {
@@ -468,9 +470,9 @@ test("reuses existing city decorations and keeps the rabbit rider scale", () => 
     "city-street-light-lowpoly",
     "city-roadside-planter-lowpoly",
   ]);
-  assert.equal(namedObjects(community, "residential-community-reused-tree-anchor").length, 26);
-  assert.equal(namedObjects(community, "city-street-light-lowpoly").length, 18);
-  assert.equal(namedObjects(community, "city-roadside-planter-lowpoly").length, 10);
+  assert.equal(namedObjects(community, "residential-community-reused-tree-anchor").length, 16);
+  assert.equal(namedObjects(community, "city-street-light-lowpoly").length, 12);
+  assert.equal(namedObjects(community, "city-roadside-planter-lowpoly").length, 8);
   const metrics = measureModelGeometry(community);
   assert.ok(metrics.size.x >= 189);
   assert.ok(metrics.size.z >= 144);

@@ -1,5 +1,39 @@
 Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可扩展的地图生成器，并参考 gpt_demo 的唯美视觉与 cursor_demo 的工程结构。
 
+## Current iteration: full residential-life scale audit
+
+- Audited every home and sleeping/living building: ordinary apartment, high-rise housing, compact villa, every standard-community row variant, luxury villa estate, complete residential community, school dormitories, and fire-station living quarters.
+- Corrected the ordinary five-storey block's household metadata from 20 to 10: its geometry has two apartment doors per floor, so five floors × two homes matches the 30 m frontage. Standard-community totals are now 120 homes for 12 blocks; the complete community is now 328 homes.
+- Unified the standalone villa showroom with its catalog map scale at 1.2×. Its mapped frontage/depth are about 9.96×10.43 m with a 3.32 m floor pitch; luxury-estate villas remain deliberately larger at 1.35×, about 11.2 m frontage and a 3.74 m pitch.
+- Added explicit floor-pitch/building-size metadata for villas, the two 28–34 m-wide school dormitories (3.35 m pitch), and the 48×20 m fire-station living block (3.45 m pitch).
+- Reframed apartment, villa and high-rise showroom focus cameras. The villa is no longer occluded by the adjacent enlarged tower, and the 74.6 m high-rise fits without shrinking the model.
+- Extended showroom day/night fog ranges to support the real-size high-rise focus distance.
+- Added `tests/residential-life-scale.test.mjs` to prevent miniature instance scales across all residential zone families and to verify institutional sleeping buildings remain human-scaled.
+
+### Validation
+
+- Residential scale regressions pass 82/82; final complete Node suite passes 621/621 and the production build succeeds.
+- Browser QA covered the residential model showroom, standard community, luxury villa community, complete residential community, school dormitory zone, and fire-station crew living zone. All inspected pages have clean warning/error logs.
+- The required bundled web-game client was invoked after both meaningful changes but still cannot import its own missing `playwright` package; equivalent navigation, interaction, screenshot and console checks used the in-app browser.
+
+## Current iteration: real-world residential scale
+
+- User reported that the five-storey apartment block and residential building zones read as miniatures beside the 1.7–1.8 m character and 1.5–2 m motorcycle.
+- Root cause confirmed: the source block was only 7.4 m wide with 1.62 m floor pitch; the catalog reserved just 11×9 m after map scaling.
+- Rebuilt the ordinary block around a 30×15.5 m footprint and 4 m floor pitch, preserving human-scale doors/windows/rails instead of uniformly enlarging all details.
+- Raised the 18-storey residential tower to a 4 m floor pitch and a 32×22 m foundation envelope.
+- Updated catalog footprints/scales and reduced the standard community from six miniature blocks per row to four full-size blocks with a central divider and inter-building gaps.
+- Removed the extra per-instance scale multipliers in the complete residential community so its building storeys remain 4 m rather than being stretched again.
+
+### Validation
+
+- Targeted geometry and planning regressions now pass (55/55 across catalog, furniture, standard community and complete community).
+- Ordinary block bounds: 30.0×23.22×17.44 m including roof fixtures/balconies; 4 m floor pitch; 2.18 m entrance door.
+- High-rise bounds: 32.0×74.6×22.62 m including overhangs; 4 m floor pitch.
+- Reflowed complete-community buildings, access ramps, pedestrian spines and the compact fitness pocket; removed residential decorations that no longer fit safely between full-size buildings.
+- Browser QA confirmed the complete 30 m facade and rider reference read at the intended scale; the standard community view shows twelve full-size blocks with clear roads and parking. Browser console remained clean.
+- Production build succeeds and the full Node regression suite passes: 618/618 tests, including four-direction rider-envelope collision checks for every building and campus catalog asset.
+
 ## Current iteration: deploy showroom street facilities into Rain Harbor
 
 - Replace Rain Harbor's placeholder street trees and lamps with the exact showroom tree, street-light, and traffic-light sources.
@@ -538,6 +572,22 @@ Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可�
 - Browser console warnings/errors are empty. The bundled web-game client was invoked but still cannot import its own missing `playwright` dependency, so equivalent live screenshots, interactions, DOM state, and console checks used the in-app browser.
 - Rebuilt production service is running at `http://localhost:3000/` and the showroom returns HTTP 200.
 
+## Current iteration: animated rabbit-scooter wheels
+
+- User rejected the first overlay implementation because its added spokes, orange reflectors and tread blocks looked like foreign objects, rotated backward, and left the authored tire itself frozen.
+- Removed every decorative wheel overlay. The source GLB is a single baked mesh whose visible tires are incomplete, view-dependent fragments; directly rotating those fragments was visually proven to create holes and flying shards.
+- The runtime now removes only the archived GLB's rubber-tire fragments, preserves its rims, hubs, fork, fenders and drivetrain, and replaces each tire with one closed rubber surface at the measured wheel center.
+- Added low-contrast molded tread directly to the shared rubber material so rotation is readable without coloured markers or attached blocks.
+- Wheel rotation integrates signed travel distance against a 0.22m radius on the correct source-local Z axis. Forward motion produces negative source-Z angular velocity, reverse unwinds it, and idle preserves angle; front steering remains independent.
+- Ride telemetry exposes wheel angle, angular speed, steering and removed source-triangle counts for deterministic checks.
+
+### Validation
+
+- Exact-asset side-view QA inspected idle plus multiple consecutive moving frames. Both tires remain closed and centered; tread shifts continuously while fork, fenders, mud flap, hubs and drivetrain stay fixed. No foreign orange/white wheel decorations or fragment gaps remain.
+- Full-game Chrome QA entered the forest map and accelerated with W: speed rose from 0 to 6.37m/s, wheel angular speed reported -28.96rad/s, rider position advanced, and console/page errors remained empty.
+- Targeted rider tests pass 4/4, targeted ESLint is clean, and the production build plus all 575 project tests pass.
+- The required bundled web-game client was invoked but still cannot resolve its own `playwright` package; equivalent action/state/screenshot checks used the project's installed Playwright and system Chrome.
+
 ## Follow-up: corrected villa upstairs circulation and grounded entry steps
 
 - Reversed the internal staircase so it rises from the rear of the first floor toward a new front-side upstairs landing, keeping the arrival point away from the bathroom fixtures.
@@ -569,3 +619,135 @@ Original prompt: 创建一个 Three.js 森林送货游戏网站，先完成可�
 - In-app browser QA verified the complete exterior, exposed double-elevator/emergency-stair cutaway, elevator dispatch between 4/13 and 18/1, day/night lighting, model data, shatter/repair, and an empty warning/error console.
 - The required bundled web-game client was invoked but still cannot import its own missing `playwright` package, so equivalent interaction, screenshots, DOM-state, and console checks used the in-app browser.
 - Rebuilt production service is running at `http://localhost:3000/` and the showroom returns HTTP 200.
+
+## Current iteration: city building and decoration collision repair
+
+- Original request for this iteration: 当前项目城市地图，建筑装饰的碰撞都没正常碰撞。
+- Investigating the document-city collision pipeline against the visible batched placement layer; the supplied screenshot shows the rabbit scooter penetrating a large building facade.
+- Preserve the in-progress rider wheel changes already present in the worktree while making collision fixes.
+- Root cause found: fallback collision BVHs are built with `indirect: true`, but the runtime treated shapecast's indirect triangle index as the source geometry ordinal. Complex templates therefore tested unrelated faces after BVH reordering.
+- Resolved the BVH index before reading geometry and source/component metadata. Added a deliberately reordered mixed-component regression fixture; the focused collision suite now passes 13/13.
+- Direct production-template probes now register low-rider cross-section hits for street lights, planters, residential buildings, high-rises, villas, office campuses, and the city center.
+
+### Validation
+
+- Targeted ESLint passes and the complete production build plus all 576 Node regression tests pass.
+- Real Chrome QA loaded Cedar Crossing's 126 placements and 1,011 collision owners, waited for `collisionReady`, entered ride mode, accelerated with deterministic time steps, and observed live collision broad-phase candidates/microsteps with no page or console errors.
+- Editor and ride screenshots were visually inspected; the city renders normally, the rider remains grounded, and workshop/play switching plus movement controls still work.
+- The bundled skill client was invoked as required but cannot resolve its own `playwright` dependency; equivalent QA used the project's Playwright runtime and system Chrome.
+
+## Current iteration: intersection signal visibility
+
+- Original request for this iteration: 路口自动生成的红绿灯应位于实际路口并正对来车；当前方向的车辆看不到信号灯，参考现实路口截图。
+- Root cause: the derived placement yaw treated model-local +X as the traffic-light front, while the canonical showroom signal lenses face local +Z. Every generated signal face and mast arm was rotated 90 degrees away from its inbound approach.
+- Corrected the yaw mapping so each signal face looks back toward approaching drivers and the canonical left mast arm reaches inward from its right-side sidewalk pole toward the carriageway.
+- Added direction-vector regressions for all four approaches; targeted signal, renderer, and Cedar Crossing suites pass 29/29.
+
+### Remaining validation
+
+- Required bundled game client was invoked but cannot import its own missing `playwright` package; equivalent QA used the project's Playwright runtime and system Chrome.
+- Live Chrome QA jumped to Cedar Crossing's central four-way junction at world (0, -60), inspected overview and street-level screenshots, and confirmed all poles sit at the zebra-crossing corners, signal faces point toward inbound drivers, and mast arms reach toward the carriageway.
+- `render_game_to_text` reported 102 showroom traffic lights and collision readiness; browser console/page errors were empty.
+- Targeted ESLint passes, production build succeeds, and all 576 Node regression tests pass.
+
+## Follow-up: move signals to the junction-side corners
+
+- User clarified that the remaining defect is position, not orientation: every pole must move along its inbound approach to the closest safe point beside the junction so opposing traffic can see it clearly.
+- Reduced longitudinal setback from the outer edge of the zebra crossing to the junction-side sidewalk corner. For the canonical two-way road this changes the setback from 20.75m to 15.75m, moving each pole 5m toward the intersection while preserving its lateral sidewalk offset and corrected facing.
+- Updated structural coverage to require each base to lie on a derived junction sidewalk and at the exact near-corner setback; targeted signal, renderer, and Cedar Crossing suites pass 29/29.
+
+### Validation
+
+- The required bundled game client was invoked but still cannot import its own missing `playwright` package; equivalent QA used the project's Playwright runtime and system Chrome.
+- Live browser QA revisited Cedar Crossing's central four-way junction in overview and street-level views and visually confirmed that all four poles moved toward the junction-side ends of their zebra crossings. The rendered count remains 102 signals and no browser/page error interrupted capture.
+- Targeted ESLint passes, the three focused signal/renderer/Cedar suites pass 29/29, and the production build succeeds.
+- The full Node run currently passes 614/615. Its sole failing assertion is the pre-existing dirty `compiled runtime exposes the live resolveCityMove contract` collision-runtime test (`-1.052` versus `-0.552`); isolated rerun fails identically and is unrelated to signal derivation, so this iteration did not alter that in-progress collision work.
+
+## Follow-up: full city collision audit after failed user retest
+
+- User reports that city collision still fails in the live ride view.
+- Corrected the previous diagnosis: the installed three-mesh-bvh indirect traversal already resolves its leaf index before invoking `intersectsTriangle`; resolving it again selected an unrelated source face. The fallback path now consumes the callback triangle and source index directly.
+- The supplied screenshot also exposes a separate visible failure: the chase camera can pass through facade and glazing geometry even when the rider collider is outside. The camera boom is now swept against the same compiled city solids and is pulled in front of the first obstruction.
+- Auditing the normalized rider footprint and adding an exhaustive four-direction collision scan for every building and campus catalog asset before final browser validation.
+
+## Current iteration: readable far-building proxies
+
+- Original request for this iteration: 远处建筑尚未显示完整模型时会变成黑色，需要使用法线贴图缓解远景建筑无法看清的问题。
+- Root cause: the 12-triangle far-LOD massing box reused one arbitrary near-detail material and instance tint. Many templates selected dark window-frame or metal batches, turning the entire distant building into a black cuboid.
+- Added a dedicated far-only batch strategy so low-detail massing can use its own material without contaminating the full-detail near model.
+- Far proxies now share one procedural tiled facade normal map, a rough non-metal material, a restrained ambient emissive floor, and a desaturated lightness-clamped per-template tint; far proxies do not receive/cast shadows and cannot replace canonical geometry during picking.
+- Focused batch/material/renderer regressions pass 24/24, including all 33 production catalog sources and near/far visibility transitions.
+
+### Far-building validation
+
+- The required bundled browser client was invoked but its isolated installation could not resolve `playwright`; equivalent QA was completed with the project's Playwright dependency and system Chrome.
+- Real Chrome loaded Cedar Crossing in ride mode with 117 far-LOD building proxies active. The captured low riding view shows readable light facade massing with normal-map relief instead of black cuboids, and no page or console errors were recorded.
+- Focused city batch/material/renderer suites pass 24/24, targeted lint passes, the production build succeeds, and the repository-wide Node suite passes 615/615.
+
+## Follow-up: prevent white far-building blocks
+
+- User reported that the first normal-map proxy still collapses to a pale solid block at extreme distance. The geometry was no longer black, but its normal detail was correctly minified away while the remaining bright tint and uniform emissive floor had no diffuse facade structure.
+- Added a shared low-frequency sRGB facade color map aligned with the procedural normal map. Dark window bands, mid-tone frames and warm wall panels now survive farther down the mip chain than surface normals alone.
+- Capped proxy tint lightness at 0.66 and reduced the uniform emissive intensity from 0.22 to 0.08 so fog cannot wash the proxy into white, while retaining the 0.52 minimum that prevents the original black-block regression.
+- Focused city renderer, batching, material-key and performance suites pass 31/31.
+- The bundled web-game client was invoked but its isolated install still cannot resolve `playwright`; equivalent QA used the project Playwright runtime and system Chrome.
+- Real Chrome loaded Cedar Crossing in ride mode with 117 far proxies and 54 near placements. The inspected screenshot retains dark window/floor bands on distant gray-blue and warm-gray massing instead of white blocks; near detailed towers still transition normally and no page/console errors were recorded.
+- Targeted ESLint passes, the production build succeeds, and the repository-wide Node suite passes 615/615.
+
+## Follow-up: preserve street-furniture silhouettes at far LOD
+
+- User supplied paired screenshots showing a distant cuboid resolving into a street light at close range.
+- Root cause: the shared far-building massing path was applied to every catalog template, including `decoration` entries. A street light therefore received the same 12-triangle bounding box intended for buildings.
+- Template build descriptors now retain their catalog category. All decoration templates keep their authored opaque batches at far LOD; only building and scene templates receive facade massing proxies.
+- This covers ordinary and park street lights, trees, planters, food trucks, kiosks, phone booths and residential gates rather than special-casing one asset.
+- Focused catalog, renderer and batch-world functional coverage passes 35/35 on the final worktree. The two Cedar scene-budget cases are currently outside their reviewed triangle band because a concurrent residential-building rewrite changed the source mesh budget; the LOD assertions themselves remain green.
+- The required bundled browser client was invoked but still cannot resolve its isolated `playwright` dependency; equivalent QA used the project's Playwright runtime and system Chrome.
+- Real Chrome inspected Cedar Crossing from a low ride view with 117 far placements active. Street lights at near, far and fog-line distances all retain their pole, base and lamp-arm silhouettes; no cuboid substitutions or browser/page errors were observed.
+- Production build succeeds. The repository-wide suite currently has unrelated failures in concurrent residential-community/building/collision-budget work, so this iteration does not claim a clean full-suite result.
+- Live browser diagnosis found the browser-only root cause: `MeshBVH.deserialize` does not restore `BufferGeometry.boundingBox`, so fallback-only building owners collapsed to a zero-size point in the runtime spatial index and were absent from nearby collision queries. Deserialization now recomputes the exact fallback bound.
+- Normalized rabbit-scooter bounds measure about 2.01m long × 1.02m wide, while the old collision radius was only 0.55m. The shared rider envelope is now 1.05m so the visible front/rear body stays outside facades at any heading.
+- Added chase-camera obstruction sweeps against the same compiled city solids; the camera now pulls forward when a wall, glazing panel or column blocks the boom.
+
+### Final collision validation
+
+- Every one of the 22 building/campus assets is compiled, serialized, deserialized through the browser-equivalent path, and swept from west/east/north/south across 33 rider-height cross-sections per direction.
+- All 11 catalog decorations plus the derived traffic light pass the same four-direction serialized collision scan; the model-pack street tree validates trunk-only collision with leaves ignored.
+- Focused collision/rider/camera suites pass 68/68 and the latest production build succeeds.
+- Real Chrome loaded Cedar Crossing with 126 placements and 1,011 collision owners. Residential building, high-rise residential, office campus and villa facade runs all stopped at speed 0; the chase camera reported obstruction fraction 0.157 and stayed in front of the high-rise facade. No page or console errors were recorded.
+- The repository-wide Node suite passes 615/615 after the far-facade material adopted the reviewed roughness tier 0.9; collision tests remain green.
+
+## Current iteration: junction sidewalk corner collision
+
+- Original request for this iteration: 人行道转角没有做碰撞。
+- The supplied ride screenshot shows the raised sidewalk fill at a road junction can be crossed without the curb transition/collision response that already exists on straight sidewalk runs.
+- Auditing derived junction-sidewalk surfaces, explicit road-curb boundary generation, packed collision chunks, and live rider behavior across four-way, T-junction, and terminal road layouts.
+- Root cause confirmed: junction sidewalk connector quads were added only as raised rideable surfaces. Unlike straight sidewalks, they contributed no explicit `road-curb` boundaries, so the physics layer had no transition event at either exposed edge.
+- Each corner connector now derives a continuous L-shaped inner curb and outer curb. T-junction bridge sidewalks derive split inner runs for the two adjoining road owners plus one outer run; joins to straight sidewalks remain deliberately open.
+- Junction boundary handles have stable per-node/per-corner identities and are packed into the same 64m collision chunks as ordinary road curbs. The existing traversable strong-curb-bump policy is preserved rather than introducing invisible solid walls.
+
+### Validation
+
+- Structural coverage verifies every corner at four-way junctions for narrow, medium and wide sidewalks, plus T-junction corner/bridge layouts and ordinary road terminals.
+- Compiled-runtime tests cross both the road-facing and ground-facing edges, assert a non-zero curb bump, verify both halves of a T bridge, and prove sidewalk-to-sidewalk approach seams remain unobstructed.
+- Targeted road suites pass 17/17; targeted ESLint is clean; the production build succeeds; the repository-wide Node suite passes 618/618, including the exhaustive collision scan for every building and decoration asset.
+- The required bundled game client was invoked but still cannot import its own `playwright` dependency. Equivalent real-Chrome QA used the project Playwright runtime against the rebuilt production server.
+- Live Cedar Crossing QA loaded collision, crossed the central junction's inner curb (x 11→15.9), outer curb (x 24→28.9), and open approach seam (z -84→-88.8). Screenshots were visually inspected and browser/page errors were empty.
+- Production service was rebuilt and restarted at `http://localhost:3000/`.
+
+## Current iteration: non-residential building and district metre-scale audit
+
+- User follow-up: inspect every remaining building and building district for the same scale problem and repair it.
+- Audited all 13 non-residential catalog facilities by their generated world bounds, declared site reservation, floor pitch, entrance height and internal building metadata: office, hospital, amusement park, school, shopping mall, three industrial districts, fire station, city park, sports center, city center and town center.
+- Confirmed the school (3.35m), mall (4.25m source / 4.89m effective), fire station (3.45m), civic/town and industrial facility scales are plausible; amusement buildings and ride entrances use intentionally large public openings rather than miniature pedestrian doors.
+- Corrected the office campus from a 1.9m source pitch plus external scaling to a directly authored 3.6m floor pitch. The map and showroom now use scale 1, pedestrian doors remain 2.15m, elevator doors 2.2m, the atrium/bridges/stairs/interiors/roof equipment follow the new floor levels, and the catalog reservation matches the real 30m × 17m site.
+- Corrected the hospital from three uniformly scaled 1.55x miniature buildings to direct metre-scale shells: 4.2m hospital floors, preserved full-size footprints, 2.1–2.22m entrance doors, human-size rooms/elevators/furniture, full-size stairs and a 14.6m helipad. The campus height envelope is now 29m.
+- Found and repaired a separate industrial-site envelope defect: all three factory gate canopies extended 1.25m beyond their declared site, and front fence end posts crossed the side boundary by 6cm. Gates and front fence runs now remain inside the reserved site.
+- Added a non-residential scale regression that builds all 13 facilities, checks their actual world bounds against catalog reservations, verifies human doors/floor pitches and validates civic/industrial full-size metadata.
+
+### Remaining validation
+
+- Focused office, hospital, catalog, industrial and cross-facility scale suites pass.
+- Reviewed and updated the explicit map-LOD, collision-triangle and primitive-cache baselines for the added office stair geometry, full-width hospital facade bays and shortened industrial fence runs; general budgets were not loosened.
+- Production build succeeds, targeted ESLint is clean and the complete Node suite passes 624/624.
+- The required bundled game client was invoked but its isolated installation still cannot resolve `playwright`; equivalent QA used the in-app browser against the production server.
+- Visually inspected hospital overview/outpatient/inpatient views, office beside the 18-storey residential reference, shopping mall, technology park and city center. Floor counts, site extents, road/building relationships and entrance proportions render consistently, with no browser warnings or errors.

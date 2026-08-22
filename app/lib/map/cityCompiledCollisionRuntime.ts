@@ -888,23 +888,25 @@ function fallbackCandidates(
   let candidateCount = 0;
   fallback.bvh.shapecast({
     intersectsBounds: (bounds) => bounds.intersectsBox(queryBox),
-    intersectsTriangle: (_triangle, triangleIndex) => {
+    intersectsTriangle: (triangle, triangleIndex) => {
       candidateCount += 1;
-      const geometryIndex = fallback.geometry.index;
-      const positions = fallback.geometry.getAttribute("position");
-      if (!geometryIndex) throw new Error("fallback collision geometry must be indexed");
-      const vertexA = geometryIndex.getX(triangleIndex * 3);
-      const vertexB = geometryIndex.getX(triangleIndex * 3 + 1);
-      const vertexC = geometryIndex.getX(triangleIndex * 3 + 2);
-      const ax = positions.getX(vertexA);
-      const ay = positions.getY(vertexA);
-      const az = positions.getZ(vertexA);
-      const bx = positions.getX(vertexB);
-      const by = positions.getY(vertexB);
-      const bz = positions.getZ(vertexB);
-      const cx = positions.getX(vertexC);
-      const cy = positions.getY(vertexC);
-      const cz = positions.getZ(vertexC);
+      // Indirect MeshBVH traversal resolves its internal leaf ordinal before
+      // invoking this callback. `triangle` and `triangleIndex` therefore both
+      // refer to the original source face; resolving the index a second time
+      // selects an unrelated face in complex building meshes.
+      if (triangleIndex < 0
+        || triangleIndex >= fallback.resolvedSourceTriangleIds.length) {
+        throw new RangeError("MeshBVH returned an out-of-range fallback triangle index");
+      }
+      const ax = triangle.a.x;
+      const ay = triangle.a.y;
+      const az = triangle.a.z;
+      const bx = triangle.b.x;
+      const by = triangle.b.y;
+      const bz = triangle.b.z;
+      const cx = triangle.c.x;
+      const cy = triangle.c.y;
+      const cz = triangle.c.z;
       const ux = bx - ax;
       const uy = by - ay;
       const uz = bz - az;
@@ -929,9 +931,6 @@ function fallbackCandidates(
       const polygon = normalizeProjectedPolygon(clipped);
       if (polygon.length === 0) return false;
       const raw = sweepProjectedPolygon(start, delta, radius, polygon);
-      if (triangleIndex < 0 || triangleIndex >= fallback.resolvedSourceTriangleIds.length) {
-        throw new RangeError("MeshBVH returned an out-of-range fallback triangle index");
-      }
       const sourceTriangleId = fallback.resolvedSourceTriangleIds[triangleIndex];
       for (const hit of raw) {
         candidates.push({

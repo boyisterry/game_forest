@@ -35,6 +35,7 @@ import { InputController } from "./input";
 import { computeBrowsePanDelta, NO_BROWSE_MOVE, type BrowseMove } from "./browsePan";
 import { MotorcycleController, PEAK_HORSEPOWER, type MotoPose } from "./motorcycle";
 import { ChaseCamera } from "./chaseCamera";
+import { resolveCityCameraCollisionFraction } from "./cityCameraCollision.ts";
 import { CollisionWorld } from "./collision";
 import { SkidMarks } from "./skidMarks";
 import { AudioEngine } from "./audioEngine";
@@ -58,7 +59,9 @@ import { CityMotorcycleFixedStepBridge } from "./cityMotorcycleFixedStep.ts";
 import { CompiledCityCollisionRuntime } from "./cityCompiledCollisionRuntime.ts";
 import { CityDocumentCollisionPipeline } from "./cityDocumentCollisionPipeline.ts";
 import { createImplicitGroundSurfaceSample } from "./cityCollision.ts";
+import { canonicalTupleKey } from "./cityCollisionTypes.ts";
 import { disposeRiderResources } from "./riderResources.ts";
+import { RiderWheelMotion } from "./riderWheelMotion.ts";
 import { resolvePendingDriveGate, shouldResumeDriveAfterRebuild } from "./driveModeGate.ts";
 import {
   createCityEditorGrid,
@@ -195,6 +198,7 @@ export class ForestScene {
   private adaptivePixelRatio = 1;
   private lastResolutionTuneMs = 0;
   private rider: THREE.Group | null = null;
+  private riderWheels: RiderWheelMotion | null = null;
   private riderVisible = true;
   private settings: MapSettings;
   private onStats: StatsListener;
@@ -223,6 +227,12 @@ export class ForestScene {
   private readonly riderContactShadow = createRiderContactShadow();
   private readonly riderContactSurface = createImplicitGroundSurfaceSample();
   private readonly chase = new ChaseCamera();
+  private readonly resolveChaseCameraCollision = (
+    query: Parameters<typeof resolveCityCameraCollisionFraction>[1],
+  ) => resolveCityCameraCollisionFraction(
+    this.settings.mapType === "city" ? this.cityDocumentCollision : null,
+    query,
+  );
   private readonly collision = new CollisionWorld();
   private readonly skids = new SkidMarks();
   private readonly audio = new AudioEngine();
@@ -1032,8 +1042,10 @@ export class ForestScene {
       model.position.sub(center);
       model.position.y += box.getSize(new THREE.Vector3()).y * 0.5;
       const rider = new THREE.Group();
+      const riderWheels = new RiderWheelMotion(model);
       rider.add(model);
       this.rider = rider;
+      this.riderWheels = riderWheels;
       this.build(this.settings);
       this.tryStartPendingDrive();
     });
@@ -1164,6 +1176,7 @@ export class ForestScene {
     if (this.rider) {
       this.moto.reset(this.rider.position.x, this.rider.position.z, this.rider.rotation.y);
     }
+    this.riderWheels?.reset();
     this.cityDocumentBike?.reset();
     this.input?.attach();
     this.input?.clearVirtual();
@@ -1462,6 +1475,7 @@ export class ForestScene {
         y: Number(this.camera.position.y.toFixed(1)),
         z: Number(this.camera.position.z.toFixed(1)),
       },
+      cameraCollisionFraction: Number(this.chase.getCollisionFraction().toFixed(3)),
       cameraProjection: {
         near: this.camera.near,
         far: this.camera.far,
@@ -1471,6 +1485,18 @@ export class ForestScene {
             speed: Number(pose.speed.toFixed(2)),
             rider: { x: Number(pose.x.toFixed(1)), z: Number(pose.z.toFixed(1)) },
             rollingStones: this.collision.activeStoneCount(),
+            wheels: (() => {
+              const wheels = this.riderWheels?.getState();
+              return wheels
+                ? {
+                    spinRadians: Number(wheels.spinRadians.toFixed(3)),
+                    angularSpeed: Number(wheels.angularSpeedRadiansPerSecond.toFixed(2)),
+                    steerRadians: Number(wheels.steerRadians.toFixed(3)),
+                    frontTriangles: wheels.frontTriangles,
+                    rearTriangles: wheels.rearTriangles,
+                  }
+                : null;
+            })(),
           }
         : null,
       streamedForest: {
@@ -1565,8 +1591,15 @@ export class ForestScene {
           this.rider.position.set(presentationPose.x, 0.012 + presentationPose.y, presentationPose.z);
           this.rider.rotation.set(presentationPose.pitch, presentationPose.heading, -presentationPose.lean, "YXZ");
         }
+        this.riderWheels?.update(dt, pose.speed, this.moto.steer);
         this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
-        this.chase.update(dt, this.camera, presentationPose, input.boost);
+        this.chase.update(
+          dt,
+          this.camera,
+          presentationPose,
+          input.boost,
+          this.resolveChaseCameraCollision,
+        );
         if (this.settings.mapType === "forest") changed = this.chunks.pump() || changed;
       } else {
         // Mirror the live animate loop so browse panning is deterministic here.
@@ -1583,6 +1616,29 @@ export class ForestScene {
     this.sky.follow(this.camera);
     this.syncRiderContactShadow();
     this.renderSceneFrame();
+  }
+
+  getCityPlacementCollisionBoundsForTest(placementId: string) {
+    if (this.settings.mapType !== "city" || !this.cityDocumentCollision) return null;
+    return this.cityDocumentCollision.getOwnerWorldBounds(canonicalTupleKey(["placement", placementId]));
+  }
+
+  setCityRiderPoseForTest(x: number, z: number, heading: number) {
+    if (this.settings.mapType !== "city" || !this.cityCollisionReady) {
+      throw new Error("city collision must be ready before positioning the rider");
+    }
+    if (![x, z, heading].every(Number.isFinite)) throw new TypeError("city rider test pose must be finite");
+    this.moto.reset(x, z, heading);
+    this.cityDocumentBike?.reset();
+    this.chase.reset();
+    const pose = this.moto.getPose();
+    if (this.rider) {
+      this.rider.position.set(pose.x, 0.012 + pose.y, pose.z);
+      this.rider.rotation.set(pose.pitch, pose.heading, -pose.lean, "YXZ");
+    }
+    this.chase.update(1 / 60, this.camera, pose, false, this.resolveChaseCameraCollision);
+    this.invalidateRender(false);
+    return this.getTextState();
   }
 
   private clearPendingGpuTimerQueries() {
@@ -2040,8 +2096,15 @@ export class ForestScene {
         this.rider.position.set(presentationPose.x, 0.012 + presentationPose.y, presentationPose.z);
         this.rider.rotation.set(presentationPose.pitch, presentationPose.heading, -presentationPose.lean, "YXZ");
       }
+      this.riderWheels?.update(dt, pose.speed, this.moto.steer);
       this.skids.update(pose, input.brake > 0 || input.hardBrake, pose.drifting);
-      this.chase.update(dt, this.camera, presentationPose, input.boost);
+      this.chase.update(
+        dt,
+        this.camera,
+        presentationPose,
+        input.boost,
+        this.resolveChaseCameraCollision,
+      );
       this.audio.update({
         speed: pose.speed,
         throttle: input.throttle,
@@ -2225,6 +2288,7 @@ export class ForestScene {
     if (this.rider) {
       disposeRiderResources(this.rider);
       this.rider = null;
+      this.riderWheels = null;
     }
     this.riderContactShadow.dispose();
     this.modelPackLease?.release();

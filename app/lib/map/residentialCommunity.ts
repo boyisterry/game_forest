@@ -119,13 +119,13 @@ export function buildLowPolyResidentialCommunity(
   // The internal pedestrian network runs through the clear gaps between buildings.
   // It deliberately avoids the former north/south alignments that cut through six homes.
   for (const [x, z, width, depth, role] of [
-    [-57.5, -17, 3.2, 86.6, "residential-main-spine"],
-    [-28, -33.5, 3.2, 53, "residential-secondary-spine"],
-    [-57.5, -40.5, 45, 3.2, "high-rise-south-entry-walk"],
-    [-57.5, -5.5, 45, 3.2, "high-rise-north-entry-walk"],
-    [-16, -43.7, 27, 3, "mid-rise-south-entry-walk"],
-    [-16, -21.7, 27, 3, "mid-rise-middle-entry-walk"],
-    [-42, 24.8, 75, 3, "residential-north-promenade"],
+    [-48, -17, 3.2, 86.6, "residential-main-spine"],
+    [-34, -17, 3.2, 86.6, "residential-secondary-spine"],
+    [-41, -38, 50, 3.2, "high-rise-south-entry-walk"],
+    [-41, -12, 56, 3.2, "high-rise-north-entry-walk"],
+    [-41, 13, 50, 3, "mid-rise-south-entry-walk"],
+    [-41, 32, 50, 3, "mid-rise-middle-entry-walk"],
+    [-41, 34.5, 50, 3, "residential-north-promenade"],
     [-43, 29.4, 5, 11, "residential-gate-walk"],
   ] as Array<[number, number, number, number, string]>) {
     const path = communityMesh(new THREE.BoxGeometry(width, 0.12, depth), paving, "residential-community-pedestrian-path");
@@ -249,13 +249,13 @@ export function buildLowPolyResidentialCommunity(
   let householdCount = 0;
   const highRiseMaterials = new Map<string, THREE.Material>();
   for (const [index, x, z] of [
-    [0, -72, -48], [1, -43, -48], [2, -72, -13], [3, -43, -13],
+    [0, -66, -51], [1, -16, -51], [2, -66, -25], [3, -16, -25],
   ] as Array<[number, number, number]>) {
     const tower = buildLowPolyHighRiseResidential();
     shareModelMaterials(tower, highRiseMaterials);
     tower.name = `residential-community-high-rise-${index + 1}`;
     tower.position.set(x, 0.5, z);
-    tower.scale.set(1.25, 1.7, 1.25);
+    tower.scale.set(1, 1, 1);
     tower.rotation.y = 0;
     tower.userData.zone = "residential";
     tower.userData.frontDirection = "+z";
@@ -266,13 +266,13 @@ export function buildLowPolyResidentialCommunity(
   }
   const midRiseMaterials = new Map<string, THREE.Material>();
   for (const [index, x, z] of [
-    [0, -13, -50], [1, -13, -28], [2, -68, 16], [3, -19, 15],
+    [0, -66, 1], [1, -16, 1], [2, -66, 23], [3, -16, 23],
   ] as Array<[number, number, number]>) {
     const building = buildLowPolyResidentialBuilding();
     shareModelMaterials(building, midRiseMaterials);
     building.name = `residential-community-mid-rise-${index + 1}`;
     building.position.set(x, 0.5, z);
-    building.scale.set(1.35, 1.85, 1.35);
+    building.scale.set(1, 1, 1);
     building.userData.zone = "residential";
     building.userData.frontDirection = "+z";
     householdCount += building.userData.apartmentCount;
@@ -349,18 +349,18 @@ export function buildLowPolyResidentialCommunity(
     community.add(entry);
   };
 
-  addResidentialAccessibleEntry("residential-community-high-rise-1", -72, -42.7, 1.18, 1, -40.7);
-  addResidentialAccessibleEntry("residential-community-high-rise-2", -43, -42.7, 1.18, -1, -40.7);
-  addResidentialAccessibleEntry("residential-community-high-rise-3", -72, -7.7, 1.18, 1, -5.7);
-  addResidentialAccessibleEntry("residential-community-high-rise-4", -43, -7.7, 1.18, -1, -5.7);
-  addResidentialAccessibleEntry("residential-community-mid-rise-1", -13, -46.7, 1.46, -1, -44.7);
-  addResidentialAccessibleEntry("residential-community-mid-rise-2", -13, -24.7, 1.46, -1, -22.7);
-  addResidentialAccessibleEntry("residential-community-mid-rise-3", -68, 19.3, 1.46, 1, 21.3);
-  addResidentialAccessibleEntry("residential-community-mid-rise-4", -19, 18.3, 1.46, 1, 20.3);
+  addResidentialAccessibleEntry("residential-community-high-rise-1", -66, -41, 1.18, 1, -39);
+  addResidentialAccessibleEntry("residential-community-high-rise-2", -16, -41, 1.18, -1, -39);
+  addResidentialAccessibleEntry("residential-community-high-rise-3", -66, -15, 1.18, 1, -13);
+  addResidentialAccessibleEntry("residential-community-high-rise-4", -16, -15, 1.18, -1, -13);
+  addResidentialAccessibleEntry("residential-community-mid-rise-1", -66, 8.75, 1.46, 1, 10.75);
+  addResidentialAccessibleEntry("residential-community-mid-rise-2", -16, 8.75, 1.46, -1, 10.75);
+  addResidentialAccessibleEntry("residential-community-mid-rise-3", -66, 30.75, 1.46, 1, 32.75);
+  addResidentialAccessibleEntry("residential-community-mid-rise-4", -16, 30.75, 1.46, -1, 32.75);
 
   for (const [buildingName, x, z, depth] of [
-    ["residential-community-mid-rise-3", -57.2, 22.65, 1.6],
-    ["residential-community-mid-rise-4", -8.5, 22.15, 2.5],
+    ["residential-community-mid-rise-3", -66, 32.55, 2],
+    ["residential-community-mid-rise-4", -16, 32.55, 2],
   ] as Array<[string, number, number, number]>) {
     const accessLink = communityMesh(new THREE.BoxGeometry(3.2, 0.12, depth), paving, "residential-community-mid-rise-access-link", "residential");
     accessLink.position.set(x, 0.61, z);
@@ -368,7 +368,7 @@ export function buildLowPolyResidentialCommunity(
     community.add(accessLink);
   }
   const midRiseFourEntryLink = communityMesh(new THREE.BoxGeometry(1.6, 0.12, 2.5), paving, "residential-community-building-access-link", "residential");
-  midRiseFourEntryLink.position.set(-7.52, 0.61, 22.15);
+  midRiseFourEntryLink.position.set(-14.8, 0.61, 32.55);
   Object.assign(midRiseFourEntryLink.userData, { buildingName: "residential-community-mid-rise-4", barrierFree: true, connectsRampToNorthPromenade: true });
   community.add(midRiseFourEntryLink);
 
@@ -523,15 +523,15 @@ export function buildLowPolyResidentialCommunity(
   }
 
   // The all-age fitness pocket is clear of both homes and the fire lane.
-  const fitnessArea = communityMesh(new THREE.BoxGeometry(15, 0.14, 8), warmPaving, "residential-community-senior-fitness-area", "residential");
-  fitnessArea.position.set(-75, 0.64, 4);
+  const fitnessArea = communityMesh(new THREE.BoxGeometry(8, 0.14, 6), warmPaving, "residential-community-senior-fitness-area", "residential");
+  fitnessArea.position.set(-41, 0.64, 4);
   Object.assign(fitnessArea.userData, { barrierFree: true, clearCirculationWidth: 1.8, wheelchairRestingSpace: true });
   community.add(fitnessArea);
-  const fitnessAccessPath = communityMesh(new THREE.BoxGeometry(3, 0.12, 4.2), paving, "residential-community-fitness-access-path", "residential");
-  fitnessAccessPath.position.set(-70, 0.61, -1.95);
+  const fitnessAccessPath = communityMesh(new THREE.BoxGeometry(3, 0.12, 3), paving, "residential-community-fitness-access-path", "residential");
+  fitnessAccessPath.position.set(-46.5, 0.61, 4);
   Object.assign(fitnessAccessPath.userData, { barrierFree: true, connectsFitnessToPedestrianNetwork: true, clearWidth: 3 });
   community.add(fitnessAccessPath);
-  for (const [index, x, kind] of [[0, -79.5, "tai-chi-wheel"], [1, -75, "stepper"], [2, -70.5, "arm-cycle"]] as Array<[number, number, string]>) {
+  for (const [index, x, kind] of [[0, -43.5, "tai-chi-wheel"], [1, -41, "stepper"], [2, -38.5, "arm-cycle"]] as Array<[number, number, string]>) {
     const equipment = new THREE.Group();
     equipment.name = "residential-community-fitness-equipment";
     equipment.position.set(x, 0, 4);
@@ -1362,12 +1362,6 @@ export function buildLowPolyResidentialCommunity(
     [-9.25, 64.05, 0.73, -Math.PI * 0.5, "commercial"],
     [10.25, 64.05, 0.73, -Math.PI * 0.5, "commercial"],
     [29.75, 64.05, 0.73, -Math.PI * 0.5, "commercial"],
-    [-62, -55, 0.5, Math.PI * 0.5, "residential"],
-    [-33, -55, 0.5, Math.PI * 0.5, "residential"],
-    [-62, -30, 0.5, 0, "residential"],
-    [-33, -30, 0.5, Math.PI, "residential"],
-    [-80, 12, 0.5, 0, "residential"],
-    [1, -10, 0.5, Math.PI, "residential"],
     [21, -58, 0.5, 0, "kindergarten"],
     [87, -58, 0.5, Math.PI, "kindergarten"],
     [19, -18, 0.5, 0, "kindergarten"],
@@ -1393,7 +1387,6 @@ export function buildLowPolyResidentialCommunity(
     [-68, 37.5, 0.5, "commercial"], [-58, 37.5, 0.5, "commercial"],
     [-26, 37.5, 0.5, "commercial"], [-16, 37.5, 0.5, "commercial"],
     [10, 37.5, 0.5, "commercial"], [20, 37.5, 0.5, "commercial"],
-    [-75, 10, 0.5, "residential"], [-20, -10, 0.5, "residential"],
     [28, 27, 0.5, "kindergarten"], [75, 28.2, 0.5, "kindergarten"],
   ];
   const planterGroups: THREE.Group[] = [];
@@ -1411,7 +1404,6 @@ export function buildLowPolyResidentialCommunity(
     planterGroups.push(planter);
   });
   const treePositions: Array<[number, number]> = [
-    [-80, -58], [-70, -58], [-45, -58], [-4, -60], [-68, -30], [-38, -29], [-62, -23], [-5, -12], [-80, 17], [-61, 7],
     [22, -62], [84, -62], [22, -52], [85, -49], [20, -42], [87, -43], [22, 10], [45, -20.5],
     [64, -18], [22, 1], [20.5, -30], [22, 18], [22, -10], [36, 25], [40, 26], [45, 26],
   ];

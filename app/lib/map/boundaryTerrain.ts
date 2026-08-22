@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { RABBIT_RIDER_COLLISION_RADIUS_METERS } from "./riderDimensions.ts";
 import {
   WORLD_HALF_DEPTH,
   WORLD_HALF_WIDTH,
@@ -23,8 +24,8 @@ export const BEACH_CAP_NEAR = 1.67; // ~6 km/h at the foot line
 export const BEACH_CAP_FAR = 0.28;  // ~1 km/h at the waterline
 export const MAX_RIDEABLE_SLOPE_DEG = 30;
 export const MAX_RIDEABLE_GRADE = Math.tan(THREE.MathUtils.degToRad(MAX_RIDEABLE_SLOPE_DEG));
-/** Bike contact radius used by motorcycle collision (keep in sync with BIKE_R). */
-export const MOUNTAIN_BIKE_RADIUS = 0.55;
+/** Bike contact radius used by motorcycle collision. */
+export const MOUNTAIN_BIKE_RADIUS = RABBIT_RIDER_COLLISION_RADIUS_METERS;
 /**
  * The mountain terrain begins at the innermost visible toe of the faceted
  * peak range. The old sampler began at the abstract map edge, fourteen metres

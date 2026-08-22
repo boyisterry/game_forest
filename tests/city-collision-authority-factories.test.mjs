@@ -14,7 +14,7 @@ test("all catalog render-proxy factories preserve exact pre/post collision packs
   const report = JSON.parse(stdout);
 
   assert.equal(report.factoryCount, 17);
-  assert.ok(report.totals.restoredSolidTriangles > 900_000);
+  assert.ok(report.totals.restoredSolidTriangles > 800_000);
   assert.ok(report.totals.restoredRideableTriangles > 10_000);
   assert.equal(report.totals.proxyCollisionMeshes, 0);
   assert.equal(report.rows.length, report.factoryCount);

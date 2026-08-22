@@ -490,100 +490,166 @@ function createCityMapTintVisualBatches(
   }));
 }
 
-function farMassingGeometry(
-  bounds: THREE.Box3,
-  prototype: THREE.BufferGeometry,
-): THREE.BufferGeometry | null {
-  const supported = new Set(["position", "normal", "uv", "uv1", "uv2", "color", "tangent"]);
-  const names = Object.keys(prototype.attributes);
-  if (!names.includes("position") || names.some((name) => !supported.has(name))) return null;
-  if (Object.values(prototype.attributes).some((attribute) => (
-    attribute instanceof THREE.InterleavedBufferAttribute
-    || !(attribute.array instanceof Float32Array)
-  ))) return null;
+function farMassingGeometry(bounds: THREE.Box3): THREE.BufferGeometry {
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
-  let geometry: THREE.BufferGeometry = new THREE.BoxGeometry(
+  const geometry = new THREE.BoxGeometry(
     Math.max(size.x, 0.05),
     Math.max(size.y, 0.05),
     Math.max(size.z, 0.05),
   ).translate(center.x, center.y, center.z);
-  if (!prototype.getIndex()) {
-    const nonIndexed = geometry.toNonIndexed();
-    geometry.dispose();
-    geometry = nonIndexed;
-  }
-  for (const existing of Object.keys(geometry.attributes)) {
-    if (!names.includes(existing)) geometry.deleteAttribute(existing);
-  }
-  const vertexCount = geometry.getAttribute("position").count;
-  for (const name of names) {
-    if (geometry.getAttribute(name)) continue;
-    const source = prototype.getAttribute(name);
-    const values = new Float32Array(vertexCount * source.itemSize);
-    if (name === "color") values.fill(1);
-    if (name === "tangent") {
-      for (let offset = 0; offset < values.length; offset += source.itemSize) {
-        values[offset] = 1;
-        if (source.itemSize > 3) values[offset + 3] = 1;
-      }
-    }
-    const attribute = new THREE.BufferAttribute(values, source.itemSize, source.normalized);
-    attribute.gpuType = source.gpuType;
-    geometry.setAttribute(name, attribute);
-  }
-  if (geometryLayoutKey(geometry) !== geometryLayoutKey(prototype)) {
-    geometry.dispose();
-    return null;
-  }
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
 }
 
-function buildCatalogBatchTemplateDefinition(record: TemplateRecord): CityBatchTemplateDefinition | null {
+function configureFarFacadeTexture(texture: THREE.DataTexture, colorSpace: THREE.ColorSpace) {
+  texture.colorSpace = colorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2, 5);
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createFarFacadeColorMap() {
+  const width = 64;
+  const height = 64;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const panelX = x % 16;
+      const panelY = y % 12;
+      const frame = panelX <= 1 || panelY <= 1;
+      const inset = panelX >= 4 && panelX <= 12 && panelY >= 3 && panelY <= 9;
+      const offset = (y * width + x) * 4;
+      const floorVariation = Math.floor(y / 12) % 2 === 0 ? 0 : 8;
+      const color = frame
+        ? [139, 151, 148]
+        : inset
+          ? [48 + floorVariation, 78 + floorVariation, 86 + floorVariation]
+          : [198, 194, 178];
+      data[offset] = color[0];
+      data[offset + 1] = color[1];
+      data[offset + 2] = color[2];
+      data[offset + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  texture.name = "city-far-building-facade-color";
+  return configureFarFacadeTexture(texture, THREE.SRGBColorSpace);
+}
+
+function createFarFacadeNormalMap() {
+  const width = 64;
+  const height = 64;
+  const heights = new Float32Array(width * height);
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const panelX = x % 16;
+      const panelY = y % 12;
+      const frame = panelX <= 1 || panelY <= 1;
+      const inset = panelX >= 4 && panelX <= 12 && panelY >= 3 && panelY <= 9;
+      heights[y * width + x] = frame ? 0.68 : inset ? 0.18 : 0.46;
+    }
+  }
+  const sample = (x: number, y: number) => heights[
+    ((y + height) % height) * width + ((x + width) % width)
+  ];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const nx = (sample(x - 1, y) - sample(x + 1, y)) * 1.15;
+      const ny = (sample(x, y - 1) - sample(x, y + 1)) * 1.15;
+      const length = Math.hypot(nx, ny, 1);
+      const offset = (y * width + x) * 4;
+      data[offset] = Math.round((nx / length * 0.5 + 0.5) * 255);
+      data[offset + 1] = Math.round((ny / length * 0.5 + 0.5) * 255);
+      data[offset + 2] = Math.round((1 / length * 0.5 + 0.5) * 255);
+      data[offset + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  texture.name = "city-far-building-facade-normal";
+  return configureFarFacadeTexture(texture, THREE.NoColorSpace);
+}
+
+function farProxyTint(batches: readonly VisualBatch[]) {
+  const candidates = batches
+    .map((batch) => batch.baseTint)
+    .filter((color): color is THREE.Color => color instanceof THREE.Color);
+  const color = (candidates.find((candidate) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    candidate.getHSL(hsl);
+    return hsl.l >= 0.32 && hsl.l <= 0.9 && hsl.s <= 0.72;
+  }) ?? candidates[0] ?? new THREE.Color(0xb8b4a7)).clone();
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(hsl.h, Math.min(hsl.s, 0.42), THREE.MathUtils.clamp(hsl.l, 0.52, 0.66));
+  return color;
+}
+
+function buildCatalogBatchTemplateDefinition(
+  record: TemplateRecord,
+  farMaterial: THREE.MeshStandardMaterial,
+): CityBatchTemplateDefinition | null {
   const batches = record.visualBatches;
   if (!batches) return null;
   const eligible = batches
     .map((batch, index) => ({ batch, index }))
     .filter(({ batch }) => isCityBatchEligible(batch) && batch.material instanceof THREE.Material);
   if (eligible.length === 0) return null;
+  if (record.descriptor.catalogCategory === "decoration") {
+    const slots = eligible.map(({ batch, index }) => Object.freeze({
+      slotId: `visual-batch-${index}`,
+      poolKey: visualBatchCompatibilityKey(batch),
+      material: batch.material as THREE.Material,
+      nearGeometry: batch.geometry,
+      farStrategy: "keep-near" as const,
+      castShadow: batch.castShadow,
+      receiveShadow: batch.receiveShadow,
+      renderOrder: batch.renderOrder,
+      ...(batch.baseTint ? { baseTint: batch.baseTint } : {}),
+    }));
+    return Object.freeze({ templateId: record.metrics.templateId, slots: Object.freeze(slots) });
+  }
   const bounds = new THREE.Box3().makeEmpty();
   for (const { batch } of eligible) {
     if (!batch.geometry.boundingBox) batch.geometry.computeBoundingBox();
     if (batch.geometry.boundingBox) bounds.union(batch.geometry.boundingBox);
   }
-  const hosts = eligible
-    .map((entry) => {
-      const box = entry.batch.geometry.boundingBox!;
-      const size = box.getSize(new THREE.Vector3());
-      return { ...entry, volume: size.x * size.y * size.z };
-    })
-    .sort((left, right) => Number(right.batch.castShadow) - Number(left.batch.castShadow)
-      || right.volume - left.volume
-      || left.index - right.index);
-  let hostIndex = -1;
-  let proxy: THREE.BufferGeometry | null = null;
-  for (const host of hosts) {
-    proxy = farMassingGeometry(bounds, host.batch.geometry);
-    if (proxy) {
-      hostIndex = host.index;
-      break;
-    }
-  }
-  if (hostIndex < 0 || !proxy) return null;
+  const proxy = farMassingGeometry(bounds);
   record.ownedFarGeometries.push(proxy);
-  const slots = eligible.map(({ batch, index }) => Object.freeze({
+  const nearSlots = eligible.map(({ batch, index }) => Object.freeze({
     slotId: `visual-batch-${index}`,
     poolKey: visualBatchCompatibilityKey(batch),
     material: batch.material as THREE.Material,
     nearGeometry: batch.geometry,
-    ...(index === hostIndex ? { farGeometry: proxy!, farStrategy: "proxy" as const } : { farStrategy: "hidden" as const }),
+    farStrategy: "hidden" as const,
     castShadow: batch.castShadow,
     receiveShadow: batch.receiveShadow,
     renderOrder: batch.renderOrder,
     ...(batch.baseTint ? { baseTint: batch.baseTint } : {}),
   }));
+  const farSlot = Object.freeze({
+    slotId: "far-facade-normal-proxy",
+    poolKey: [
+      "city-far-facade-normal-v1",
+      materialBatchKey(farMaterial),
+      geometryLayoutKey(proxy),
+    ].join("||batch-field||"),
+    material: farMaterial,
+    nearGeometry: proxy,
+    farStrategy: "far-only" as const,
+    castShadow: false,
+    receiveShadow: false,
+    renderOrder: 0,
+    baseTint: farProxyTint(eligible.map(({ batch }) => batch)),
+  });
+  const slots = [...nearSlots, farSlot];
   return Object.freeze({ templateId: record.metrics.templateId, slots: Object.freeze(slots) });
 }
 
@@ -884,6 +950,22 @@ export function createCityTemplateCache(options: Readonly<{
   const { sources, layers } = options;
   const records = new Map<string, TemplateRecord>();
   const handleRecords = new WeakMap<VisualTemplateHandle, TemplateRecord>();
+  const farFacadeColorMap = createFarFacadeColorMap();
+  const farFacadeNormalMap = createFarFacadeNormalMap();
+  const farFacadeMaterial = new THREE.MeshStandardMaterial({
+    name: "city-far-building-facade-normal-material",
+    color: 0xffffff,
+    emissive: 0x101817,
+    emissiveIntensity: 0.08,
+    roughness: 0.9,
+    metalness: 0,
+    map: farFacadeColorMap,
+    normalMap: farFacadeNormalMap,
+    normalScale: new THREE.Vector2(0.62, 0.62),
+  });
+  farFacadeMaterial.userData.cityFarFacadeProxy = true;
+  farFacadeMaterial.userData.cityFarFacadeColorBands = true;
+  let farFacadeResourcesDisposed = false;
   let cacheGeneration = 1;
   let retired = false;
   let retirementResolved = false;
@@ -936,6 +1018,12 @@ export function createCityTemplateCache(options: Readonly<{
     }
     for (const record of records.values()) disposeRecord(record);
     records.clear();
+    if (!farFacadeResourcesDisposed) {
+      farFacadeResourcesDisposed = true;
+      farFacadeMaterial.dispose();
+      farFacadeColorMap.dispose();
+      farFacadeNormalMap.dispose();
+    }
     retirementResolved = true;
     resolveRetirement?.();
     resolveRetirement = null;
@@ -1173,7 +1261,7 @@ export function createCityTemplateCache(options: Readonly<{
   const getBatchTemplateDefinition = (handle: VisualTemplateHandle): CityBatchTemplateDefinition | null => {
     const record = requireLiveRecord(handle);
     if (record.batchTemplateDefinition === undefined) {
-      record.batchTemplateDefinition = buildCatalogBatchTemplateDefinition(record);
+      record.batchTemplateDefinition = buildCatalogBatchTemplateDefinition(record, farFacadeMaterial);
     }
     return record.batchTemplateDefinition;
   };

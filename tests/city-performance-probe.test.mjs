@@ -188,11 +188,11 @@ test("Cedar Crossing scene structure stays inside reviewed budgets for both back
           `${batchBackend} shadow ranges left reviewed band: ${metrics.shadowRanges}`,
         );
         assert.ok(
-          metrics.triangles >= 785_000 && metrics.triangles <= 792_000,
+          metrics.triangles >= 750_000 && metrics.triangles <= 760_000,
           `${batchBackend} color triangles left reviewed band: ${metrics.triangles}`,
         );
         assert.ok(
-          metrics.shadowTriangles >= 539_000 && metrics.shadowTriangles <= 547_000,
+          metrics.shadowTriangles >= 505_000 && metrics.shadowTriangles <= 515_000,
           `${batchBackend} shadow triangles left reviewed band: ${metrics.shadowTriangles}`,
         );
       } finally {

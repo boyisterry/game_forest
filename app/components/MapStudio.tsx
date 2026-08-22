@@ -73,6 +73,8 @@ declare global {
     }>;
     set_city_performance_route?: (routeId: CityPerformanceCameraRoute["id"]) => CityPerformanceCameraRoute;
     capture_city_render_call_attribution?: () => ReturnType<ForestScene["captureCityRenderCallAttribution"]>;
+    get_city_placement_collision_bounds?: (placementId: string) => ReturnType<ForestScene["getCityPlacementCollisionBoundsForTest"]>;
+    set_city_rider_pose?: (x: number, z: number, heading: number) => ReturnType<ForestScene["setCityRiderPoseForTest"]>;
   }
 }
 
@@ -386,6 +388,14 @@ export function MapStudio({ map, entryMode, saveStatus, onSave, onExit }: MapStu
     window.set_city_performance_route = setPerformanceRouteHook;
     const captureCityCallAttributionHook = () => scene.captureCityRenderCallAttribution();
     window.capture_city_render_call_attribution = captureCityCallAttributionHook;
+    const getCityPlacementCollisionBoundsHook = (placementId: string) => (
+      scene.getCityPlacementCollisionBoundsForTest(placementId)
+    );
+    const setCityRiderPoseHook = (x: number, z: number, heading: number) => (
+      scene.setCityRiderPoseForTest(x, z, heading)
+    );
+    window.get_city_placement_collision_bounds = getCityPlacementCollisionBoundsHook;
+    window.set_city_rider_pose = setCityRiderPoseHook;
     if (minimapRef.current) scene.attachMinimap(minimapRef.current);
     const resize = () => scene.resize();
     window.addEventListener("resize", resize);
@@ -407,6 +417,12 @@ export function MapStudio({ map, entryMode, saveStatus, onSave, onExit }: MapStu
       }
       if (window.capture_city_render_call_attribution === captureCityCallAttributionHook) {
         delete window.capture_city_render_call_attribution;
+      }
+      if (window.get_city_placement_collision_bounds === getCityPlacementCollisionBoundsHook) {
+        delete window.get_city_placement_collision_bounds;
+      }
+      if (window.set_city_rider_pose === setCityRiderPoseHook) {
+        delete window.set_city_rider_pose;
       }
     };
   // The scene owns updates after creation.

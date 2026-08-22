@@ -36,3 +36,24 @@ test("chase camera consumes the shared curb height and pitch exactly once", () =
   assert.equal(bumpedCamera.position.x, baseCamera.position.x);
   assert.ok(bumpedCamera.position.z > baseCamera.position.z);
 });
+
+test("chase camera clamps its boom before a city obstruction", () => {
+  const camera = new PerspectiveCamera();
+  const chase = new ChaseCamera();
+  let received = null;
+  chase.update(1 / 60, camera, BASE_POSE, false, (query) => {
+    received = query;
+    return 0.4;
+  });
+
+  assert.ok(received);
+  assert.equal(received.startX, BASE_POSE.x);
+  assert.equal(received.startY, 1.4);
+  assert.equal(received.startZ, BASE_POSE.z);
+  assert.equal(received.radius, 0.28);
+  assert.equal(camera.position.x, BASE_POSE.x);
+  assert.ok(Math.abs(camera.position.y - (1.4 + (4.4 - 1.4) * 0.4)) < 1e-12);
+  const idealZ = BASE_POSE.z - (7.5 + BASE_POSE.speed * 0.12);
+  assert.ok(Math.abs(camera.position.z - (BASE_POSE.z + (idealZ - BASE_POSE.z) * 0.4)) < 1e-12);
+  assert.equal(chase.getCollisionFraction(), 0.4);
+});

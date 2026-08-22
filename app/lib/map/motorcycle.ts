@@ -1,4 +1,5 @@
 import type { CollisionWorld } from "./collision";
+import { RABBIT_RIDER_COLLISION_RADIUS_METERS } from "./riderDimensions.ts";
 
 /**
  * Self-built arcade motorcycle dynamics. Single-track vehicle model on the flat
@@ -59,7 +60,7 @@ const PITCH_MAX = 0.06; // rad nose dive
 const NOD_TIME = 0.3; // s hard-brake nod pulse
 const RECENTRE_SPEED = 0.3; // below this m/s, lean snaps back faster
 
-const BIKE_R = 0.55; // collision radius of rider + scooter
+const BIKE_R = RABBIT_RIDER_COLLISION_RADIUS_METERS;
 const BOUNDARY_SCRUB = 0.75; // fraction of the opposing velocity component cancelled per tick on a steep band
 
 export type MotoInput = {

@@ -194,7 +194,7 @@ test("generates an enterable five-storey residential building with an operable d
   assert.equal(building.name, "city-residential-building-lowpoly");
   assert.equal(building.userData.generatedLocally, true);
   assert.equal(building.userData.floorCount, 5);
-  assert.equal(building.userData.apartmentCount, 20);
+  assert.equal(building.userData.apartmentCount, 10);
   assert.ok(building.getObjectByName("residential-building-entrance"));
   assert.equal(building.getObjectByName("residential-building-main-body"), undefined);
   assert.ok(building.getObjectByName("residential-building-left-wing"));
@@ -205,8 +205,8 @@ test("generates an enterable five-storey residential building with an operable d
   const entranceDoor = building.getObjectByName("residential-building-entrance");
   const entryStep = building.getObjectByName("residential-building-entry-step");
   assert.ok(doorPivot);
-  assert.equal(entranceDoor.geometry.parameters.width, 1.18);
-  assert.equal(entranceDoor.geometry.parameters.height, 1.78);
+  assert.equal(entranceDoor.geometry.parameters.width, 1.44);
+  assert.equal(entranceDoor.geometry.parameters.height, 2.18);
   building.updateWorldMatrix(true, true);
   const entranceDoorBounds = new THREE.Box3().setFromObject(entranceDoor);
   const entryStepBounds = new THREE.Box3().setFromObject(entryStep);
@@ -216,7 +216,9 @@ test("generates an enterable five-storey residential building with an operable d
   assert.ok(doorPivot.rotation.y < -1);
   building.userData.setDoorOpen(false);
   assert.equal(doorPivot.rotation.y, 0);
-  assert.deepEqual(building.userData.floorLevels.map((level) => Number(level.toFixed(2))), [0.52, 2.14, 3.76, 5.38, 7]);
+  assert.equal(building.userData.floorPitchMeters, 4);
+  assert.deepEqual(building.userData.buildingSizeMeters.toArray(), [30, 22.51, 15.5]);
+  assert.deepEqual(building.userData.floorLevels.map((level) => Number(level.toFixed(2))), [0.52, 4.52, 8.52, 12.52, 16.52]);
   assert.equal(building.children.filter((child) => child.name === "residential-building-floor-platform").length, 5);
   assert.equal(building.children.filter((child) => child.name === "residential-building-stair-landing").length, 4);
   assert.equal(building.children.filter((child) => child.name === "residential-building-stair-step").length, 64);
@@ -330,6 +332,8 @@ test("generates an enterable furnished two-storey villa with a sealed chimney co
   assert.equal(villa.name, "city-small-villa-lowpoly");
   assert.equal(villa.userData.generatedLocally, true);
   assert.equal(villa.userData.floorCount, 2);
+  assert.equal(villa.userData.floorPitchMeters, 2.77);
+  assert.deepEqual(villa.userData.buildingSizeMeters, new THREE.Vector3(8.3, 7.58, 6.65));
   assert.equal(villa.getObjectByName("small-villa-first-floor"), undefined);
   assert.ok(villa.getObjectByName("small-villa-ground-floor"));
   assert.equal(villa.children.filter((child) => child.name === "small-villa-second-floor-slab").length, 3);
@@ -415,6 +419,8 @@ test("generates a broad furnished office campus with two wings, atrium and share
   assert.equal(office.userData.meetingRoomCount, 6);
   assert.equal(office.userData.elevatorCount, 2);
   assert.equal(office.userData.emergencyStairCount, 2);
+  assert.equal(office.userData.floorPitchMeters, 3.6);
+  assert.deepEqual(office.userData.buildingSizeMeters.toArray(), [24.5, 23.400000000000002, 10.5]);
   assert.equal(office.children.filter((child) => child.name === "office-campus-floor-slab").length, 11);
   assert.equal(office.children.filter((child) => child.name === "office-campus-skybridge").length, 2);
   assert.equal(office.children.filter((child) => child.name === "office-campus-workstation-desk").length, 24);
@@ -447,7 +453,9 @@ test("generates a broad furnished office campus with two wings, atrium and share
   const metrics = measureModelGeometry(office);
   assert.ok(metrics.size.x >= 30);
   assert.ok(metrics.size.z >= 17);
-  assert.ok(metrics.size.x > metrics.size.y * 2);
+  assert.ok(metrics.size.y > 23 && metrics.size.y < 24);
+  assert.equal(office.getObjectByName("office-campus-entrance-door").geometry.parameters.height, 2.15);
+  assert.equal(office.getObjectByName("office-campus-elevator-door").geometry.parameters.height, 2.2);
   assert.ok(metrics.faceCount > 3_000);
 });
 
@@ -503,10 +511,10 @@ test("demo uses the forest normal tree and contains no third-party model or API 
   assert.match(source, /20 × 6 个 1 m 地图格/);
   assert.match(source, /24 × 8 个 1 m 地图格/);
   assert.match(source, /18 × 7 个 1 m 地图格/);
-  assert.match(source, /APARTMENT_SHOWCASE_SCALE = 1\.8/);
-  assert.match(source, /VILLA_SHOWCASE_SCALE = 1\.3/);
-  assert.match(source, /HIGH_RISE_SHOWCASE_SCALE = 1\.7/);
-  assert.match(source, /OFFICE_SHOWCASE_SCALE = 1\.65/);
+  assert.match(source, /APARTMENT_SHOWCASE_SCALE = 1;/);
+  assert.match(source, /VILLA_SHOWCASE_SCALE = 1\.2/);
+  assert.match(source, /HIGH_RISE_SHOWCASE_SCALE = 1;/);
+  assert.match(source, /OFFICE_SHOWCASE_SCALE = 1;/);
   assert.match(source, /addPedestal\(scene, -12, 6, 0x3f8c88, 3\.9\)/);
   assert.match(source, /pair\.root\.scale\.setScalar\(displayScale\)/);
   assert.match(source, /setApartmentDoorOpen/);

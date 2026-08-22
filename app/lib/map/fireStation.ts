@@ -138,7 +138,13 @@ export function buildLowPolyFireStation(
     const building = new THREE.Group();
     building.name = name;
     building.position.set(x, 0, z);
-    building.userData = { zone, floors, frontDirection: "+z" };
+    building.userData = {
+      zone,
+      floors,
+      floorPitchMeters: 3.45,
+      buildingSizeMeters: new THREE.Vector3(width, floors * 3.45, depth),
+      frontDirection: "+z",
+    };
     const height = floors * 3.45;
     const body = new THREE.Group();
     body.name = "fire-station-building-shell";

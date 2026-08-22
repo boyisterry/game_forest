@@ -42,10 +42,10 @@ import styles from "./CityFurnitureDemo.module.css";
 
 const TREE_URL = "/models/forest/tree_normal_medium_redwood_a.glb";
 const SHATTER_TREE_URL = "/models/forest/tree_medium_redwood_a.glb";
-const APARTMENT_SHOWCASE_SCALE = 1.8;
-const VILLA_SHOWCASE_SCALE = 1.3;
-const HIGH_RISE_SHOWCASE_SCALE = 1.7;
-const OFFICE_SHOWCASE_SCALE = 1.65;
+const APARTMENT_SHOWCASE_SCALE = 1;
+const VILLA_SHOWCASE_SCALE = 1.2;
+const HIGH_RISE_SHOWCASE_SCALE = 1;
+const OFFICE_SHOWCASE_SCALE = 1;
 export type ShowcaseCategory = "street" | "residential";
 const MODEL_FOCUS = {
   all: { target: new THREE.Vector3(5, 11, 17), camera: new THREE.Vector3(75, 46, 105) },
@@ -57,9 +57,9 @@ const MODEL_FOCUS = {
   hotdog: { target: new THREE.Vector3(-4, 2.25, 6), camera: new THREE.Vector3(3, 6.5, 20) },
   newsstand: { target: new THREE.Vector3(4, 2.2, 6), camera: new THREE.Vector3(11, 6.5, 20) },
   planter: { target: new THREE.Vector3(12, 0.9, 6), camera: new THREE.Vector3(19, 5.2, 19) },
-  apartment: { target: new THREE.Vector3(-9, 9, 18), camera: new THREE.Vector3(-31, 23, 50) },
-  villa: { target: new THREE.Vector3(10, 4.7, 18), camera: new THREE.Vector3(27, 13, 43) },
-  highrise: { target: new THREE.Vector3(26, 27, 20), camera: new THREE.Vector3(59, 49, 91) },
+  apartment: { target: new THREE.Vector3(-28, 10.5, 18), camera: new THREE.Vector3(-28, 22, 80) },
+  villa: { target: new THREE.Vector3(0, 4.2, 18), camera: new THREE.Vector3(0, 12, 44) },
+  highrise: { target: new THREE.Vector3(26, 34, 21), camera: new THREE.Vector3(26, 60, 190) },
   office: { target: new THREE.Vector3(0, 12, 48), camera: new THREE.Vector3(47, 39, 102) },
   standardGate: { target: new THREE.Vector3(-26, 3, -14), camera: new THREE.Vector3(-13, 10, 4) },
   premiumGate: { target: new THREE.Vector3(0, 3.8, -14), camera: new THREE.Vector3(17, 13, 7) },
@@ -68,7 +68,14 @@ const MODEL_FOCUS = {
 
 const CATEGORY_OVERVIEW: Record<ShowcaseCategory, { target: THREE.Vector3; camera: THREE.Vector3 }> = {
   street: { target: new THREE.Vector3(0, 3.6, 0), camera: new THREE.Vector3(35, 22, 42) },
-  residential: { target: new THREE.Vector3(4, 13, 23), camera: new THREE.Vector3(82, 53, 108) },
+  residential: { target: new THREE.Vector3(2, 24, 28), camera: new THREE.Vector3(112, 76, 148) },
+};
+
+const RESIDENTIAL_FOCUS_RIDER: Partial<Record<Focus, THREE.Vector3>> = {
+  apartment: new THREE.Vector3(-28, 0.46, 30.5),
+  villa: new THREE.Vector3(0, 0.46, 29),
+  highrise: new THREE.Vector3(26, 0.46, 34),
+  office: new THREE.Vector3(0, 0.46, 70),
 };
 
 const CATEGORY_RIDER_FOREGROUND: Record<ShowcaseCategory, THREE.Vector3> = {
@@ -186,7 +193,7 @@ const MODEL_CARDS: Array<{
     title: "社区居民楼",
     summary: "五层住宅 · 阳台 · 屋顶设施",
     stats: [
-      { label: "建筑结构", value: "5 层板式住宅 / 20 户" },
+      { label: "建筑结构", value: "5 层板式住宅 / 每层左右各 1 户 / 共 10 户" },
       { label: "立面构件", value: "可开合入口门、雨棚、阳台、窗台、空调外机" },
       { label: "内部空间", value: "空心楼梯井 / 折返楼梯贯通 5 层" },
       { label: "可用交互", value: "入口门打开与关闭" },
@@ -345,20 +352,20 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xd9edf5);
-    scene.fog = new THREE.Fog(0xd9edf5, 70, 155);
-    const camera = new THREE.PerspectiveCamera(39, host.clientWidth / Math.max(host.clientHeight, 1), 0.1, 210);
+    scene.fog = new THREE.Fog(0xd9edf5, 90, 260);
+    const camera = new THREE.PerspectiveCamera(39, host.clientWidth / Math.max(host.clientHeight, 1), 0.1, 320);
     camera.position.copy(CATEGORY_OVERVIEW[category].camera);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.copy(CATEGORY_OVERVIEW[category].target);
     controls.enableDamping = true;
     controls.dampingFactor = 0.065;
     controls.minDistance = 7;
-    controls.maxDistance = 120;
+    controls.maxDistance = 190;
     controls.maxPolarAngle = Math.PI * 0.49;
     const renderBudget = createShowcaseRenderBudget({ renderer, host, controls });
 
     const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(72, 64),
+      new THREE.CircleGeometry(92, 64),
       new THREE.MeshStandardMaterial({ color: 0xbfc6bd, roughness: 0.95 }),
     );
     ground.rotation.x = -Math.PI * 0.5;
@@ -375,9 +382,9 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
       addPedestal(scene, 4, 6, 0x3f6f61, 2.8);
       addPedestal(scene, 12, 6, 0x8b7558);
     } else {
-      addPedestal(scene, -9, 18, 0x9f6550, 7.2);
-      addPedestal(scene, 10, 18, 0x8f4437, 5.7);
-      addPedestal(scene, 31, 21, 0x476a73, 11.5);
+      addPedestal(scene, -28, 18, 0x9f6550, 15.5);
+      addPedestal(scene, 0, 18, 0x8f4437, 5.7);
+      addPedestal(scene, 26, 21, 0x476a73, 16.5);
       addPedestal(scene, 0, 50, 0xa26945, 28);
     }
 
@@ -448,11 +455,11 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
     const planter = category === "street" ? buildLowPolyRoadsidePlanter() : null;
     if (planter) addPairedDecoration("planter", planter, new THREE.Vector3(12, 0.42, 6), -0.08, 257);
     const apartment = category === "residential" ? buildLowPolyResidentialBuilding() : null;
-    if (apartment) addPairedDecoration("apartment", apartment, new THREE.Vector3(-9, 0.42, 18), 0, 293, APARTMENT_SHOWCASE_SCALE);
+    if (apartment) addPairedDecoration("apartment", apartment, new THREE.Vector3(-28, 0.42, 18), 0, 293, APARTMENT_SHOWCASE_SCALE);
     const villa = category === "residential" ? buildLowPolySmallVilla() : null;
-    if (villa) addPairedDecoration("villa", villa, new THREE.Vector3(10, 0.42, 18), 0, 331, VILLA_SHOWCASE_SCALE);
+    if (villa) addPairedDecoration("villa", villa, new THREE.Vector3(0, 0.42, 18), 0, 331, VILLA_SHOWCASE_SCALE);
     const highRise = category === "residential" ? buildLowPolyHighRiseResidential() : null;
-    if (highRise) addPairedDecoration("highrise", highRise, new THREE.Vector3(31, 0.42, 21), 0, 367, HIGH_RISE_SHOWCASE_SCALE, 8);
+    if (highRise) addPairedDecoration("highrise", highRise, new THREE.Vector3(26, 0.42, 21), 0, 367, HIGH_RISE_SHOWCASE_SCALE, 8);
     const office = category === "residential" ? buildLowPolyOfficeCampus() : null;
     if (office) addPairedDecoration("office", office, new THREE.Vector3(0, 0.42, 50), 0, 401, OFFICE_SHOWCASE_SCALE, 12);
     const standardGate = category === "residential" ? buildLowPolyStandardResidentialGate() : null;
@@ -536,7 +543,7 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
     controls.addEventListener("end", () => { interacting = false; });
     const setNightMode = (on: boolean) => {
       scene.background = new THREE.Color(on ? 0x102737 : 0xd9edf5);
-      scene.fog = new THREE.Fog(on ? 0x102737 : 0xd9edf5, on ? 58 : 70, on ? 132 : 155);
+      scene.fog = new THREE.Fog(on ? 0x102737 : 0xd9edf5, on ? 80 : 90, on ? 230 : 260);
       hemi.intensity = on ? 0.48 : 1.9;
       sun.intensity = on ? 0.42 : 4.2;
       fill.intensity = on ? 0.28 : 0.7;
@@ -557,6 +564,10 @@ export function CityFurnitureDemo({ category = "street" }: { category?: Showcase
     const focusModel = (next: Focus) => {
       desiredTarget.copy(next === "all" ? CATEGORY_OVERVIEW[category].target : MODEL_FOCUS[next].target);
       desiredCamera.copy(next === "all" ? CATEGORY_OVERVIEW[category].camera : MODEL_FOCUS[next].camera);
+      riderAnchor.position.copy(next === "all"
+        ? CATEGORY_RIDER_FOREGROUND[category]
+        : RESIDENTIAL_FOCUS_RIDER[next] ?? CATEGORY_RIDER_FOREGROUND[category]);
+      riderAnchor.rotation.y = Math.atan2(desiredCamera.x - riderAnchor.position.x, desiredCamera.z - riderAnchor.position.z);
       focusBlend = 1;
     };
     apiRef.current = {

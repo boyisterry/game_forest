@@ -43,6 +43,11 @@ test("aligns every main building facade to one campus direction", () => {
     "school-indoor-natatorium",
   ];
   assert.ok(mainBuildings.every((name) => campus.getObjectByName(name)?.userData.frontDirection === "+z"));
+  for (const name of ["school-student-dormitory-a", "school-student-dormitory-b"]) {
+    const dormitory = campus.getObjectByName(name);
+    assert.equal(dormitory.userData.floorPitchMeters, 3.35);
+    assert.ok(dormitory.userData.buildingSizeMeters.x >= 28);
+  }
   const dormDoor = campus.getObjectByName("school-dormitory-a-entrance-door");
   assert.ok(dormDoor.position.z > 0, "dormitory entrance should face the same +z direction");
   assert.ok(campus.getObjectByName("school-teaching-b-entrance-door"));

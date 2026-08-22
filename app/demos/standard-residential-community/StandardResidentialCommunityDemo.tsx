@@ -33,8 +33,8 @@ const FOCUS: Record<Focus, { target: THREE.Vector3; camera: THREE.Vector3; rider
 };
 
 const ZONES: Array<{ id: Focus; number: string; title: string; summary: string; detail: string }> = [
-  { id: "overview", number: "COMMUNITY 00", title: "普通小区总览", summary: "160 × 140 m · 18 栋 · 360 户", detail: "参考常见多层住宅小区的紧凑平行组团，中央南北生活道路把三排住宅明确分成左右两区，并连接南侧小区门与各排消防支路。" },
-  { id: "housing", number: "HOUSING 01", title: "紧凑住宅组团", summary: "3 排 × 6 栋 · 约7.3m横向净距", detail: "18栋住宅全部复用同一社区居民楼模型，每栋20户；缩短左右楼距，同时保持入户步道、采光面与消防通行互不穿插。" },
+  { id: "overview", number: "COMMUNITY 00", title: "普通小区总览", summary: "160 × 140 m · 12 栋 · 120 户", detail: "参考常见多层住宅小区的紧凑平行组团，中央南北生活道路把三排住宅明确分成左右两区，并连接南侧小区门与各排消防支路。" },
+  { id: "housing", number: "HOUSING 01", title: "真实尺度住宅组团", summary: "3 排 × 4 栋 · 约4m横向净距", detail: "12栋住宅全部复用30米宽、4米层高的社区居民楼模型，每层左右各一户、每栋10户；左右各布置两栋，并保持入户步道、采光面与消防通行互不穿插。" },
   { id: "parking", number: "PARKING 02", title: "路边地面停车", summary: "3 排双侧停车港湾 · 60 个车位", detail: "每排住宅前的停车港湾按左右分段设置，在中央道路处留出完整交叉口，并用少量私家轿车和SUV校验车位比例。" },
   { id: "fitness", number: "FITNESS 03", title: "独立健身院落", summary: "7 组器械 · 左侧住宅内部", detail: "健身区设置在左侧住宅内部的独立口袋花园，具有围合绿篱、专用入口和标识；单杠、太空漫步机、腰背转盘与拉伸架均有实体基础和安全缓冲。" },
   { id: "landscape", number: "GREEN 04", title: "30% 社区绿化", summary: "6,720㎡ · 44 个小树点位", detail: "中央道路两侧绿化缓冲、左右宅间花园、周界绿带与入口花园共同覆盖小区30%；道路树和健身院落树形成清晰绿化层次。" },
@@ -253,7 +253,7 @@ export function StandardResidentialCommunityDemo() {
           <button type="button" className={styles.collapseButton} aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)}>{collapsed ? "展开导览 ↓" : "收起导览 ↑"}</button>
         </div>
         <div hidden={collapsed}>
-          <p className={styles.intro}>参考常见多层住宅小区的紧凑平行布局，使用18栋同款社区居民楼组成左三排、右三排住宅组团；中央南北生活道路作为两区分界，每排支路与双侧地面停车带在中央路口断开。绿化缓冲、宅间花园和周界绿带共同精确占场地30%，健身器材集中在左侧住宅内部的独立围合院落。树木、花箱、路灯与车辆继续复用现有模型，小兔子骑车主角提供2.40米统一比例参考。</p>
+          <p className={styles.intro}>参考常见多层住宅小区的平行布局，使用12栋30米宽、4米层高的社区居民楼组成左三排、右三排住宅组团；中央南北生活道路作为两区分界，每排支路与双侧地面停车带在中央路口断开。绿化缓冲、宅间花园和周界绿带共同精确占场地30%，健身器材集中在左侧住宅内部的独立围合院落。树木、花箱、路灯与车辆继续复用现有模型，小兔子骑车主角提供2.40米统一比例参考。</p>
           <div className={styles.actions}>
             <button type="button" className={shattered ? styles.danger : ""} aria-pressed={shattered} onClick={toggleShattered}>{shattered ? "修复完整小区" : "破碎完整小区"}</button>
             <button type="button" className={night ? styles.active : ""} aria-pressed={night} onClick={toggleNight}>{night ? "切换白天" : "查看小区夜景"}</button>
@@ -263,7 +263,7 @@ export function StandardResidentialCommunityDemo() {
           </div>
         </div>
       </header>
-      <div className={styles.status}>18 栋住宅 · 60 个地面车位 · 30% 绿化 · {referenceReady ? "骑车兔子 2.40 m" : "比例模型加载中"}</div>
+      <div className={styles.status}>12 栋住宅 · 60 个地面车位 · 30% 绿化 · {referenceReady ? "骑车兔子 2.40 m" : "比例模型加载中"}</div>
       <a className={styles.backLink} href="/demos">← 返回模型分类</a>
       {metrics ? <div className={styles.metrics}><span>STANDARD COMMUNITY</span><strong>{metrics.size.x.toFixed(0)} × {metrics.size.y.toFixed(0)} × {metrics.size.z.toFixed(0)} m</strong><small>{metrics.faceCount.toLocaleString("zh-CN")} 三角面 · 正常 / 独立破碎双版本</small></div> : null}
       <nav className={styles.zoneRail} aria-label="普通小区分区导览">

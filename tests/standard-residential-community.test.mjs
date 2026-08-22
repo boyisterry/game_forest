@@ -31,9 +31,9 @@ test("builds a 1m-grid standard community with three compact rows on both sides"
   assert.equal(community.userData.modelType, "standard-residential-community");
   assert.equal(community.userData.moduleGridMeters, 1);
   assert.deepEqual(community.userData.siteSize, new THREE.Vector3(160, 55, 140));
-  assert.equal(community.userData.residentialBuildingCount, 18);
+  assert.equal(community.userData.residentialBuildingCount, 12);
   assert.equal(community.userData.residentialBuildingTypeCount, 1);
-  assert.equal(community.userData.householdCount, 360);
+  assert.equal(community.userData.householdCount, 120);
   assert.equal(community.userData.residentialRowCount, 3);
   assert.equal(community.userData.rowsPerSide, 3);
   assert.equal(community.userData.leftRowCount, 3);
@@ -41,11 +41,11 @@ test("builds a 1m-grid standard community with three compact rows on both sides"
   assert.equal(community.userData.communityLayout, "left-right-central-road");
   assert.equal(community.userData.centralDividerRoadWidthMeters, 8);
   const buildings = community.children.filter((object) => object.name.startsWith("standard-community-residential-building-"));
-  assert.equal(buildings.length, 18);
-  for (const rowIndex of [0, 1, 2]) assert.equal(buildings.filter((building) => building.userData.rowIndex === rowIndex).length, 6);
+  assert.equal(buildings.length, 12);
+  for (const rowIndex of [0, 1, 2]) assert.equal(buildings.filter((building) => building.userData.rowIndex === rowIndex).length, 4);
   for (const side of ["left", "right"]) {
     const sideBuildings = buildings.filter((building) => building.userData.communitySide === side);
-    assert.equal(sideBuildings.length, 9);
+    assert.equal(sideBuildings.length, 6);
     assert.deepEqual([...new Set(sideBuildings.map((building) => building.userData.rowIndex))], [0, 1, 2]);
   }
   assert.ok(buildings.every((building) => building.userData.sourceModel === "city-residential-building-lowpoly"));
@@ -56,12 +56,12 @@ test("builds a 1m-grid standard community with three compact rows on both sides"
       const sideRow = row.filter((building) => building.userData.communitySide === side);
       for (let index = 1; index < sideRow.length; index += 1) {
         const clearance = bounds(sideRow[index]).min.x - bounds(sideRow[index - 1]).max.x;
-        assert.ok(clearance >= 5 && clearance <= 5.5, `row ${rowIndex} ${side} clearance should be compact`);
+        assert.ok(clearance >= 3.9 && clearance <= 4.1, `row ${rowIndex} ${side} clearance should be compact`);
       }
     }
     const leftEdge = bounds(row.filter((building) => building.userData.communitySide === "left").at(-1)).max.x;
     const rightEdge = bounds(row.find((building) => building.userData.communitySide === "right")).min.x;
-    assert.ok(rightEdge - leftEdge >= 21 && rightEdge - leftEdge <= 22, "two residential halves need a readable central road corridor");
+    assert.ok(rightEdge - leftEdge >= 19.9 && rightEdge - leftEdge <= 20.1, "two residential halves need a readable central road corridor");
   }
   const centralRoad = community.getObjectByName("standard-community-main-arrival-road");
   assert.equal(centralRoad.userData.circulationRole, "central-residential-divider");
@@ -103,14 +103,14 @@ test("scales the left and right residential plans from three to six rows on the 
     const buildings = community.children.filter((object) => object.name.startsWith("standard-community-residential-building-"));
     assert.deepEqual(community.userData.siteSize, new THREE.Vector3(160, 55, expectedDepth));
     assert.equal(community.userData.rowsPerSide, rowsPerSide);
-    assert.equal(community.userData.residentialBuildingCount, rowsPerSide * 6);
-    assert.equal(community.userData.householdCount, rowsPerSide * 120);
+    assert.equal(community.userData.residentialBuildingCount, rowsPerSide * 4);
+    assert.equal(community.userData.householdCount, rowsPerSide * 40);
     assert.equal(community.userData.parkingRowCount, rowsPerSide);
     assert.equal(community.userData.greenAreaSquareMeters, 160 * expectedDepth * 0.3);
     assert.equal(community.userData.greenCoverageRatio, 0.3);
     for (const side of ["left", "right"]) {
       const sideBuildings = buildings.filter((building) => building.userData.communitySide === side);
-      assert.equal(sideBuildings.length, rowsPerSide * 3);
+      assert.equal(sideBuildings.length, rowsPerSide * 2);
       assert.equal(new Set(sideBuildings.map((building) => building.userData.rowIndex)).size, rowsPerSide);
     }
     const siteBounds = bounds(community.getObjectByName("standard-community-site-base"));

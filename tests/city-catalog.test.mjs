@@ -161,13 +161,13 @@ test("catalog dimensions preserve game-scale footprints and corrected site envel
     ["newsstand", [4, 3]],
     ["phone-booth", [3, 3]],
     ["street-tree", [1, 1]],
-    ["residential-building", [11, 9]],
-    ["high-rise-residential", [19, 15]],
+    ["residential-building", [34, 19]],
+    ["high-rise-residential", [36, 26]],
     ["small-villa", [10, 11]],
     ["residential-gate-standard", [20, 6]],
     ["residential-gate-premium", [24, 8]],
     ["residential-gate-villa", [18, 7]],
-    ["office-campus", [36, 21]],
+    ["office-campus", [30, 17]],
     ["hospital-campus", [80, 62]],
     ["amusement-park", [180, 130]],
     ["school-campus", [170, 130]],
@@ -241,9 +241,13 @@ test("editor buildings keep real-world length, width and floor-height proportion
 
   const residential = sizes.get("residential-building");
   const highRise = sizes.get("high-rise-residential");
-  assert.ok(residential.y / 5 >= 2.8 && residential.y / 5 <= 3.1);
-  assert.ok(highRise.y / 18 >= 2.7 && highRise.y / 18 <= 3.1);
-  assert.ok(highRise.y >= 48 && highRise.y <= 53, "eighteen-storey tower should read as roughly 50 m");
+  assert.ok(residential.x >= 30, "two-home-wide residential block should be at least 30 m wide");
+  assert.equal(sizes.get("residential-building").x, residential.x);
+  assert.equal(buildLowPolyResidentialBuilding().userData.floorPitchMeters, 4);
+  assert.equal(buildLowPolyHighRiseResidential().userData.floorPitchMeters, 4);
+  assert.ok(residential.y / 5 >= 4 && residential.y / 5 <= 5);
+  assert.ok(highRise.y / 18 >= 4 && highRise.y / 18 <= 4.5);
+  assert.ok(highRise.y >= 72 && highRise.y <= 78, "eighteen-storey tower should read as roughly 75 m");
 });
 
 test("derived traffic-light descriptor stays hidden and the adapter always uses armSide=-1", () => {
@@ -384,6 +388,7 @@ test("template descriptors resolve occupancy without retaining factory closures"
   for (const entry of CITY_CATALOG) {
     const descriptor = toTemplateBuildDescriptor(entry);
     assert.equal(descriptor.templateId, entry.id);
+    assert.equal(descriptor.catalogCategory, entry.category);
     assert.deepEqual(descriptor.source, entry.source);
     assert.equal("build" in descriptor.source, false);
     assert.ok(Object.isFrozen(descriptor));

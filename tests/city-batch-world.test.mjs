@@ -146,6 +146,7 @@ test("CityBatchWorld raycast uses placement AABBs and canonical near geometry wi
 
 test("CityBatchWorld composes near/far, authored visibility, and render-set visibility", () => {
   const material = new THREE.MeshBasicMaterial();
+  const farMaterial = new THREE.MeshStandardMaterial();
   const near = new THREE.BoxGeometry(4, 4, 4);
   const proxy = new THREE.BoxGeometry(3, 3, 3);
   const detail = new THREE.BoxGeometry(0.2, 0.2, 0.2).translate(0, 3, 0);
@@ -159,8 +160,7 @@ test("CityBatchWorld composes near/far, authored visibility, and render-set visi
           poolKey: "lod-massing",
           material,
           nearGeometry: near,
-          farGeometry: proxy,
-          farStrategy: "proxy",
+          farStrategy: "hidden",
           castShadow: true,
           receiveShadow: true,
         },
@@ -173,11 +173,22 @@ test("CityBatchWorld composes near/far, authored visibility, and render-set visi
           castShadow: false,
           receiveShadow: true,
         },
+        {
+          slotId: "far-facade",
+          poolKey: "lod-far-facade",
+          material: farMaterial,
+          nearGeometry: proxy,
+          farStrategy: "far-only",
+          castShadow: false,
+          receiveShadow: false,
+        },
       ],
     });
     world.addPlacement("building", "lod-building", new THREE.Matrix4());
-    const [massing, details] = world.root.children;
-    const nearGeometryId = massing.getGeometryIdAt(0);
+    const [massing, details, farFacade] = world.root.children;
+    assert.equal(massing.getVisibleAt(0), true);
+    assert.equal(details.getVisibleAt(0), true);
+    assert.equal(farFacade.getVisibleAt(0), false);
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 10_000);
     camera.position.set(0, 0, 500);
     camera.lookAt(0, 0, 0);
@@ -187,7 +198,8 @@ test("CityBatchWorld composes near/far, authored visibility, and render-set visi
       changes: [{ placementId: "building", tier: "far" }],
     });
     assert.equal(details.getVisibleAt(0), false);
-    assert.notEqual(massing.getGeometryIdAt(0), nearGeometryId);
+    assert.equal(massing.getVisibleAt(0), false);
+    assert.equal(farFacade.getVisibleAt(0), true);
     assert.equal(world.stats().farPlacements, 1);
     assert.equal(world.stats().visibleInstances, 1);
 
@@ -207,10 +219,12 @@ test("CityBatchWorld composes near/far, authored visibility, and render-set visi
     });
     assert.equal(massing.getVisibleAt(0), false, "LOD changes must not revive a culled placement");
     assert.equal(details.getVisibleAt(0), false);
+    assert.equal(farFacade.getVisibleAt(0), false);
 
     world.updateVisibility(boxFrustum(-10, 10, -10, 10, -10, 10));
     assert.equal(massing.getVisibleAt(0), true);
     assert.equal(details.getVisibleAt(0), true);
+    assert.equal(farFacade.getVisibleAt(0), false);
     world.setPlacementVisible("building", false);
     camera.position.set(0, 0, 500);
     camera.lookAt(0, 0, 0);
@@ -218,12 +232,14 @@ test("CityBatchWorld composes near/far, authored visibility, and render-set visi
     world.updateVisibility(boxFrustum(-10, 10, -10, 10, -10, 10));
     assert.equal(massing.getVisibleAt(0), false, "authored hide must dominate far proxy visibility");
     assert.equal(details.getVisibleAt(0), false);
+    assert.equal(farFacade.getVisibleAt(0), false);
   } finally {
     world.dispose();
     near.dispose();
     proxy.dispose();
     detail.dispose();
     material.dispose();
+    farMaterial.dispose();
   }
 });
 
